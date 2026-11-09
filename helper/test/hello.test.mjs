@@ -92,6 +92,16 @@ try {
   assert.equal(readFileSync(path.join(data, "profile.md"), "utf8"), "# Maya\n\nProduct designer at Northwind.\nShort answers, please.\n");
   console.log("ok - profile.save writes profile.md and the space hints");
 
+  post({ type: "tasks.widget" });
+  const tasks = await waitFor(m => m.type === "tasks");
+  assert.deepEqual(tasks.data.tasks, []);
+  assert.deepEqual(tasks.data.servers, []);
+  post({ type: "tasks.complete", server: "commonfold", id: "not-listed" });
+  const completed = await waitFor(m => m.type === "tasks.completed");
+  assert.equal(completed.ok, false);
+  assert.match(completed.error, /isn't in the current list/);
+  console.log("ok - tasks.widget with no task app connected is empty; tasks.complete refuses tasks it didn't list");
+
   // The zen-browser MCP server keeps the token Claude Code was registered with.
   let up = false;
   for (let i = 0; i < 40 && !up; i++) {

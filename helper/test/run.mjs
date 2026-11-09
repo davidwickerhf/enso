@@ -1,5 +1,5 @@
 // Runs the helper's checks in order. All of them work offline.
-//   unit, hello                always
+//   unit, hello, tasks         always
 //   connections, host-connect  macOS only (they store and delete test items in the
 //                              login Keychain); skip with ENSO_SKIP_KEYCHAIN=1
 //   sdk-mcp                    only with ENSO_TEST_SDK=1 (one real turn on your Claude plan)
@@ -9,7 +9,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const tests = ["unit.test.mjs", "hello.test.mjs"];
+const tests = ["unit.test.mjs", "hello.test.mjs", "tasks.test.mjs"];
 if (process.platform === "darwin" && process.env.ENSO_SKIP_KEYCHAIN !== "1") tests.push("connections.test.mjs", "host-connect.test.mjs");
 if (process.env.ENSO_TEST_SDK === "1") tests.push("sdk-mcp.test.mjs");
 
