@@ -162,8 +162,19 @@
       // synthetic events (GitHub's confirm boxes, many React forms) see it as
       // typing. Fall back to setting the value directly if it didn't take.
       if (el.isContentEditable) {
-        document.execCommand("selectAll", false);
-        document.execCommand("insertText", false, text);
+        // Select the editor's own contents: "selectAll" can select outside the
+        // editor (Outlook's body), and insertText then does nothing.
+        const sel = window.getSelection();
+        const range = document.createRange();
+        range.selectNodeContents(el);
+        sel.removeAllRanges();
+        sel.addRange(range);
+        if (!document.execCommand("insertText", false, text) || !el.innerText.includes(text.slice(0, 40))) {
+          // Last resort: a paste, which rich editors (Outlook, Gmail, Docs) handle themselves.
+          const data = new DataTransfer();
+          data.setData("text/plain", text);
+          el.dispatchEvent(new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true }));
+        }
       } else {
         try {
           el.select?.();
