@@ -30,10 +30,12 @@ The script prints each step as it goes. It:
 
 1. checks that you are on macOS and that Node.js 18 or newer is installed;
 2. checks for Claude Code (`claude --version`) and, if it is missing or signed out, tells you how to fix that (you can still continue and use an API key instead);
-3. downloads the latest helper release from this site and checks its SHA-256;
-4. installs it in `~/Library/Application Support/Enso/helper`, keeping your `config.json` if you already had one;
-5. registers the helper with Zen and Firefox by writing a native messaging manifest called `zen_chat.json` to
-   `~/Library/Application Support/Mozilla/NativeMessagingHosts/` and `~/Library/Application Support/zen/NativeMessagingHosts/`.
+3. downloads the latest helper release from this site (`/api/latest`) and checks its SHA-256;
+4. installs it in `~/Library/Application Support/Enso/helper` (your data and `config.local.json` in that folder are left alone);
+5. registers the helper with Zen and Firefox by writing a native messaging manifest called `enso.json` to
+   `~/Library/Application Support/Mozilla/NativeMessagingHosts/` and `~/Library/Application Support/zen/NativeMessagingHosts/`;
+6. if Claude Code is installed, asks whether to let it use Zen (registers the `zen-browser` MCP server with `claude mcp add-json --scope user`);
+7. opens the signed extension in Zen, which asks you to add it.
 
 It is safe to run again: that is also how you update the helper by hand. Nothing is installed outside your home folder and it never asks for your password.
 
@@ -71,8 +73,8 @@ Press <kbd>⌘E</kbd> for the sidebar, or open a new tab. The first answer after
 
 ```sh
 rm -rf ~/Library/Application\ Support/Enso
-rm -f ~/Library/Application\ Support/Mozilla/NativeMessagingHosts/zen_chat.json
-rm -f ~/Library/Application\ Support/zen/NativeMessagingHosts/zen_chat.json
+rm -f ~/Library/Application\ Support/Mozilla/NativeMessagingHosts/enso.json
+rm -f ~/Library/Application\ Support/zen/NativeMessagingHosts/enso.json
 ```
 
-3. Your conversations, memory and settings are in `~/Library/Application Support/zen-chat/`. Delete that folder too if you want them gone. If you used the API-key engine, remove the key with `security delete-generic-password -s zen-chat-anthropic`.
+3. Your conversations, memory and settings were in that same `Enso` folder, so they are gone too. If you used the API-key engine, remove the key with `security delete-generic-password -s enso-anthropic`, and if you let Claude Code use Zen, run `claude mcp remove zen-browser --scope user`.

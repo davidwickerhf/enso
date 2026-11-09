@@ -80,7 +80,7 @@ Without S3 vars the app stores bytes in Postgres (`objects` table). That is for 
 | `SMTP_URL` | Stalwart sender |
 | `EMAIL_FROM` | optional, default `Ensō <noreply@enso.wicker.life>` |
 | `RELEASE_TOKEN` | random 32+ chars; copy in Keychain (generic password, service `enso-release-token`, account `davidwickerhf`); the same value goes into the extension repo's `ENSO_RELEASE_TOKEN` secret |
-| `EXTENSION_IDS` | optional, default `zen-chat@wicker.life`; comma-separated when the add-on id changes (list new and old). Production: `zen-chat@wicker.life,enso@wicker.life` |
+| `EXTENSION_IDS` | optional, default `enso@wicker.life`; comma-separated when the add-on id changes (list new and old). Production: `zen-chat@wicker.life,enso@wicker.life` (the old id only served pre-release builds and can be dropped) |
 | `S3_ENDPOINT`, `S3_REGION`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, `S3_PRIVATE_BUCKET`, `S3_PUBLIC_BUCKET`, `S3_PUBLIC_BASE_URL` | via `scripts/s3-env.py` |
 | `S3_PREFIX` | optional, default `enso` |
 | `SYNC_QUOTA_BYTES`, `SYNC_MAX_BLOB_BYTES`, `SYNC_RATE_LIMIT_PER_MINUTE`, `RELEASE_MAX_BYTES` | optional limits (defaults 1 GiB, 16 MiB, 300, 200 MiB) |

@@ -27,7 +27,7 @@ Every click, keystroke, selection and navigation Ensō performs is also written 
 
 | What | File |
 |---|---|
-| Conversation list | `~/Library/Application Support/zen-chat/conversations/index.json` |
+| Conversation list | `~/Library/Application Support/Enso/conversations/index.json` |
 | One conversation | `conversations/<id>.jsonl`, one event per line |
 | Activity log | `actions.jsonl` |
 

@@ -19,4 +19,4 @@ Every report is saved and listed under **Reports** in the full-page app, newest 
 
 ## Where they are stored
 
-Reports are files on your Mac, in `~/Library/Application Support/zen-chat/reports/`. They are never uploaded, except as encrypted items if you turn on [sync](/docs/sync).
+Reports are files on your Mac, in `~/Library/Application Support/Enso/reports/`. They are never uploaded, except as encrypted items if you turn on [sync](/docs/sync).

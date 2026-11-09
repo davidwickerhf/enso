@@ -1,5 +1,5 @@
 <script lang="ts">
-	// A faithful HTML recreation of Ensō's new-tab box (zen-config/chat/extension:
+	// A faithful HTML recreation of Ensō's new-tab box (enso repo, extension/:
 	// newtab.js, composer.js, omnibox.js, app.css), typing three things into it:
 	// a site, a search and a question. Rows, labels, keys and buttons are what the
 	// real box shows for that input; the sizes and colours come from app.css.

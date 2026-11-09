@@ -13,7 +13,7 @@ Zen couldn't start the local helper.
 
 1. Run the installer again: `curl -fsSL https://enso.wicker.life/install.sh | bash`. It rewrites the helper and its registration.
 2. Check that the registration exists:
-   `cat ~/Library/Application\ Support/zen/NativeMessagingHosts/zen_chat.json`
+   `cat ~/Library/Application\ Support/zen/NativeMessagingHosts/enso.json`
    The `path` in it must point at `~/Library/Application Support/Enso/helper/run.sh`, and `allowed_extensions` must contain the extension's id.
 3. Check that Node still exists where the helper expects it. `run.sh` contains the full path to the `node` that was found at install time; if you removed or upgraded that Node, run the installer again.
 4. Quit Zen completely (<kbd>⌘Q</kbd>) and open it again. Zen reads the registration at start.
@@ -33,7 +33,7 @@ Or switch to the API-key engine in Settings.
 Add one (it asks for the key and doesn't echo it):
 
 ```sh
-security add-generic-password -s zen-chat-anthropic -a "$USER" -w
+security add-generic-password -s enso-anthropic -a "$USER" -w
 ```
 
 ## A tool shows "needs sign-in"

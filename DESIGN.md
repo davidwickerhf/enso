@@ -18,7 +18,7 @@ The site wears the product. Pages show Ensō working (real UI, or faithful recre
 
 - Light ground `#f3f2ef`, dark ground `#151413`; ink `#2a2420` / `#eeeae4`. Window chrome `--paper-2`.
 - Copper (`#d9643a`) appears only where the app itself uses it (inside screenshots and the demo), plus focus rings and link hover. Buttons are ink.
-- `--app-*` tokens mirror `chat/extension/ui/app.css` so the demo matches the real UI in both schemes.
+- `--app-*` tokens mirror `extension/ui/app.css` in the enso repo so the demo matches the real UI in both schemes.
 - Light and dark follow the system, with the header toggle overriding (`data-theme`). Screenshots ship in both schemes; `.scheme-light` / `.scheme-dark` show the matching one, and the hidden lazy image is never downloaded.
 
 ## Components
@@ -33,5 +33,5 @@ The site wears the product. Pages show Ensō working (real UI, or faithful recre
 
 ## Screenshots
 
-- Captured from the extension UI (`zen-config/chat/extension`) on its mock host at device scale 2, with the demo data replaced by a fictional person ("Maya", "Northwind", "Code Club", `uni.edu`). Never capture real accounts or data.
+- Captured from the extension UI (`extension/` in the enso repo) on its mock host at device scale 2, with the demo data replaced by a fictional person ("Maya", "Northwind", "Code Club", `uni.edu`). Never capture real accounts or data.
 - Exported as WebP into `static/screenshots/`, listed with alt text and intrinsic sizes in `src/lib/screenshots.ts`.

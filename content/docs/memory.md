@@ -11,7 +11,7 @@ Ensō is meant to know you, so you don't have to explain yourself every time. Wh
 
 ## Profile
 
-A short description of you: name, what you do, how you like answers. It is included in every conversation and gives Home its greeting. Ensō starts it with a short template; edit it by opening `~/Library/Application Support/zen-chat/profile.md` in any text editor.
+A short description of you: name, what you do, how you like answers. It is included in every conversation and gives Home its greeting. Ensō asks for it the first time you open it (your name, a few lines about you, and optionally what each Zen space is for); change it any time in **Settings → Profile**. It is the file `~/Library/Application Support/Enso/profile.md`.
 
 ## Memory
 

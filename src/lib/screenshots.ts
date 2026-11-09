@@ -2,7 +2,7 @@
  * Product screenshots in static/screenshots/. Each one exists in a light and a
  * dark version; the page shows the one matching the theme.
  *
- * They are captured from the real extension UI (zen-config/chat/extension)
+ * They are captured from the real extension UI (the enso repo's extension/)
  * running on its in-page mock host, with the demo data swapped for a fictional
  * person ("Maya") so no real account, address or hostname appears. To retake
  * them, render the UI at the listed size and device scale 2, then export WebP.

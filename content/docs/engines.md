@@ -33,10 +33,10 @@ If you don't have a Claude plan, or want pay-as-you-go billing, use an API key f
 The key is stored in the **macOS Keychain**, never in a file. Add it in Terminal; it asks for the key and nothing is echoed:
 
 ```sh
-security add-generic-password -s zen-chat-anthropic -a "$USER" -w
+security add-generic-password -s enso-anthropic -a "$USER" -w
 ```
 
-Then choose **API key** in Settings. To replace the key, delete the old one first with `security delete-generic-password -s zen-chat-anthropic` and add it again. (The Keychain service is still called `zen-chat-anthropic`, from the project's earlier name.)
+Then choose **API key** in Settings. To replace the key, delete the old one first with `security delete-generic-password -s enso-anthropic` and add it again.
 
 With an API key, Ensō connects to your MCP servers itself. claude.ai connectors are only available through the subscription engine, because they belong to your claude.ai account.
 

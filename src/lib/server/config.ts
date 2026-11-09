@@ -30,7 +30,7 @@ export const config = {
 	},
 	/** Add-on ids the update feed answers for (comma separated). The first is the current one. */
 	get extensionIds() {
-		return (process.env.EXTENSION_IDS || 'zen-chat@wicker.life')
+		return (process.env.EXTENSION_IDS || 'enso@wicker.life')
 			.split(',')
 			.map((s) => s.trim())
 			.filter(Boolean);

@@ -16,7 +16,7 @@ claude mcp add-json --scope user zen-browser \
   '{"type":"http","url":"http://127.0.0.1:47823/mcp","headers":{"Authorization":"Bearer <token>"}}'
 ```
 
-The token is in `~/Library/Application Support/zen-chat/mcp-token` (readable only by you).
+The token is in `~/Library/Application Support/Enso/mcp-token` (readable only by you).
 
 ## What keeps it safe
 

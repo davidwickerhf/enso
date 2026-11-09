@@ -1,5 +1,5 @@
 <script lang="ts" module>
-	// The extension's own hand-drawn 24×24 stroke icons (chat/extension/ui/icons.js),
+	// The extension's own hand-drawn 24×24 stroke icons (extension/ui/icons.js in the enso repo),
 	// so the recreated UI uses exactly the app's glyphs.
 	export const ICONS = {
 		plus: ['M12 5v14', 'M5 12h14'],

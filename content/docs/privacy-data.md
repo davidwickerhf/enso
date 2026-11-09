@@ -13,14 +13,14 @@ The short version: Ensō stores everything on your Mac. What you send in a conve
 
 | What | Where |
 |---|---|
-| Conversations, with tool calls and page actions | `~/Library/Application Support/zen-chat/conversations/` |
-| Activity log (page actions per site) | `~/Library/Application Support/zen-chat/actions.jsonl` |
+| Conversations, with tool calls and page actions | `~/Library/Application Support/Enso/conversations/` |
+| Activity log (page actions per site) | `~/Library/Application Support/Enso/actions.jsonl` |
 | Memory and profile | `memory.md`, `profile.md` in the same folder |
 | Settings and your skills | `settings.json`, `skills.json` |
 | Reports | `reports/` |
 | Home brief (last one) | `dashboard.json` |
 | Helper program and its `config.json` | `~/Library/Application Support/Enso/helper/` |
-| API key (if you use one) | macOS Keychain, item `zen-chat-anthropic` |
+| API key (if you use one) | macOS Keychain, item `enso-anthropic` |
 | Tokens for extra MCP servers | macOS Keychain, items you name |
 | Sync account key and device token (if sync is on) | macOS Keychain |
 

@@ -28,7 +28,7 @@ describe('releases and the update feed', () => {
 		const manifest = await updateManifest();
 		expect(manifest).toEqual({
 			addons: {
-				'zen-chat@wicker.life': {
+				'enso@wicker.life': {
 					updates: [
 						{
 							version: '0.3.0',
@@ -78,7 +78,7 @@ describe('releases and the update feed', () => {
 		expect(body.extension.version).toBe('0.10.0');
 		expect(body.helper.url).toBe('http://localhost:5173/releases/enso-helper-0.10.0-darwin.tar.gz');
 		expect(res.headers.get('access-control-allow-origin')).toBe('*');
-		const versions = (await updateManifest()).addons['zen-chat@wicker.life'].updates.map((u) => u.version);
+		const versions = (await updateManifest()).addons['enso@wicker.life'].updates.map((u) => u.version);
 		expect(versions).toEqual(['0.10.0', '0.10.0-beta.1', '0.9.0']);
 	});
 
