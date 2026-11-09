@@ -25,9 +25,11 @@ signed in once (`claude`). The installer ([`scripts/install.sh`](scripts/install
 2. writes the native-messaging manifest `enso.json` (with an absolute path to your
    `node`) into `~/Library/Application Support/Mozilla/NativeMessagingHosts` and
    `~/Library/Application Support/zen/NativeMessagingHosts`;
-3. offers to register the `zen-browser` MCP server with Claude Code
-   (`claude mcp add-json --scope user …`), so Claude in a terminal can use your tabs;
-4. opens the signed extension in Zen.
+3. writes the `enso` command (`~/Library/Application Support/Enso/bin/enso`, also
+   linked as `~/.local/bin/enso` when that folder exists and the name is free);
+4. offers to register the `zen-browser` MCP server with Claude Code through
+   `enso mcp install --client claude`, so Claude in a terminal can use your tabs;
+5. opens the signed extension in Zen.
 
 Run it again to update. On first open Ensō asks your name, a few lines about
 you and (optionally) what each Zen space is for; change it later in
@@ -56,7 +58,9 @@ you and (optionally) what each Zen space is for; change it later in
 | `settings.json` | Your settings (engine, model, space notes, tool toggles, …). |
 | `config.local.json` | Your personal overlay on the shipped [`helper/config.json`](helper/config.json); see below. |
 | `conversations/`, `actions.jsonl`, `reports/`, `dashboard.json` | History, the page-action log, reports, the last briefing. |
-| `mcp-token` | Bearer token for the local `zen-browser` MCP server (`http://127.0.0.1:47823/mcp`). |
+| `mcp-token`, `mcp-token-read` | Bearer tokens (0600) for the local `zen-browser` MCP server (`http://127.0.0.1:47823/mcp`): full access, and read-only tools only. `enso mcp` reads them itself. |
+| `bin/enso` | The `enso` command (`enso mcp`, the stdio launcher MCP clients start). |
+| `mcp-tools-cache*.json` | The last tool list `enso mcp` saw, so clients see the tools while Zen is closed. |
 | `helper/` | The installed helper (replaced on update). |
 
 Secrets live in the macOS Keychain: `enso-anthropic` (API key, optional),
@@ -67,7 +71,39 @@ copies `~/Library/Application Support/zen-chat/` into the new folder (once, when
 the new folder has no conversations yet; the old folder is left as it is), and
 reads the old Keychain item `zen-chat-anthropic` when `enso-anthropic` is missing.
 The MCP token is copied too, so an existing `zen-browser` registration in Claude
-Code keeps working.
+Code keeps working (`enso mcp install` moves it to the launcher).
+
+### Using Zen from Claude Code, Codex and Cursor
+
+The helper serves a local MCP server, `zen-browser`, while Zen is open. Register
+it with your MCP clients through the `enso` launcher: clients start
+`enso mcp` (stdio), which reads the token from the data folder itself and
+forwards to the helper, so no token sits in any client config.
+
+```sh
+enso mcp install                    # Claude Code, Codex and Cursor (the ones installed)
+enso mcp install --client codex     # just one: claude | codex | cursor | all
+enso mcp install --read-only        # read-only tools only (tabs, page text, screenshots, devtools, history, GitHub reads)
+enso mcp status                     # is Zen's helper reachable, and which clients are registered
+enso mcp uninstall [--client …]
+enso mcp rotate                     # new tokens; launcher clients keep working
+```
+
+`install` replaces an older registration (http with the token in a header):
+`claude mcp remove/add --scope user` for Claude Code, `[mcp_servers.zen-browser]`
+in `~/.codex/config.toml` (only that table changes; the rest of the file is kept
+byte for byte), `mcpServers.zen-browser` in `~/.cursor/mcp.json`. Config files
+are backed up next to themselves (`*.enso-backup-<time>`, 0600) first, and only
+what changed is printed, never values. While Zen is closed the launcher still
+starts: it lists the tools it saw last and answers calls with "Zen isn't
+running: open Zen and try again".
+
+Ensō shows which client is acting: the activity log records it (`source`:
+"Claude Code", "Codex", "Cursor", …, from the client's MCP `clientInfo`), and
+the page ribbon says "Codex is working on this page". `enso mcp --client "T3 Code"`
+(or `ENSO_MCP_CLIENT`) sets the label when a tool runs one client inside another.
+The http endpoint with `Authorization: Bearer <mcp-token>` keeps working for
+existing registrations; after `enso mcp rotate` those need `enso mcp install`.
 
 ### `config.local.json`
 
@@ -112,8 +148,10 @@ Zen installs unsigned extensions only with signature checks off:
 `user_pref("xpinstall.signatures.required", false);` in the profile's `user.js`).
 Release builds are signed and don't need this. After changing `extension/`, bump
 `version` in `extension/manifest.json` and run `scripts/dev.sh --open` again;
-after changing `helper/`, quit and reopen Zen. `scripts/dev.sh --mcp` registers
-the `zen-browser` MCP server with Claude Code if it isn't yet.
+after changing `helper/`, quit and reopen Zen. `scripts/dev.sh` also writes
+`~/Library/Application Support/Enso/bin/enso` pointing at this checkout, and
+`scripts/dev.sh --mcp` registers the `zen-browser` MCP server with Claude Code
+through it if it isn't yet.
 
 UI without Zen: serve `extension/` (`python3 -m http.server -d extension 8000`)
 and open `http://127.0.0.1:8000/full.html`, `sidebar.html` or `newtab.html`. Outside the
@@ -130,7 +168,8 @@ ENSO_TEST_SDK=1 npm test   # also one real turn on your Claude plan
 
 Useful environment variables for the helper: `ENSO_DATA` (data folder),
 `ENSO_LEGACY_DATA` (old folder to migrate from), `ENSO_MCP_PORT`,
-`ENSO_CLAUDE_PATH`.
+`ENSO_CLAUDE_PATH`. For `enso mcp`: `ENSO_MCP_CLIENT` (label override) and
+`CODEX_HOME` (where Codex's `config.toml` is).
 
 ## Releasing
 

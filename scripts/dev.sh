@@ -3,7 +3,7 @@
 #
 #   scripts/dev.sh            # helper deps, native-messaging manifests, unsigned build/enso-dev.xpi
 #   scripts/dev.sh --open     # … and open the xpi in Zen (asks to add or update the extension)
-#   scripts/dev.sh --mcp      # … and register the zen-browser MCP server with Claude Code if missing
+#   scripts/dev.sh --mcp      # … and register the zen-browser MCP server with Claude Code if missing (enso mcp install)
 #
 # The helper runs straight from helper/ (Zen starts helper/run.sh, written
 # here with this machine's node path), so helper edits take effect the next
@@ -54,6 +54,19 @@ exec "$NODE" "$HELPER/host.mjs"
 EOF
 chmod +x "$HELPER/run.sh"
 
+# 2b. The `enso` command (enso mcp: the stdio launcher MCP clients start), from this checkout.
+mkdir -p "$APP_DIR/bin"
+cat >"$APP_DIR/bin/enso" <<EOF
+#!/bin/bash
+# Written by scripts/dev.sh: the enso command from this checkout.
+exec "$NODE" "$HELPER/bin/enso.mjs" "\$@"
+EOF
+chmod +x "$APP_DIR/bin/enso"
+echo "Wrote $APP_DIR/bin/enso"
+if [ -d "$HOME/.local/bin" ] && { [ ! -e "$HOME/.local/bin/enso" ] || [ "$(readlink "$HOME/.local/bin/enso" 2>/dev/null)" = "$APP_DIR/bin/enso" ]; }; then
+  ln -sf "$APP_DIR/bin/enso" "$HOME/.local/bin/enso" && echo "Linked ~/.local/bin/enso"
+fi
+
 # 3. Native-messaging manifests for Zen and Firefox.
 manifest="$("$NODE" -e '
   const [name, path, id] = process.argv.slice(1);
@@ -73,19 +86,14 @@ rm -f "$XPI"
 VERSION="$("$NODE" -p "require('$REPO/extension/manifest.json').version")"
 echo "Built $XPI (Ensō $VERSION, unsigned)"
 
-# 5. Optional: let Claude Code use Zen.
+# 5. Optional: let Claude Code use Zen, through the launcher (no token in its config).
 if [ "$MCP" = 1 ]; then
-  CLAUDE="$(command -v claude || true)"
-  if [ -z "$CLAUDE" ]; then
+  if ! command -v claude >/dev/null 2>&1; then
     echo "Claude Code not found; skipping the zen-browser registration."
-  elif "$CLAUDE" mcp get zen-browser >/dev/null 2>&1; then
-    echo "Claude Code already has zen-browser."
+  elif claude mcp get zen-browser >/dev/null 2>&1; then
+    echo "Claude Code already has zen-browser (\"$APP_DIR/bin/enso\" mcp install switches it to the launcher)."
   else
-    TOKEN_FILE="$APP_DIR/mcp-token"
-    [ -f "$TOKEN_FILE" ] || [ ! -f "$SUPPORT/zen-chat/mcp-token" ] || cp -p "$SUPPORT/zen-chat/mcp-token" "$TOKEN_FILE"
-    [ -f "$TOKEN_FILE" ] || (umask 077 && openssl rand -hex 32 >"$TOKEN_FILE")
-    json="$("$NODE" -e 'const t=require("fs").readFileSync(process.argv[1],"utf8").trim();process.stdout.write(JSON.stringify({type:"http",url:"http://127.0.0.1:47823/mcp",headers:{Authorization:`Bearer ${t}`}}))' "$TOKEN_FILE")"
-    "$CLAUDE" mcp add-json --scope user zen-browser "$json" >/dev/null && echo "Claude Code can now use Zen (zen-browser)."
+    "$APP_DIR/bin/enso" mcp install --client claude
   fi
 fi
 

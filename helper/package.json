@@ -5,6 +5,9 @@
   "type": "module",
   "description": "Ens\u014d helper: the native messaging host for the Ens\u014d extension (Claude + your MCP servers)",
   "main": "host.mjs",
+  "bin": {
+    "enso": "bin/enso.mjs"
+  },
   "engines": {
     "node": ">=18.17"
   },

@@ -72,7 +72,8 @@ async function ensureAgent(tabId) {
   await browser.tabs.executeScript(tabId, { file: "/pageagent.js", runAt: "document_idle" });
 }
 
-async function agent(tabId, action, args) {
+// `who`: the external agent acting (e.g. "Codex"), shown on the page ribbon; Ensō's own turns leave it unset ("Claude").
+async function agent(tabId, action, args, who) {
   const tab = await browser.tabs.get(tabId);
   if (!isWeb(tab.url)) throw new Error("This tab isn't a web page, so it can't be read or operated.");
   if (isSensitive(tab.url)) throw new Error("This is a private page (banking, health or similar); page tools are off here.");
@@ -82,7 +83,7 @@ async function agent(tabId, action, args) {
   } catch (err) {
     throw new Error(`Could not reach this page (${err?.message || "it may still be loading or be a restricted page"}).`);
   }
-  const res = await browser.tabs.sendMessage(tabId, { enso: true, action, args });
+  const res = await browser.tabs.sendMessage(tabId, { enso: true, action, args, ...(who ? { agent: who } : {}) });
   if (!res?.ok) throw new Error(res?.error ?? "The page did not answer.");
   return res.result;
 }
@@ -355,7 +356,7 @@ async function siteCookies(hosts) {
 
 // ---------- page and browser actions for the helper ----------
 
-async function pageAction(tabId, action, args) {
+async function pageAction(tabId, action, args, who) {
   tabId ??= (await activeTab())?.id; // external callers (Claude Code via MCP) may omit the tab
   if (!tabId) throw new Error("No tab to act on; open a web page first.");
   if (action === "console") return consoleRead(tabId, args);
@@ -374,7 +375,7 @@ async function pageAction(tabId, action, args) {
     if (isSensitive(tab.url)) throw new Error("This is a private page; screenshots are off here.");
     return { dataUrl: await browser.tabs.captureVisibleTab(tab.windowId, { format: "png" }) };
   }
-  return agent(tabId, action, args);
+  return agent(tabId, action, args, who);
 }
 
 async function browserAction(action, args) {
@@ -451,7 +452,7 @@ function connectNative() {
     if (msg.type === "page.request" || msg.type === "browser.request") {
       const reply = { type: msg.type.replace("request", "response"), reqId: msg.reqId };
       try {
-        reply.result = msg.type === "page.request" ? await pageAction(msg.tabId, msg.action, msg.args ?? {}) : await browserAction(msg.action, msg.args ?? {});
+        reply.result = msg.type === "page.request" ? await pageAction(msg.tabId, msg.action, msg.args ?? {}, typeof msg.agent === "string" ? msg.agent : undefined) : await browserAction(msg.action, msg.args ?? {});
         reply.ok = true;
       } catch (err) {
         reply.ok = false;
