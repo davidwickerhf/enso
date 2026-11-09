@@ -41,6 +41,7 @@ echo "Node: $NODE ($("$NODE" --version))"
 
 # 1. Helper dependencies. Optional packages are skipped: the subscription engine
 #    uses your installed `claude` CLI, not the SDK's bundled binary.
+[ -L "$HELPER/node_modules" ] && [ ! -e "$HELPER/node_modules" ] && rm "$HELPER/node_modules" # dangling link
 if [ ! -e "$HELPER/node_modules" ]; then
   (cd "$HELPER" && npm ci --omit=optional --no-audit --no-fund --loglevel=error)
 fi
