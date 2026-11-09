@@ -7,7 +7,6 @@
 
 <div class="wrap err">
 	<Enso size={72} label="" />
-	<p class="label">{page.status}</p>
 	<h1>{page.status === 404 ? 'Nothing here' : 'Something went wrong'}</h1>
 	<p class="muted">{page.error?.message ?? ''}</p>
 	<p><a href="/">Home</a> · <a href="/docs">Docs</a></p>
@@ -22,8 +21,5 @@
 	}
 	h1 {
 		font-size: 2.6rem;
-	}
-	.label {
-		margin-top: 1.5rem;
 	}
 </style>

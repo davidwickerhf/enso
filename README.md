@@ -3,7 +3,7 @@
 The website, docs, extension update feed and end-to-end-encrypted sync server for **Ensō**, a browser companion for Zen. Live at https://enso.wicker.life (once deployed; see [docs/HOSTING.md](docs/HOSTING.md)).
 
 - **Stack:** SvelteKit (adapter-node) on Node, Postgres, Better Auth (email magic links), Hetzner Object Storage via `aws4fetch`, Stalwart mail via `nodemailer`. One Docker container on wicker-01 (Coolify).
-- **Content:** docs and the privacy policy are Markdown in `content/`. Product screenshots are placeholders, listed in `src/lib/screenshots.ts`: drop images into `static/screenshots/` and set `src`.
+- **Content:** docs and the privacy policy are Markdown in `content/`. Product screenshots (WebP, light and dark) are in `static/screenshots/`, listed in `src/lib/screenshots.ts`; see `DESIGN.md` for how they are made.
 - **Installer:** `static/install.sh`, served at `/install.sh`.
 - **Release workflow for the extension repo:** `docs/ci/extension-release.yml`.
 

@@ -7,6 +7,15 @@ group: Reference
 
 # Changelog
 
+## 0.3 — November 2026
+
+- **New tab:** one box that searches like an address bar and asks like an assistant, with inline completion, search suggestions and the cursor already in it. Widgets replace the daily brief on the new tab.
+- **Zen spaces:** Ensō knows which space you are in; conversations, memory and tab tools follow it.
+- **Tools panel:** see what each tool does, switch it off, or connect more on claude.ai, including Microsoft 365.
+- **Attach any file:** Word, Excel, PowerPoint, archives, code and images (HEIC too), up to 25 MB.
+- **Faster:** answers start in about two seconds; sessions stay warm between messages.
+- **Claude Code can use Zen** through a local MCP server.
+
 ## Unreleased
 
 - **Website and sync server.** enso.wicker.life: these docs, an install script for the helper, automatic extension updates, and an end-to-end encrypted sync server with device sign-in by email. Turning sync on in Ensō comes in a later helper release.

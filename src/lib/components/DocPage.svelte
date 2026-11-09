@@ -1,5 +1,5 @@
 <script lang="ts">
-	type Doc = { slug: string; title: string; description: string; group: string; html: string };
+	type Doc = { slug: string; title: string; description: string; html: string };
 	let { doc }: { doc: Doc } = $props();
 </script>
 
@@ -9,13 +9,6 @@
 </svelte:head>
 
 <div class="prose">
-	<p class="label">{doc.group}</p>
 	<!-- eslint-disable-next-line svelte/no-at-html-tags -- our own Markdown -->
 	{@html doc.html}
 </div>
-
-<style>
-	.label {
-		margin: 0 0 0.75rem;
-	}
-</style>

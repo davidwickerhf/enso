@@ -5,49 +5,47 @@
 <footer>
 	<div class="wrap grid">
 		<div class="sig">
-			<Enso size={34} label="" />
-			<p>Ensō is made by <a href="https://wicker.life">David Wicker</a>. An independent project, not affiliated with Anthropic, Mozilla or Zen.</p>
+			<Enso size={28} label="" />
+			<p>
+				Made by <a href="https://wicker.life">David Wicker</a>. An independent project, not affiliated with Anthropic, Mozilla or Zen.
+			</p>
 		</div>
 		<nav aria-label="Footer">
-			<div>
-				<p class="label">Product</p>
-				<a href="/#features">Features</a>
-				<a href="/docs/install">Install</a>
-				<a href="/docs/changelog">Changelog</a>
-			</div>
-			<div>
-				<p class="label">Help</p>
-				<a href="/docs">Docs</a>
-				<a href="/docs/troubleshooting">Troubleshooting</a>
-				<a href="mailto:hello@enso.wicker.life">hello@enso.wicker.life</a>
-			</div>
-			<div>
-				<p class="label">Your data</p>
-				<a href="/privacy">Privacy policy</a>
-				<a href="/docs/sync">Sync &amp; recovery</a>
-				<a href="/account">Account</a>
-			</div>
+			<ul>
+				<li><a href="/#install">Install</a></li>
+				<li><a href="/docs">Docs</a></li>
+				<li><a href="/docs/changelog">Changelog</a></li>
+				<li><a href="/docs/troubleshooting">Troubleshooting</a></li>
+			</ul>
+			<ul>
+				<li><a href="/privacy">Privacy policy</a></li>
+				<li><a href="/docs/privacy-data">What is stored where</a></li>
+				<li><a href="/docs/sync">Sync &amp; recovery</a></li>
+				<li><a href="/account">Account</a></li>
+			</ul>
+			<ul>
+				<li><a href="mailto:hello@enso.wicker.life">hello@enso.wicker.life</a></li>
+			</ul>
 		</nav>
 	</div>
 </footer>
 
 <style>
 	footer {
-		margin-top: clamp(4rem, 10vw, 8rem);
-		padding: 3rem 0 3.5rem;
+		margin-top: clamp(5rem, 11vw, 9rem);
+		padding: 2.5rem 0 3rem;
 		border-top: 1px solid var(--rule);
-		font-family: var(--sans);
 		font-size: 0.9rem;
 		color: var(--ink-2);
 	}
 	.grid {
 		display: grid;
-		grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr);
+		grid-template-columns: minmax(0, 1fr) minmax(0, 1.5fr);
 		gap: 2.5rem;
 	}
 	.sig {
 		display: flex;
-		gap: 1rem;
+		gap: 0.9rem;
 		align-items: flex-start;
 		max-width: 22rem;
 	}
@@ -60,13 +58,13 @@
 		grid-template-columns: repeat(3, minmax(0, 1fr));
 		gap: 1.5rem;
 	}
-	nav div {
-		display: flex;
-		flex-direction: column;
+	ul {
+		list-style: none;
+		margin: 0;
+		padding: 0;
+		display: grid;
 		gap: 0.45rem;
-	}
-	nav .label {
-		margin: 0 0 0.3rem;
+		align-content: start;
 	}
 	nav a {
 		text-decoration: none;
@@ -78,12 +76,11 @@
 		text-decoration-color: var(--copper);
 	}
 	@media (max-width: 760px) {
-		.grid,
-		nav {
-			grid-template-columns: 1fr 1fr;
-		}
 		.grid {
 			grid-template-columns: 1fr;
+		}
+		nav {
+			grid-template-columns: 1fr 1fr;
 		}
 	}
 </style>

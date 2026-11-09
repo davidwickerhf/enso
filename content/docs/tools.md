@@ -34,3 +34,12 @@ Every tool call is shown in the conversation as it happens, with what was sent a
 ## The browser's own tools
 
 Some tools are built in and don't need a server: reading and acting on the page ([Acting on pages](/docs/acting-on-pages)), listing, opening, grouping and closing tabs, searching your browsing history, creating [reports](/docs/reports), and remembering things about you ([Memory & profile](/docs/memory)). Web search and fetching a URL are available too and can be switched off in `config.json` (`"webSearch": false`).
+
+## The tools panel
+
+Click a tool's icon under the new-tab box, or open **Settings → Tools**, to see what it is for, what it can do, example questions, and an on/off switch. Switching a tool off removes it from the next message.
+
+## Adding more
+
+Anything you connect on claude.ai (**Customize → Connectors**) appears in Ensō on the subscription engine. That covers Slack, Notion, Linear, GitHub, Atlassian, Figma, Asana and **Microsoft 365** (Outlook mail and calendar, Teams chats and meetings, SharePoint, OneDrive). Microsoft 365 needs a work or school account, and your organisation's administrator must allow it.
+

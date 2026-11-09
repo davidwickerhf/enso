@@ -18,7 +18,6 @@
 <div class="wrap account">
 	{#if !data.user}
 		<section class="intro">
-			<p class="label">Account</p>
 			<h1>Sign in to sync</h1>
 			<p class="lede">
 				You only need an account to sync Ensō between Macs. Everything is encrypted on your devices before it is uploaded; this page can show
@@ -38,7 +37,6 @@
 	{:else}
 		<header class="top">
 			<div>
-				<p class="label">Account</p>
 				<h1>{data.user.email}</h1>
 				<p class="muted">Member since {date(data.user.createdAt)}</p>
 			</div>

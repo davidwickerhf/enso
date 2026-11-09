@@ -12,7 +12,7 @@ group: Start
 ## Where it lives
 
 - **The sidebar.** Press <kbd>⌘E</kbd> to open a chat next to the page you are on.
-- **The new-tab page.** Every new tab opens on Home, a short brief for the day: calendar, mail that needs you, deadlines and follow-ups.
+- **The new tab.** One box that [searches or asks](/docs/new-tab), with the cursor already in it, plus widgets you choose.
 - **A full page.** Right-click the Ensō button for the full-page app, with your conversations, reports and activity.
 
 All three show the same conversations, so you can start in one and continue in another.
@@ -32,3 +32,4 @@ The extension never talks to a server of ours. Your questions go from the helper
 - Choose an [engine](/docs/engines): your Claude subscription, or an API key.
 - See how it [acts on pages](/docs/acting-on-pages) and when it asks first.
 - Read [Privacy & data](/docs/privacy-data) for exactly what is stored where.
+- Let [Claude Code use Zen](/docs/claude-code) through Ensō.

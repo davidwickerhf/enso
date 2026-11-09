@@ -53,11 +53,11 @@ The extension is signed by Mozilla for self-distribution, so it installs with si
 | Exchange messages with programs other than Firefox | Talking to the local helper |
 | Access browser tabs, tab groups | Mentioning tabs, grouping and closing tabs by chat |
 | Access browsing history | Searching your history when you ask |
-| Replace the new tab page | Home, the daily brief |
+| Replace the new tab and home page | The search-or-ask box |
 
 ## 3. Open it
 
-Press <kbd>⌘E</kbd> for the sidebar, or open a new tab. The first Home brief takes a little while, because it reads your calendar and mail through your connectors.
+Press <kbd>⌘E</kbd> for the sidebar, or open a new tab. The first answer after starting Zen takes a few seconds longer while Ensō warms up; after that it starts answering in about two seconds.
 
 ## Updating
 

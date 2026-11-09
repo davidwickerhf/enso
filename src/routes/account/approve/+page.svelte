@@ -11,7 +11,6 @@
 </svelte:head>
 
 <div class="wrap approve">
-	<p class="label">Sync</p>
 	{#if form?.decided === 'approved'}
 		<h1>Approved</h1>
 		<p class="lede">Go back to Ensō: it finishes signing in on its own within a few seconds. You can close this tab.</p>

@@ -9,7 +9,6 @@
 
 <div class="wrap page">
 	<div class="prose">
-		<p class="label">Your data</p>
 		<!-- eslint-disable-next-line svelte/no-at-html-tags -- our own Markdown -->
 		{@html data.doc.html}
 	</div>
@@ -18,11 +17,5 @@
 <style>
 	.page {
 		padding-top: clamp(2rem, 5vw, 3.5rem);
-	}
-	.page .prose {
-		margin: 0 auto;
-	}
-	.label {
-		margin: 0 0 0.75rem;
 	}
 </style>
