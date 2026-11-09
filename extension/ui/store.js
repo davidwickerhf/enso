@@ -28,6 +28,7 @@ export function createStore() {
     paths: null,             // { data, localConfig } on this Mac
     dashboard: { data: null, loading: false, error: null },
     github: { data: null, loading: false, error: null, at: 0, saving: false, saved: null }, // new-tab widget + token entry
+    tasks: { data: null, loading: false, error: null, at: 0, completing: new Set(), lastError: null }, // Tasks widget (task apps, tasks.widget)
     convs: new Map(),        // id → { events, ids, loaded, loading, running }
     running: new Set(),      // conversation ids with a turn in progress
     approvals: new Map(),    // toolUseId → { conversationId, event, sent? }
@@ -301,6 +302,17 @@ export function createStore() {
         s.github = { ...s.github, data: msg.data ?? s.github.data, loading: false, error: msg.error ?? null, at: Date.now() };
         emit("github");
         return;
+      case "tasks":
+        s.tasks = { ...s.tasks, data: msg.data ?? s.tasks.data, loading: false, error: msg.error ?? null, at: Date.now() };
+        emit("tasks");
+        return;
+      case "tasks.completed": {
+        const completing = new Set(s.tasks.completing);
+        completing.delete(`${msg.server}|${msg.id}`);
+        s.tasks = { ...s.tasks, completing, lastError: msg.ok ? null : msg.error || "Couldn't complete the task." };
+        emit("tasks");
+        return;
+      }
       case "github.saved":
         s.github = { ...s.github, saving: false, saved: msg };
         if (msg.ok) actions.loadGithub(true);
@@ -536,6 +548,19 @@ export function createStore() {
       s.github = { ...s.github, loading: true };
       send({ type: "github.widget", force });
       emit("github");
+    },
+    /** Tasks widget rows from task apps; the helper caches ~5 minutes. */
+    loadTasks(force = false) {
+      if (s.tasks.loading) return;
+      s.tasks = { ...s.tasks, loading: true };
+      send({ type: "tasks.widget", force });
+      emit("tasks");
+    },
+    /** Tick in the Tasks widget: the helper marks it done at the app (update_task) and sends a fresh list. */
+    completeTask(server, id) {
+      s.tasks = { ...s.tasks, completing: new Set(s.tasks.completing).add(`${server}|${id}`), lastError: null };
+      send({ type: "tasks.complete", server, id });
+      emit("tasks");
     },
     saveGithubToken(token) {
       s.github = { ...s.github, saving: true, saved: null };
