@@ -21,6 +21,8 @@ function today(h, m = 0) {
   d.setHours(h, m, 0, 0);
   return d.toISOString();
 }
+/** A local calendar date n days from today, as task apps send it (YYYY-MM-DD). */
+const dayIn = n => new Date(Date.now() + n * 86_400_000).toLocaleDateString("en-CA");
 function inDays(n, h = 23, m = 59) {
   const d = new Date();
   d.setDate(d.getDate() + n);
@@ -155,10 +157,14 @@ function makeDashboard() {
       { course: "Data Visualisation", item: "Reading: Tufte, chapter 4", due: inDays(6, 17, 0) },
     ],
     tasks: [
-      { title: "Confirm the beta date with Jonas", due: inDays(2, 18, 0), source: "Gmail" },
-      { title: "Fix the atlas-web build (missing env var)", source: "Northwind", url: "https://vercel.com/" },
-      { title: "Finish the planting plan slides for the garden call", due: inDays(0, 16, 0), source: "Garden club" },
-      { title: "Renew the Figma plugin token", due: inDays(9, 12, 0), source: "Reminders" },
+      { title: "Confirm the beta date with Jonas", due: inDays(2, 18, 0), source: "Gmail", kind: "follow-up" },
+      { title: "Fix the atlas-web build (missing env var)", source: "Northwind", url: "https://vercel.com/", kind: "follow-up" },
+      { title: "Finish the planting plan slides for the garden call", due: inDays(0, 16, 0), source: "Garden club", kind: "follow-up" },
+      // Task-app tasks the dashboard run found (claude.ai connectors the helper can't call itself).
+      { title: "Renew the Figma plugin token", due: inDays(9, 12, 0), source: "Todoist", kind: "app", url: "https://todoist.com/app/today" },
+      { title: "Book the dentist", source: "Todoist", kind: "app" },
+      // Also in the direct Fieldnotes list below: the Tasks widget shows it once.
+      { title: "Send the Q4 survey results to Priya", due: dayIn(1), source: "Fieldnotes", kind: "app" },
     ],
     language: { summary: "12 cards due in your Portuguese deck. Last session: preterite of irregular verbs (82% correct). Streak: 6 days.", url: "https://lingo.example.com/" },
     suggestions: [
@@ -168,6 +174,18 @@ function makeDashboard() {
       "Ask: quiz me on 10 Portuguese verbs",
     ],
   };
+}
+
+// Open tasks from a task app the helper calls directly (tasks.widget; Fieldnotes stands in for Commonfold).
+function makeTasks() {
+  const t = (id, title, due, extra = {}) => ({ id, title, ...(due ? { due } : {}), url: `https://fieldnotes.example.com/notes/${id}`, source: "Fieldnotes", server: "fieldnotes", space: "personal", completable: true, ...extra });
+  return [
+    t("6f1c2a10-0000-4000-8000-000000000001", "Pay the studio rent", dayIn(-1)),
+    t("6f1c2a10-0000-4000-8000-000000000002", "Send the Q4 survey results to Priya", dayIn(1)),
+    t("6f1c2a10-0000-4000-8000-000000000003", "Draft the onboarding copy for Atlas 2.0", dayIn(3)),
+    t("6f1c2a10-0000-4000-8000-000000000004", "Order seeds for the spring beds", null),
+    t("6f1c2a10-0000-4000-8000-000000000005", "Read Jonas's beta checklist", null),
+  ];
 }
 
 // ---- seed conversations ---------------------------------------------------
@@ -426,6 +444,13 @@ export function createMockHost() {
       sendConnections({ server: sv.name, ok: true });
     }, 1600);
   }
+
+  let openTasks = makeTasks();
+  const tasksData = () => {
+    const fn = servers.find(x => x.name === "fieldnotes");
+    const on = fn?.status === "connected";
+    return { tasks: on ? openTasks : [], servers: on ? [{ name: "fieldnotes", label: "Fieldnotes", ok: true }] : [], fetchedAt: iso(now()) };
+  };
 
   const data = buildSeed();
   const SEED_SPACES = { "c-jonas": "{sp-work}", "c-portuguese": "{sp-personal}", "c-garden": "{sp-garden}", "c-deploy": "{sp-work}", "c-viz": "{sp-personal}", "c-flash": "{sp-personal}" };
@@ -808,6 +833,20 @@ Want me to draft the reply to Jonas, or open the [Vercel deployment](https://ver
         setTimeout(() => out(gh?.status === "connected" ? { type: "github", data: githubWidget() } : { type: "github", error: "GitHub is not connected." }), 500);
         return;
       }
+      case "tasks.widget":
+        setTimeout(() => out({ type: "tasks", data: tasksData() }), 300);
+        return;
+      case "tasks.complete": {
+        // Like the helper: only tasks it listed; "fail" in the title shows the error state.
+        const task = openTasks.find(t => t.server === msg.server && t.id === msg.id);
+        setTimeout(() => {
+          const ok = !!task && !/fail/i.test(task.title);
+          if (ok) openTasks = openTasks.filter(t => t !== task);
+          out({ type: "tasks.completed", server: msg.server, id: msg.id, ok, ...(ok ? {} : { error: task ? "Fieldnotes refused (403)." : "That task isn't in the current list." }) });
+          out({ type: "tasks", data: tasksData() });
+        }, 400);
+        return;
+      }
       case "github.token": {
         const ok = /^(ghp_|github_pat_|gho_)\w{10,}$/.test(String(msg.token ?? ""));
         setTimeout(() => {
@@ -831,11 +870,13 @@ Want me to draft the reply to Jonas, or open the [Vercel deployment](https://ver
   //   __ensoMock.disconnect()       global host_disconnected banner
   globalThis.__ensoMock = {
     tabs: TABS,
-    // Preset widget layouts for the new tab: "four", "all", or [] to clear.
+    // Preset widget layouts for the new tab: "four", "all", "tasks", "tasksSmall", "github", or [] to clear.
     presetWidgets(name) {
       const presets = {
         four: [{ id: "w-next", type: "next", size: "M" }, { id: "w-due", type: "due", size: "M" }, { id: "w-clock", type: "clock", size: "S" }, { id: "w-mail", type: "mail", size: "S" }],
-        all: ["next", "due", "mail", "language", "github", "clock", "chats", "links", "note", "ask"].map(t => ({ id: `w-${t}`, type: t, size: ["clock", "mail", "note"].includes(t) ? "S" : "M" })),
+        all: ["next", "due", "tasks", "mail", "language", "github", "clock", "chats", "links", "note", "ask"].map(t => ({ id: `w-${t}`, type: t, size: ["clock", "mail", "note"].includes(t) ? "S" : "M" })),
+        tasks: [{ id: "w-next", type: "next", size: "M" }, { id: "w-due", type: "due", size: "M" }, { id: "w-tasks", type: "tasks", size: "M" }, { id: "w-clock", type: "clock", size: "S" }, { id: "w-mail", type: "mail", size: "S" }],
+        tasksSmall: [{ id: "w-tasks", type: "tasks", size: "S" }, { id: "w-next", type: "next", size: "M" }, { id: "w-clock", type: "clock", size: "S" }, { id: "w-due", type: "due", size: "M" }, { id: "w-mail", type: "mail", size: "S" }],
         github: [{ id: "w-github", type: "github", size: "M" }, { id: "w-next", type: "next", size: "M" }, { id: "w-clock", type: "clock", size: "S" }, { id: "w-github-s", type: "github", size: "S" }],
       };
       settings.homeWidgets = Array.isArray(name) ? name : presets[name] ?? [];

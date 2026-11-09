@@ -53,6 +53,8 @@ All messages are objects with a `type`. Times are ISO strings. Ids are strings.
 | `report.get` | `id` | `report` |
 | `reports.list` | | `reports` |
 | `github.widget` | `force?` (skip the helper's 5-minute cache) | `github` |
+| `tasks.widget` | `force?` (skip the helper's 5-minute cache) | `tasks` |
+| `tasks.complete` | `server`, `id` (a task from the last `tasks` list; the user ticked it, so no approval) | `tasks.completed` + `tasks` (marks it done with the app's `update_task` / `complete_task`; logged in actions.jsonl as `complete_task`) |
 | `github.token` | `token` (pasted in Tools → GitHub; checked against GitHub, then saved to the Keychain service `enso-github` through `security -i` on stdin) | `github.saved` + `servers` |
 | `github.forget` | | `servers` (deletes the Keychain token) |
 
@@ -241,6 +243,8 @@ Streaming-only kinds (not persisted, folded into `assistant` / `thinking` at the
 - `reports`: `{ type, reports: [{ id, title, createdAt }] }`
 - `github`: `{ type, data?: { login, review: [GitHubRow], mine: [GitHubRow], assigned: [GitHubRow], counts: { review, mine, authored, assigned }, fetchedAt }, error?: string }` — `GitHubRow` = `{ kind: "pr" | "issue", repo, number, title, url, updatedAt, ci, review, conflict, draft }`; `mine` = the user's open PRs with failing CI, changes requested or a merge conflict
 - `github.saved`: `{ type, ok, login?, error? }`
+- `tasks`: `{ type, data?: { tasks: [Task], servers: [{ name, label, ok, error? }], fetchedAt }, error?: string }` — open tasks from enabled, connected http MCP servers with a `list_tasks` tool that the helper can call itself (e.g. Commonfold through Ensō's own sign-in; `lib/tasks.mjs`). `Task` = `{ id, title, due?, url?, source, server, space?, done?, completable }`; `completable: false` for tasks parsed from free text (no id). claude.ai connectors (Notion, Todoist…) can't be called directly; their tasks come through the dashboard's `tasks` with `kind: "app"`.
+- `tasks.completed`: `{ type, server, id, ok, error? }`
 
 ### `Dashboard`
 ```js
@@ -251,7 +255,7 @@ Streaming-only kinds (not persisted, folded into `assistant` / `thinking` at the
   calendar: [{ time, title, location?, url? }],
   mail:     [{ from, subject, why, url? }],
   study:    [{ course, item, due?, url? }],
-  tasks:    [{ title, due?, source, url? }],
+  tasks:    [{ title, due?, source, url?, kind?: "app" | "follow-up" }],  // app: open task in a task app (source = app name); follow-up: from mail, calendar, study, GitHub
   language: { summary, url? } | null,
   suggestions: ["Ask: summarise my unread work mail", ...]   // tappable prompts
 }

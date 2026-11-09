@@ -1,8 +1,9 @@
 // New-tab widgets: small, glanceable tiles under the box (Next up, Due soon,
-// Mail, Practice, GitHub, Clock, Recent chats, Quick links, Note, Ask). Hidden until
-// the user adds them via Customize; layout persists in settings.homeWidgets
-// (localStorage as fallback). Edit mode: drag or arrow keys to reorder, S/M
-// size, remove, and an "Add widget" picker.
+// Tasks, Mail, Practice, GitHub, Clock, Recent chats, Quick links, Note, Ask).
+// Hidden until the user adds them via Customize; layout persists in
+// settings.homeWidgets (localStorage as fallback). Edit mode (top-bar button,
+// "Edit widgets" under the grid, or right-click a widget): drag or arrow keys
+// to reorder, S/M size, remove, and an "Add widget" picker.
 
 import { h, icon, clear, iconButton, hostBadge, isHttpUrl } from "../dom.js";
 import { relTime, hostOf, stripAsk } from "../format.js";
@@ -13,6 +14,7 @@ const LAYOUT_KEY = "enso.homeWidgets";
 const DONE_KEY = "enso.doneItems";
 const LINKS_KEY = "enso.quickLinks";
 const NOTE_KEY = "enso.note";
+const TASKS_ADDED_KEY = "enso.tasksWidgetAdded"; // one-time: Tasks added next to Due soon
 const ISO = /\d{4}-\d{2}-\d{2}/;
 
 const load = (k, fallback) => { try { const v = localStorage.getItem(k); return v == null ? fallback : JSON.parse(v); } catch { return fallback; } };
@@ -25,6 +27,7 @@ const renamed = w => (w?.type === "armenian" ? { ...w, type: "language" } : w);
 export const TYPES = {
   next: { name: "Next up", desc: "Your next event, and the one after.", icon: "calendar", sizes: ["M", "S"], data: true },
   due: { name: "Due soon", desc: "Deadlines and tasks by date; tick tasks off.", icon: "checkSquare", sizes: ["M", "S"], data: true },
+  tasks: { name: "Tasks", desc: "Open tasks from your task apps (e.g. Commonfold); tick them off.", icon: "check", sizes: ["M", "S"] },
   mail: { name: "Mail", desc: "How many emails need you, and the top one.", icon: "mail", sizes: ["S", "M"], data: true },
   language: { name: "Practice", desc: "Today's practice (e.g. a language app) in one line.", icon: "languages", sizes: ["M", "S"], data: true },
   github: { name: "GitHub", desc: "Reviews waiting for you, your PRs that need you, assigned issues.", icon: "pullRequest", sizes: ["M", "S"] },
@@ -38,12 +41,14 @@ export const TYPES = {
 export const DEFAULT_LAYOUT = [
   { id: "w-next", type: "next", size: "M" },
   { id: "w-due", type: "due", size: "M" },
+  { id: "w-tasks", type: "tasks", size: "M" },
   { id: "w-clock", type: "clock", size: "S" },
 ];
 
 function parseDue(due) {
   if (typeof due !== "string" || !ISO.test(due)) return null;
-  const d = new Date(due);
+  const day = /^(\d{4})-(\d{2})-(\d{2})$/.exec(due.trim()); // a bare date is a local day, not UTC midnight
+  const d = day ? new Date(+day[1], day[2] - 1, +day[3]) : new Date(due);
   return Number.isNaN(d.getTime()) ? null : d;
 }
 
@@ -60,15 +65,44 @@ function dueLabel(due, now = new Date()) {
 }
 
 const itemKey = x => `${x.course ?? x.source ?? ""}|${x.item ?? x.title ?? ""}`;
+const normTitle = t => String(t ?? "").toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim();
+// Dashboard tasks that are follow-ups from these sources stay in Due soon, not in Tasks.
+const NOT_A_TASK_APP = /mail|outlook|calendar|meet|study|course|canvas|github/i;
+const fromTaskApp = t => (t.kind ? t.kind === "app" : !NOT_A_TASK_APP.test(t.source ?? ""));
 
-export function createWidgets(store, ctx) {
+/**
+ * Rows for the Tasks widget: tasks fetched directly from task apps (tasks.widget)
+ * first, then the dashboard's tasks that came from a task app (kind "app", or a
+ * source that isn't mail/calendar/study/GitHub), minus duplicates and apps the
+ * direct path already covered. `local` rows can only be hidden locally.
+ */
+export function taskRows(direct, dashTasks, { done = new Set(), completing = new Set() } = {}) {
+  const tasks = direct?.tasks ?? [];
+  const covered = new Set((direct?.servers ?? []).filter(x => x.ok).map(x => String(x.label).toLowerCase()));
+  const titles = new Set(tasks.map(t => normTitle(t.title)));
+  const rows = [
+    ...tasks.map(t => ({ ...t, key: `${t.server}|${t.id}`, local: !t.completable })),
+    ...(dashTasks ?? [])
+      .filter(t => fromTaskApp(t) && !covered.has(String(t.source ?? "").toLowerCase()) && !titles.has(normTitle(t.title)))
+      .map(t => ({ title: t.title, due: t.due, url: t.url, source: t.source, key: itemKey({ source: t.source, title: t.title }), local: true })),
+  ];
+  const now = Date.now();
+  return rows
+    .filter(r => !done.has(r.key) && !completing.has(r.key))
+    .map(r => ({ ...r, late: (parseDue(r.due)?.getTime() ?? Infinity) < new Date(now).setHours(0, 0, 0, 0) }))
+    .sort((a, b) => (b.late - a.late) || ((parseDue(a.due)?.getTime() ?? 9e15) - (parseDue(b.due)?.getTime() ?? 9e15)));
+}
+
+export function createWidgets(store, ctx, { onEdit } = {}) {
   const { state: s, actions } = store;
   let editing = false;
   let pickerOpen = false;
   let layout = readLayout();
   const grid = h("div", { class: "widgets", role: "list", aria: { label: "Widgets" } });
   const picker = h("div", { class: "widget-picker", role: "dialog", aria: { label: "Add a widget" }, hidden: true });
-  const el = h("section", { class: "widgets-wrap", aria: { label: "Widgets" } }, grid, picker);
+  // Quiet way into edit mode once there are widgets (the top-bar button is easy to miss).
+  const editLink = h("button", { type: "button", class: "edit-widgets", onclick: () => onEdit?.() }, icon("pencil"), "Edit widgets");
+  const el = h("section", { class: "widgets-wrap", aria: { label: "Widgets" } }, grid, editLink, picker);
   const live = h("div", { class: "visually-hidden", aria: { live: "polite" } });
   el.append(live);
 
@@ -77,6 +111,16 @@ export function createWidgets(store, ctx) {
     if (Array.isArray(fromSettings)) return fromSettings.map(renamed).filter(w => TYPES[w?.type]);
     const local = load(LAYOUT_KEY, null);
     return Array.isArray(local) ? local.map(renamed).filter(w => TYPES[w?.type]) : [];
+  }
+
+  // One time: put Tasks next to Due soon in an existing layout (only via the UI; settings.json is the helper's).
+  function addTasksOnce() {
+    if (!s.ready || !Array.isArray(s.settings?.homeWidgets) || load(TASKS_ADDED_KEY, false)) return;
+    save(TASKS_ADDED_KEY, true);
+    const i = layout.findIndex(w => w.type === "due");
+    if (i < 0 || layout.some(w => w.type === "tasks")) return;
+    layout.splice(i + 1, 0, { id: "w-tasks", type: "tasks", size: "M" });
+    persist();
   }
 
   function persist() {
@@ -112,9 +156,11 @@ export function createWidgets(store, ctx) {
   function dueSoon(w) {
     const d = dash();
     const done = new Set(load(DONE_KEY, []));
+    // With a Tasks widget on the page, task-app tasks live there; Due soon keeps deadlines and follow-ups.
+    const withTasks = layout.some(x => x.type === "tasks");
     const items = [
       ...(d?.study ?? []).map(x => ({ title: x.item, sub: x.course, due: x.due, url: x.url, task: false })),
-      ...(d?.tasks ?? []).map(x => ({ title: x.title, sub: x.source, due: x.due, url: x.url, task: true })),
+      ...(d?.tasks ?? []).filter(x => !withTasks || !fromTaskApp(x)).map(x => ({ title: x.title, sub: x.source, due: x.due, url: x.url, task: true })),
     ].map(x => ({ ...x, key: itemKey({ course: x.sub, item: x.title }), late: /\boverdue\b/i.test(x.title) || (parseDue(x.due)?.getTime() ?? Infinity) < Date.now() }))
       .filter(x => !done.has(x.key))
       .sort((a, b) => (b.late - a.late) || ((parseDue(a.due)?.getTime() ?? 9e15) - (parseDue(b.due)?.getTime() ?? 9e15)));
@@ -129,6 +175,40 @@ export function createWidgets(store, ctx) {
           h("span", { class: "w-title one" }, x.title)),
         w.size === "M" ? h("span", { class: "w-due-when" }, dueLabel(x.due)) : null)),
       items.length > shown.length ? h("span", { class: "w-more" }, `+${items.length - shown.length} more`) : null);
+  }
+
+  function tasksBody(w) {
+    const t = s.tasks;
+    if (!t.data && !dash() && (t.loading || !s.ready || !t.at)) return loadingSkel();
+    const rows = taskRows(t.data, dash()?.tasks, { done: new Set(load(DONE_KEY, [])), completing: t.completing });
+    const err = t.lastError ? h("span", { class: "w-task-err", role: "status" }, `Couldn't complete: ${t.lastError}`) : null;
+    if (!rows.length) {
+      const anyApp = (t.data?.servers ?? []).length > 0 || (dash()?.tasks ?? []).some(x => x.kind === "app");
+      return h("div", { class: "w-col" }, empty(anyApp ? "No open tasks. Nice." : "No task app connected"),
+        anyApp ? err : h("button", { type: "button", class: "b-link w-action", onclick: () => actions.go("tools") }, "Connect one ›"));
+    }
+    const tick = r => h("button", { type: "button", class: "w-tick", title: r.local ? "Hide (done)" : `Mark done in ${r.source}`, aria: { label: `Mark “${r.title}” done` }, onclick: e => {
+      e.stopPropagation();
+      if (r.local) { const set = new Set(load(DONE_KEY, [])); set.add(r.key); save(DONE_KEY, [...set]); render(); }
+      else actions.completeTask(r.server, r.id);
+      live.textContent = `Marked ${r.title} done`;
+    } });
+    const meta = r => [r.source, r.due ? dueLabel(r.due) : ""].filter(Boolean).join(" · ");
+    const openRow = r => open(r.url, `Help me with my task “${r.title}”${r.source ? ` (${r.source})` : ""}`);
+    if (w.size === "S") {
+      const top = rows[0];
+      return h("div", { class: "w-col" },
+        h("span", { class: "w-big" }, String(rows.length), h("small", null, " open")),
+        h("div", { class: ["w-due-row", "w-task-top", top.late && "late"] }, tick(top),
+          h("button", { type: "button", class: "w-due-text", title: [top.title, meta(top)].join(" · "), onclick: () => openRow(top) },
+            h("span", { class: "w-title one" }, top.title), h("span", { class: "w-sub" }, meta(top)))), err);
+    }
+    const shown = rows.slice(0, rows.length > 4 ? 3 : 4); // four rows fill the tile; with more, three and "+N more"
+    return h("div", { class: "w-list tight w-tasks" },
+      shown.map(r => h("div", { class: ["w-due-row", r.late && "late"] }, tick(r),
+        h("button", { type: "button", class: "w-due-text", title: [r.title, meta(r)].join(" · "), onclick: () => openRow(r) }, h("span", { class: "w-title one" }, r.title)),
+        h("span", { class: "w-task-meta" }, r.source ? h("span", { class: "w-task-src" }, r.source) : null, r.due ? h("span", { class: "w-due-when" }, dueLabel(r.due)) : null))),
+      err ?? (rows.length > shown.length ? h("span", { class: "w-more" }, `+${rows.length - shown.length} more`) : null));
   }
 
   function mail(w) {
@@ -223,7 +303,7 @@ export function createWidgets(store, ctx) {
       return h("div", { class: "w-col" }, h("div", { class: "w-links" }, tiles),
         h("div", { class: "w-link-add" }, input, recent.map(t => h("button", { type: "button", class: "w-link-sugg", title: `Add ${t.title}`, onclick: () => add(t.url, t.title, t.favIconUrl) }, favicon(t.url, t.favIconUrl), "+"))));
     }
-    if (!list.length) return empty("Customize to add your sites");
+    if (!list.length) return empty("Edit widgets to add your sites");
     return h("div", { class: "w-links" }, tiles);
   }
 
@@ -242,7 +322,7 @@ export function createWidgets(store, ctx) {
     return h("div", { class: "w-list" }, list.map(t => h("button", { type: "button", class: "w-ask", onclick: () => ctx.ask(stripAsk(t)) }, icon("sparkle"), h("span", { class: "one" }, stripAsk(t)))));
   }
 
-  const BODY = { next: nextUp, due: dueSoon, mail, language, github, clock, chats, links, note, ask };
+  const BODY = { next: nextUp, due: dueSoon, tasks: tasksBody, mail, language, github, clock, chats, links, note, ask };
 
   // ---- rendering --------------------------------------------------------
 
@@ -250,10 +330,17 @@ export function createWidgets(store, ctx) {
     const type = TYPES[w.type];
     const needsData = type.data && !dash();
     const body = needsData ? (s.dashboard.loading || !s.ready ? loadingSkel() : empty("Not available yet")) : BODY[w.type](w);
-    const updated = type.data && dash()?.generatedAt ? `updated ${relTime(dash().generatedAt)}` : w.type === "github" && s.github.data?.fetchedAt ? `updated ${relTime(s.github.data.fetchedAt)}` : "";
+    const fetched = { github: s.github.data?.fetchedAt, tasks: s.tasks.data?.fetchedAt ?? dash()?.generatedAt }[w.type];
+    const updated = type.data && dash()?.generatedAt ? `updated ${relTime(dash().generatedAt)}` : fetched ? `updated ${relTime(fetched)}` : "";
     const node = h("div", { class: ["widget", `wt-${w.type}`, `size-${w.size}`], role: "listitem", dataset: { id: w.id }, aria: { label: type.name } },
       h("div", { class: "w-head" }, h("span", { class: "w-label" }, type.name), updated ? h("span", { class: "w-updated" }, updated) : null),
       h("div", { class: "w-body" }, body));
+    // Right-click a widget to edit the layout (text fields keep their own menu).
+    node.addEventListener("contextmenu", e => {
+      if (editing || e.target.closest?.("input, textarea") || !onEdit) return;
+      e.preventDefault();
+      onEdit();
+    });
     if (editing) {
       const handle = h("button", { type: "button", class: "w-handle", title: "Drag to move (or use the arrow keys)", aria: { label: `Move ${type.name}, position ${index + 1} of ${layout.length}` } }, icon("grip"));
       handle.addEventListener("keydown", e => {
@@ -279,11 +366,13 @@ export function createWidgets(store, ctx) {
 
   function render() {
     if (layout.some(w => w.type === "github") && s.ready && !s.github.loading && Date.now() - s.github.at > 5 * 60_000) actions.loadGithub();
+    if (layout.some(w => w.type === "tasks") && s.ready && !s.tasks.loading && Date.now() - s.tasks.at > 5 * 60_000) actions.loadTasks();
     const nodes = layout.map((w, i) => tile(w, i));
     if (editing) nodes.push(h("button", { type: "button", class: "widget add-tile size-S", aria: { haspopup: "dialog", expanded: String(pickerOpen) }, onclick: () => togglePicker() }, icon("plus"), h("span", null, "Add widget")));
     clear(grid, nodes);
     el.classList.toggle("editing", editing);
     el.hidden = !editing && !layout.length;
+    editLink.hidden = editing || !layout.length;
     renderPicker();
   }
 
@@ -375,8 +464,9 @@ export function createWidgets(store, ctx) {
       if (topics.has("settings") || topics.has("state")) {
         const next = readLayout();
         if (JSON.stringify(next) !== JSON.stringify(layout) && Array.isArray(s.settings?.homeWidgets)) layout = next;
+        addTasksOnce();
       }
-      if (["dashboard", "settings", "state", "conversations", "space", "tabs", "github"].some(t => topics.has(t))) {
+      if (["dashboard", "settings", "state", "conversations", "space", "tabs", "github", "tasks"].some(t => topics.has(t))) {
         if (!typingInside() && !dragging) render();
       }
     },

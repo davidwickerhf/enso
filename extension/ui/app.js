@@ -181,7 +181,7 @@ function bootApp() {
       if (v !== "home") right.append(iconButton("plus", `New chat (${MOD}N)`, newChat));
       if (v === "home") {
         const editing = view("home").editing;
-        right.append(iconButton("layout", editing ? "Done customizing" : "Customize your new tab", () => view("home").customize(), { aria: { pressed: String(!!editing) } }));
+        right.append(iconButton("layout", editing ? "Done editing widgets" : "Edit widgets", () => view("home").customize(), { aria: { pressed: String(!!editing) } }));
       }
       right.append(
         iconButton("history", "History", () => actions.go("history")),

@@ -12,7 +12,7 @@ import { isReadOnlyTool } from "./tools-meta.mjs";
 const item = props => ({ type: "object", additionalProperties: false, required: Object.keys(props).filter(k => !k.endsWith("?")), properties: Object.fromEntries(Object.entries(props).map(([k, v]) => [k.replace("?", ""), v])) });
 const str = { type: "string" };
 
-const SCHEMA = {
+export const SCHEMA = {
   type: "object",
   additionalProperties: false,
   required: ["greeting", "headline", "calendar", "mail", "study", "tasks", "language", "suggestions"],
@@ -22,18 +22,22 @@ const SCHEMA = {
     calendar: { type: "array", items: item({ time: str, title: str, "location?": str, "url?": str }) },
     mail: { type: "array", items: item({ from: str, subject: str, why: str, "url?": str }) },
     study: { type: "array", items: item({ course: str, item: str, "due?": str, "url?": str }) },
-    tasks: { type: "array", items: item({ title: str, "due?": str, source: str, "url?": str }) },
+    // kind "app": an open task in a task app (source = the app); "follow-up": something that came out of mail, calendar, study or GitHub.
+    tasks: { type: "array", items: item({ title: str, "due?": str, source: str, "url?": str, "kind?": { type: "string", enum: ["app", "follow-up"] } }) },
     language: { anyOf: [item({ summary: str, "url?": str }), { type: "null" }] },
     suggestions: { type: "array", items: str, maxItems: 4 },
   },
 };
 
-const PROMPT = () => `Prepare my Home dashboard for right now. Use my connected tools, read-only, and skip any that aren't connected:
+export const PROMPT = () => `Prepare my Home dashboard for right now. Use my connected tools, read-only, and skip any that aren't connected:
 - Calendar: today's remaining events and tomorrow morning (all my calendars), with times in ${timeZone()}.
 - Mail: mail from the last two days that needs a reply or action from me (skip newsletters, receipts and notifications); say in a few words why each matters. Link each message.
 - Study (only if I have course or study tools connected): what is due or planned this week.
 - Language practice (only if I have a language-learning tool connected): my review or practice status in one line; otherwise null.
-- Tasks: concrete follow-ups that came out of the above (sources: mail, calendar, study, or another tool).
+- Tasks, two kinds:
+  1. Open tasks from any connected task app: call each tool that lists tasks or to-dos (named like list_tasks, tasks, todos or get_tasks; e.g. Commonfold, Todoist, Linear, Things, or a Notion task database), for today, overdue and upcoming. Use kind "app", source = the app's name (e.g. "Commonfold", "Todoist"), the due date as YYYY-MM-DD when it has one, and the task's link as url when known. Leave out completed tasks.
+  2. Concrete follow-ups that came out of the above: kind "follow-up", source = where it came from (mail, calendar, study, or another tool).
+  List each task once: if a follow-up is already an open task in an app, keep only the app task.
 Then a greeting (time of day, my first name if you know it), a one-line headline on what matters most today, and up to four short prompts I might want to ask you next. Keep every field short. Leave a section empty rather than guessing.`;
 
 let running = null;

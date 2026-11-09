@@ -5,7 +5,7 @@
 import { config } from "./config.mjs";
 import { browserSideToolByName } from "./toolset.mjs";
 
-const READ = /(^|_)(get|list|search|read|find|query|fetch|recall|lookup|view|show|describe|status|count|download|whoami|overview|guidance|due|progress|insights|history|sources|sections|text|entry|outline|module|vocab|grammar|briefing|readiness|calendar|state|memory|reviews|decks|words|suggest|check|inspect|explain|compare|preview|export)(_|$)/i;
+const READ = /(^|_)(get|list|search|read|find|query|fetch|recall|lookup|view|show|describe|status|count|download|whoami|overview|guidance|due|progress|insights|history|sources|sections|text|entry|outline|module|vocab|grammar|briefing|readiness|calendar|state|memory|reviews|decks|words|suggest|check|inspect|explain|compare|preview|export|tasks|todos)(_|$)/i;
 const WRITE = /(^|_)(create|update|delete|send|trash|remove|write|set|add|move|share|mark|label|unlabel|reply|forward|apply|edit|submit|post|rename|copy|upload|cancel|sync|respond|connect|disconnect|mutate|run|deploy|restore|reset|rotate|revoke|install|record|forget|remember|generate|import|publish|purchase|buy|approve|accept|pause|start|stop|enable|disable|provision|transfer|invalidate|patch|put|replace|complete|draft)(_|$)/i;
 
 export function isReadOnlyTool(toolName) {
