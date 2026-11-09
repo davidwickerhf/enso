@@ -1,0 +1,1 @@
+Screenshots shown in pull requests, one folder per PR (scripts/pr-screenshots.sh). Never merged.
