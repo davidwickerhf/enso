@@ -1,0 +1,141 @@
+# Release workflow for the Ensō extension + helper repository.
+# Copy to .github/workflows/release.yml in that repo.
+#
+# On a version tag (v0.3.0), it:
+#   1. checks that the tag matches the extension's manifest version, lints the
+#      extension with web-ext and syntax-checks the helper;
+#   2. signs the extension through addons.mozilla.org as an *unlisted*
+#      (self-distributed) add-on, with update_url pointing at enso.wicker.life;
+#   3. builds the helper tarball (production node_modules included);
+#   4. publishes both to the site (PUT /api/releases/:kind/:version), which
+#      updates /updates.json, /api/latest and the install script's download,
+#      and attaches them to a GitHub release.
+#
+# Repository secrets:
+#   AMO_JWT_ISSUER, AMO_JWT_SECRET  addons.mozilla.org API credentials
+#                                   (https://addons.mozilla.org/developers/addon/api/key/)
+#   ENSO_RELEASE_TOKEN              same value as RELEASE_TOKEN on the site (Coolify env)
+#
+# Paths below match the current layout (chat/extension, chat/host); change
+# EXTENSION_DIR / HELPER_DIR if the repo is reorganised.
+
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing tag to (re)publish, e.g. v0.3.0
+        required: true
+
+permissions:
+  contents: write
+
+env:
+  EXTENSION_DIR: chat/extension
+  HELPER_DIR: chat/host
+  SITE: https://enso.wicker.life
+  UPDATE_URL: https://enso.wicker.life/updates.json
+  STRICT_MIN_VERSION: '139.0'
+
+jobs:
+  release:
+    # macOS, so the helper's platform-specific optional dependencies (for
+    # example the Claude Agent SDK's native binaries) are the darwin ones.
+    # This runner is Apple silicon; check Intel support before advertising it.
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Read and check the version
+        id: version
+        run: |
+          TAG="${{ github.event.inputs.tag || github.ref_name }}"
+          VERSION="${TAG#v}"
+          MANIFEST_VERSION="$(node -p "require('./$EXTENSION_DIR/manifest.json').version")"
+          if [ "$VERSION" != "$MANIFEST_VERSION" ]; then
+            echo "::error::Tag $TAG does not match manifest version $MANIFEST_VERSION"
+            exit 1
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Prepare the extension (inject update_url)
+        run: |
+          rm -rf build/extension && mkdir -p build && cp -R "$EXTENSION_DIR" build/extension
+          node -e '
+            const fs = require("fs");
+            const file = "build/extension/manifest.json";
+            const m = JSON.parse(fs.readFileSync(file, "utf8"));
+            m.browser_specific_settings ??= {};
+            m.browser_specific_settings.gecko ??= {};
+            m.browser_specific_settings.gecko.update_url = process.env.UPDATE_URL;
+            fs.writeFileSync(file, JSON.stringify(m, null, 2) + "\n");
+            console.log("add-on id:", m.browser_specific_settings.gecko.id, "update_url:", process.env.UPDATE_URL);
+          '
+
+      - name: Lint the extension
+        run: npx --yes web-ext@8 lint --source-dir build/extension --self-hosted
+
+      - name: Check the helper
+        working-directory: ${{ env.HELPER_DIR }}
+        run: |
+          npm ci
+          for f in host.mjs lib/*.mjs; do node --check "$f"; done
+
+      - name: Sign the extension (unlisted, self-distributed)
+        env:
+          WEB_EXT_API_KEY: ${{ secrets.AMO_JWT_ISSUER }}
+          WEB_EXT_API_SECRET: ${{ secrets.AMO_JWT_SECRET }}
+        run: |
+          npx --yes web-ext@8 sign \
+            --channel unlisted \
+            --source-dir build/extension \
+            --artifacts-dir dist \
+            --timeout 900000
+          XPI="$(ls dist/*.xpi | head -1)"
+          test -n "$XPI"
+          mv "$XPI" "dist/enso-${{ steps.version.outputs.version }}.xpi"
+
+      - name: Build the helper tarball
+        run: |
+          V="${{ steps.version.outputs.version }}"
+          rm -rf build/helper && mkdir -p build/helper
+          rsync -a --exclude node_modules --exclude run.sh --exclude '.DS_Store' "$HELPER_DIR/" build/helper/
+          (cd build/helper && npm ci --omit=dev --no-audit --no-fund)
+          echo "$V" > build/helper/VERSION
+          tar -czf "dist/enso-helper-$V-darwin.tar.gz" -C build helper
+          shasum -a 256 dist/*
+
+      - name: Publish to enso.wicker.life
+        env:
+          ENSO_RELEASE_TOKEN: ${{ secrets.ENSO_RELEASE_TOKEN }}
+        run: |
+          V="${{ steps.version.outputs.version }}"
+          publish() { # publish <kind> <file> [query]
+            curl --fail-with-body -sS -X PUT \
+              -H "Authorization: Bearer $ENSO_RELEASE_TOKEN" \
+              -H "Content-Type: application/octet-stream" \
+              --data-binary "@$2" \
+              "$SITE/api/releases/$1/$V$3"
+            echo
+          }
+          publish extension "dist/enso-$V.xpi" "?strict_min_version=$STRICT_MIN_VERSION"
+          publish helper "dist/enso-helper-$V-darwin.tar.gz"
+          curl -fsS "$SITE/api/latest"
+
+      - name: GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          V="${{ steps.version.outputs.version }}"
+          gh release view "v$V" >/dev/null 2>&1 \
+            && gh release upload "v$V" dist/* --clobber \
+            || gh release create "v$V" dist/* --title "Ensō $V" --generate-notes
