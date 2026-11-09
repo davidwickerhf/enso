@@ -1,22 +1,22 @@
 # Hosting: enso-site (enso.wicker.life)
 
-Status: **not deployed yet.** This describes what to create on wicker-01, following [wicker-infra](https://github.com/davidwickerhf/wicker-infra) (`AGENTS.md`, `docs/apps.md`, `docs/coolify.md`, `docs/databases.md`, `docs/storage.md`, `docs/mail.md`, `docs/auth.md`, `docs/dns-domains.md`, `docs/gotchas.md`). Once it is live, fill in the uuids below and add the app to wicker-infra's `docs/apps.md`.
+Status: **live since 2026-11-09** at https://enso.wicker.life. This describes what was created on wicker-01, following [wicker-infra](https://github.com/davidwickerhf/wicker-infra) (`AGENTS.md`, `docs/apps.md`, `docs/coolify.md`, `docs/databases.md`, `docs/storage.md`, `docs/mail.md`, `docs/auth.md`, `docs/dns-domains.md`, `docs/gotchas.md`). The app is listed in wicker-infra's `docs/apps.md`.
 
 ## Overview
 
 | | |
 |---|---|
-| Coolify app uuid | *(after creation)* |
+| Coolify app uuid | `ci9bhbdmovlobdhe2tboo0rv` (name `enso-site`) |
 | Coolify project | Personal (`yzzzxoeygijivcpdwggvphu0`) |
 | Build pack | Dockerfile (repo root: SvelteKit adapter-node on `node:24-slim`) |
 | Port | 3000 |
 | Deploy branch | `main` (auto-deploy through the Coolify GitHub App `huliejufyuharbrgw3jz6lty`) |
 | Services | one container: migrates, then serves (`scripts/start.sh`). Run **one replica**: rate limits are in memory |
-| Health check | `GET /api/health` (200 `{"ok":true}` when the DB answers; also a Dockerfile `HEALTHCHECK`) |
+| Health check | `GET /api/health` (200 `{"ok":true}` when the DB answers), run by the Dockerfile `HEALTHCHECK`. Coolify's own health check is **off**: it runs `curl`/`wget` inside the container, and `node:24-slim` has neither, so every deploy rolled back. With it off, Coolify waits on the Dockerfile check instead |
 | Domains | https://enso.wicker.life, preview/debug https://enso.c.wicker.life |
 | Database | postgres-main / `enso` |
 | Object storage | `wicker-01-private/enso/sync/…` (encrypted blobs), `wicker-01-assets/enso/releases/…` (public release files) |
-| Mail | Stalwart, `noreply@enso.wicker.life` via `SMTP_URL` |
+| Mail | Stalwart (domain id `h`), `noreply@enso.wicker.life` via `SMTP_URL` |
 | Umami website id | *(optional, create one in Umami)* |
 
 ## What to create
@@ -24,7 +24,7 @@ Status: **not deployed yet.** This describes what to create on wicker-01, follow
 ### 1. DNS (Hetzner DNS, zone `wicker.life`)
 
 - `enso` A → `195.201.108.244` (TTL 300).
-- `enso.c` for the preview hostname: check whether `dig enso.c.wicker.life` already resolves (wildcard); if not, add an A record → `195.201.108.244` too.
+- `enso.c` for the preview hostname needs no record: the zone has a `*.c` wildcard A → `195.201.108.244`.
 - Add the domain in Coolify **after** it resolves; if the certificate failed anyway, `docker restart coolify-proxy`.
 - Don't touch the BISS records (`citations`, `api`, `test-api`).
 
@@ -55,18 +55,19 @@ Without S3 vars the app stores bytes in Postgres (`objects` table). That is for 
 
 ### 4. Mail (Stalwart, see wicker-infra `docs/mail.md`)
 
-- Create Stalwart domain `enso.wicker.life` (next free id) and sender account `noreply@enso.wicker.life`; store the password in Keychain as "Stalwart SMTP noreply@enso.wicker.life".
-- DNS: MX `10 mail.wicker.life` and SPF `v=spf1 a:mail.wicker.life -all` on `enso`. Stalwart publishes DKIM/DMARC itself.
+- Create Stalwart domain `enso.wicker.life` (it got id `h`) and sender account `noreply@enso.wicker.life`; store the password in Keychain as "Stalwart SMTP noreply@enso.wicker.life".
+- DNS: MX `10 mail.wicker.life` and SPF `v=spf1 a:mail.wicker.life -all` on `enso`. Stalwart publishes DKIM, DMARC (`p=reject`) and TLS-RPT itself once the domain exists with DNS management Automatic (DNS server `jloecwikaaqa`, origin `wicker.life`).
 - Mailbox `hello@enso.wicker.life` with aliases support, privacy, security, legal, contact, postmaster, abuse (these addresses appear on the site and in the privacy policy).
 - `SMTP_URL=smtps://noreply%40enso.wicker.life:<password>@mail.wicker.life:465`.
-- **Outbound status:** wicker-infra notes the Stalwart outbound switch is still pending. If you have to bridge through Resend meanwhile, mail leaves the EU and the sender must be `noreply@wicker.life`; update `EMAIL_FROM` and the "Where data is stored" section of `content/privacy.md` before doing that.
+- **Outbound:** wicker-01's outbound port 25 is open, so enso sends straight through Stalwart (no Resend bridge, mail stays on the server until it reaches the recipient's provider). Keychain: "Stalwart mailbox hello@enso.wicker.life" for the inbox.
+- Stalwart's file log directory doesn't exist on wicker-01, so there is no delivery log. Check a send with the queue (`x:QueuedMessage/get` via wicker-infra `scripts/stw.sh`, empty = handed off) and bounces in the `noreply@` inbox.
 - Without `SMTP_URL` in production the app refuses to send (it would otherwise log sign-in links).
 
 ### 5. Coolify application
 
 - New resource → Public/Private repo (GitHub App) → `davidwickerhf/enso-site`, branch `main`, build pack **Dockerfile**, port 3000.
 - Domains: `https://enso.wicker.life,https://enso.c.wicker.life`.
-- Health check path `/api/health`.
+- Health check: leave Coolify's health check **disabled** (see Overview); the Dockerfile `HEALTHCHECK` covers `/api/health`. If you enable it, the image needs curl or wget first.
 - Environment variables (names only; values per the sections above):
 
 | Name | Notes |
@@ -78,14 +79,14 @@ Without S3 vars the app stores bytes in Postgres (`objects` table). That is for 
 | `BETTER_AUTH_URL` | optional, defaults to `PUBLIC_URL` |
 | `SMTP_URL` | Stalwart sender |
 | `EMAIL_FROM` | optional, default `Ensō <noreply@enso.wicker.life>` |
-| `RELEASE_TOKEN` | random 32+ chars; the same value goes into the extension repo's `ENSO_RELEASE_TOKEN` secret |
-| `EXTENSION_IDS` | optional, default `zen-chat@wicker.life`; comma-separated when the add-on id changes (list new and old) |
+| `RELEASE_TOKEN` | random 32+ chars; copy in Keychain (generic password, service `enso-release-token`, account `davidwickerhf`); the same value goes into the extension repo's `ENSO_RELEASE_TOKEN` secret |
+| `EXTENSION_IDS` | optional, default `zen-chat@wicker.life`; comma-separated when the add-on id changes (list new and old). Production: `zen-chat@wicker.life,enso@wicker.life` |
 | `S3_ENDPOINT`, `S3_REGION`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, `S3_PRIVATE_BUCKET`, `S3_PUBLIC_BUCKET`, `S3_PUBLIC_BASE_URL` | via `scripts/s3-env.py` |
 | `S3_PREFIX` | optional, default `enso` |
 | `SYNC_QUOTA_BYTES`, `SYNC_MAX_BLOB_BYTES`, `SYNC_RATE_LIMIT_PER_MINUTE`, `RELEASE_MAX_BYTES` | optional limits (defaults 1 GiB, 16 MiB, 300, 200 MiB) |
 | `PUBLIC_UMAMI_WEBSITE_ID` | optional; enables cookieless page-view counting (never on `/account`) |
 
-All of these are runtime variables (nothing is read at build time), so changing one needs a **restart**, not a redeploy. The Dockerfile already sets `NODE_ENV`, `PORT`, `PROTOCOL_HEADER`/`HOST_HEADER` (public origin from Traefik's forwarded headers, so both domains work), `ADDRESS_HEADER` and `BODY_SIZE_LIMIT`.
+Coolify adds a preview-scoped copy of each variable automatically (previews are off, so they're unused). All of these are runtime variables (nothing is read at build time), so changing one needs a **restart**, not a redeploy. The Dockerfile already sets `NODE_ENV`, `PORT`, `PROTOCOL_HEADER`/`HOST_HEADER` (public origin from Traefik's forwarded headers, so both domains work), `ADDRESS_HEADER` and `BODY_SIZE_LIMIT`.
 
 ## How deploys happen
 
@@ -113,17 +114,17 @@ Public endpoints: `/updates.json` (Firefox update manifest), `/api/latest`, `/re
 
 ## First-deploy checklist
 
-1. [ ] DNS `enso` A record resolves to 195.201.108.244.
-2. [ ] Role/database `enso` on postgres-main; password in `/root/.pgpass-enso`; backup schedule added.
-3. [ ] Stalwart domain, `noreply@` sender, `hello@` mailbox and aliases, MX + SPF; test mail delivered.
-4. [ ] GitHub repo `davidwickerhf/enso-site` pushed; CI green.
-5. [ ] Coolify app created (Dockerfile, port 3000, both domains, health check `/api/health`), env vars set, S3 vars pushed.
-6. [ ] First deploy: logs show `migrate: applying 001_init.sql` then `Listening on http://0.0.0.0:3000`.
-7. [ ] `curl https://enso.wicker.life/api/health` → `{"ok":true,"db":"ok","storage":"s3"}`.
+1. [x] DNS `enso` A record resolves to 195.201.108.244.
+2. [x] Role/database `enso` on postgres-main; password in `/root/.pgpass-enso`; backup schedule added.
+3. [x] Stalwart domain, `noreply@` sender, `hello@` mailbox and aliases, MX + SPF; a sign-in mail was accepted and handed off (2026-11-09). Confirm it arrived in the inbox.
+4. [x] GitHub repo `davidwickerhf/enso-site` pushed; CI green.
+5. [x] Coolify app created (Dockerfile, port 3000, both domains, Coolify health check off so the Dockerfile `HEALTHCHECK` on `/api/health` applies), env vars set, S3 vars pushed.
+6. [x] First deploy: logs show `migrate: applying 001_init.sql` then `Listening on http://0.0.0.0:3000`.
+7. [x] `curl https://enso.wicker.life/api/health` → `{"ok":true,"db":"ok","storage":"s3"}`.
 8. [ ] Sign up on `/account` with a real address; the email arrives from `noreply@enso.wicker.life`; the link signs you in. (Sign-in links always point at `PUBLIC_URL`, so test on the real domain, not `enso.c.wicker.life`.)
 9. [ ] Create a device token by hand, `PUT`/`GET` a test blob with it, check the object appears under `wicker-01-private/enso/sync/`, then delete the account and check it is gone.
 10. [ ] Set `ENSO_RELEASE_TOKEN`, `AMO_JWT_ISSUER`, `AMO_JWT_SECRET` in the extension repo; tag a release; `/api/latest` lists it and `/updates.json` has its sha256.
 11. [ ] Run the installer on a Mac: `curl -fsSL https://enso.wicker.life/install.sh | bash`.
 12. [ ] Optional: Umami website, `PUBLIC_UMAMI_WEBSITE_ID`, restart.
 13. [ ] Check that request-log retention on the server matches the privacy policy (at most 30 days).
-14. [ ] Add the app to wicker-infra `docs/apps.md`, `docs/coolify.md`, `docs/databases.md` and `docs/mail.md`.
+14. [x] Add the app to wicker-infra `docs/apps.md`, `docs/coolify.md`, `docs/databases.md` and `docs/mail.md` (wicker-infra PR #3).
