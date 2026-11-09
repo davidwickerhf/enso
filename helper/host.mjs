@@ -21,6 +21,7 @@ import { MCP_PORT, mcpListening, setOAuthRoute, startMcpServer } from "./lib/mcp
 import * as store from "./lib/store.mjs";
 import { config, configError, LOCAL_CONFIG } from "./lib/config.mjs";
 import { listSpaces } from "./lib/zenspaces.mjs";
+import { createTaskSources } from "./lib/tasks.mjs";
 
 store.setDefaults(config.defaults);
 if (configError) log(configError);
@@ -358,6 +359,49 @@ async function refreshGithub(fresh = false) {
   }
 }
 
+// ---------- tasks (new-tab Tasks widget: lib/tasks.mjs) ----------
+
+// Enabled, connected http servers that list_tasks, which the helper can call itself
+// (claude.ai connectors can't be: their tasks come through the dashboard run).
+const tasks = createTaskSources({
+  log,
+  candidates: async () => {
+    const defs = await externalServers();
+    return Object.entries(defs)
+      .filter(([name, def]) => def.url && (def.type ?? "http") === "http" && serverStatus.find(s => s.name === name)?.toolNames?.includes("list_tasks"))
+      .map(([name, def]) => ({ name, label: serverStatus.find(s => s.name === name)?.label ?? name, def }));
+  },
+});
+
+async function sendTasks(fresh) {
+  try {
+    send({ type: "tasks", data: await tasks.widget({ fresh }) });
+  } catch (err) {
+    send({ type: "tasks", error: String(err.message ?? err).slice(0, 300) });
+  }
+}
+
+/** The user ticked a task in the widget: complete it at its app (an explicit click, so no approval), log it, refresh. */
+async function completeTask({ server, id }) {
+  const task = tasks.cached?.tasks.find(t => t.server === server && t.id === id);
+  let ok = true;
+  let error;
+  try {
+    await tasks.complete({ server, id });
+  } catch (err) {
+    ok = false;
+    error = String(err.message ?? err).slice(0, 200);
+    log(`complete task on ${server}:`, error);
+  }
+  let host = "";
+  try {
+    host = new URL(task?.url ?? "").host;
+  } catch {}
+  store.logAction({ id: store.newId(), at: store.now(), conversationId: null, source: "Tasks widget", url: task?.url ?? "", title: task?.source ?? server, host, action: "complete_task", target: task?.title ?? id, ok });
+  send({ type: "tasks.completed", server, id, ok, ...(error ? { error } : {}) });
+  await sendTasks(true);
+}
+
 // ---------- dashboard ----------
 
 async function dashboard(force) {
@@ -534,6 +578,12 @@ async function handle(msg) {
       } catch (err) {
         send({ type: "github", error: String(err.message ?? err).slice(0, 300) });
       }
+      break;
+    case "tasks.widget":
+      await sendTasks(!!msg.force);
+      break;
+    case "tasks.complete":
+      await completeTask({ server: String(msg.server ?? ""), id: String(msg.id ?? "") });
       break;
     case "github.token":
       try {

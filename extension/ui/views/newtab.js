@@ -1,5 +1,5 @@
 // Minimal new-tab home: the ensō mark, one box for search and chat, a quiet
-// "Your tools" strip, and optional widgets the user adds via Customize.
+// "Your tools" strip, and optional widgets the user adds and edits in place.
 
 import { h, icon, clear, iconButton, hostBadge } from "../dom.js";
 import { createWidgets } from "./widgets.js";
@@ -12,10 +12,11 @@ export function createNewtabHome(store, ctx) {
   const heroSlot = h("div", { class: "hero-slot" });
   const tools = h("div", { class: "tools-strip", role: "group", aria: { label: "Your tools" } });
   const mark = h("div", { class: "enso-mark", aria: { hidden: "true" } }, icon("enso"));
-  const widgets = createWidgets(store, ctx);
+  // "Edit widgets" under the grid and right-click on a widget open edit mode too.
+  const widgets = createWidgets(store, ctx, { onEdit: () => { if (!widgets.editing) customize(); } });
   const addHint = h("button", { type: "button", class: "add-widgets-hint", onclick: () => customize() }, icon("plus"), "Add widgets");
   const editBar = h("div", { class: "edit-bar", hidden: true },
-    h("span", null, "Customize your new tab"),
+    h("span", null, "Editing widgets: drag to reorder, S/M to resize"),
     h("button", { type: "button", class: "btn small primary", onclick: () => done() }, "Done"));
   const el = h("section", { class: "nt-home", aria: { label: "New tab" } },
     h("div", { class: "nt-center" }, mark, h("h1", { class: "visually-hidden" }, "Ensō"), heroSlot, tools, addHint, editBar, widgets.el));
