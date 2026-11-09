@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en" data-mode="newtab">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <title>New Tab</title>
+  <link rel="icon" type="image/svg+xml" href="icons/enso.svg">
+  <!-- First frame, drawn before the stylesheet and app load, so a new tab never flashes white.
+       ui/app.js removes #boot once it has rendered. Keep in step with ui/app.css (.nt-center, .enso-mark, hero composer). -->
+  <style>
+    html, body { margin: 0; background: #f7f5f2; color: #24201c; }
+    @media (prefers-color-scheme: dark) { html, body { background: #1b1916; color: #ede8e1; } #boot .box { background: #24211e; border-color: rgba(255,240,220,.085); } #boot .ph { color: #7f776d; } }
+    #boot { position: fixed; inset: 48px 0 0; display: flex; justify-content: center; pointer-events: none; }
+    #boot .center { width: min(680px, calc(100% - 48px)); margin-top: max(10vh, calc(50vh - 210px)); display: flex; flex-direction: column; align-items: stretch; }
+    #boot svg { align-self: center; width: 64px; height: 64px; margin: 4px 0 28px; opacity: .9; }
+    #boot .box { background: #fffefc; border: 1px solid rgba(64,48,32,.11); border-radius: 18px; height: 88px; box-shadow: 0 1px 2px rgba(40,28,16,.05), 0 10px 30px -12px rgba(40,28,16,.18); }
+    #boot .ph { font: 14.5px/1.5 -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif; color: #938a80; padding: 14px 0 0 46px; }
+  </style>
+  <link rel="stylesheet" href="ui/app.css">
+  <script type="module" src="ui/app.js"></script>
+</head>
+<body>
+  <div id="boot" aria-hidden="true">
+    <div class="center">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.6" stroke-linecap="round"><path d="M16.6 8.1A6 6 0 1 1 13.6 6.2"/></svg>
+      <div class="box"><div class="ph">Ask anything…</div></div>
+    </div>
+  </div>
+</body>
+</html>

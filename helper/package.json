@@ -1,0 +1,21 @@
+{
+  "name": "enso-helper",
+  "version": "0.5.0",
+  "private": true,
+  "type": "module",
+  "description": "Ensō helper: the native messaging host for the Ensō extension (Claude + your MCP servers)",
+  "main": "host.mjs",
+  "engines": {
+    "node": ">=18.17"
+  },
+  "scripts": {
+    "start": "node host.mjs",
+    "test": "node test/run.mjs"
+  },
+  "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "^0.3.319",
+    "@anthropic-ai/sdk": "^1.6.0",
+    "@modelcontextprotocol/sdk": "^1.32.2",
+    "zod": "^4.6.7"
+  }
+}

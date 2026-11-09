@@ -1,0 +1,61 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    # macOS: the helper reads the macOS Keychain and Zen's session files, and
+    # its Keychain tests use the runner's login keychain.
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: helper/package-lock.json
+
+      - name: Syntax-check every module
+        run: |
+          status=0
+          for f in $(git ls-files '*.mjs' '*.js'); do
+            node --input-type=module --check < "$f" || { echo "::error file=$f::syntax error"; status=1; }
+          done
+          bash -n scripts/install.sh scripts/dev.sh scripts/pack-helper.sh || status=1
+          exit $status
+
+      - name: Check the manifest
+        run: |
+          node -e '
+            const m = require("./extension/manifest.json");
+            const id = m.browser_specific_settings?.gecko?.id;
+            if (id !== "enso@wicker.life") { console.error(`::error::extension id is ${id}, expected enso@wicker.life`); process.exit(1); }
+            const pkg = require("./helper/package.json");
+            if (pkg.version !== m.version) { console.error(`::error::helper/package.json ${pkg.version} != manifest ${m.version}`); process.exit(1); }
+            console.log(`Ensō ${m.version} (${id})`);
+          '
+
+      - name: Lint the extension
+        run: npx --yes web-ext@8 lint --source-dir extension --self-hosted
+
+      - name: Install helper dependencies
+        working-directory: helper
+        run: npm ci --omit=optional --no-audit --no-fund
+
+      - name: Helper tests
+        working-directory: helper
+        run: npm test
+
+      - name: Helper tarball size
+        run: |
+          scripts/pack-helper.sh "$(node -p 'require("./helper/package.json").version')" dist
+          size=$(stat -f %z dist/enso-helper-*-darwin.tar.gz)
+          echo "Helper tarball: $((size / 1024 / 1024)) MB"
+          [ "$size" -lt $((40 * 1024 * 1024)) ] || { echo "::error::helper tarball is over 40 MB"; exit 1; }

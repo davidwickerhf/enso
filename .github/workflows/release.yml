@@ -1,0 +1,147 @@
+# Release: signs the extension and publishes it and the helper to enso.wicker.life.
+#
+# On a version tag (v0.5.0), or run by hand for an existing tag, it:
+#   1. checks that the tag matches extension/manifest.json and helper/package.json,
+#      syntax-checks and tests the helper, lints the extension with web-ext;
+#   2. signs the extension through addons.mozilla.org as an *unlisted*
+#      (self-distributed) add-on, with update_url pointing at enso.wicker.life;
+#   3. builds the helper tarball (scripts/pack-helper.sh: production dependencies,
+#      no optional packages, so no bundled Claude Code binary);
+#   4. publishes both to the site (PUT /api/releases/:kind/:version), which
+#      updates /updates.json, /api/latest and the installer's download, and
+#      attaches them to a GitHub release.
+#
+# Repository secrets:
+#   AMO_JWT_ISSUER, AMO_JWT_SECRET  addons.mozilla.org API credentials
+#   ENSO_RELEASE_TOKEN              same value as RELEASE_TOKEN on the site
+#
+# The add-on id (enso@wicker.life) must be listed in the site's EXTENSION_IDS
+# so /updates.json offers updates for it.
+
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing tag to (re)publish, e.g. v0.5.0
+        required: true
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+env:
+  EXTENSION_DIR: extension
+  HELPER_DIR: helper
+  SITE: https://enso.wicker.life
+  UPDATE_URL: https://enso.wicker.life/updates.json
+  EXTENSION_ID: enso@wicker.life
+  STRICT_MIN_VERSION: '139.0'
+
+jobs:
+  release:
+    # macOS runner (Apple silicon). The helper tarball has no native binaries
+    # of its own; it runs on the user's installed Node and Claude Code.
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Read and check the version
+        id: version
+        run: |
+          TAG="${{ github.event.inputs.tag || github.ref_name }}"
+          VERSION="${TAG#v}"
+          MANIFEST_VERSION="$(node -p "require('./$EXTENSION_DIR/manifest.json').version")"
+          HELPER_VERSION="$(node -p "require('./$HELPER_DIR/package.json').version")"
+          MANIFEST_ID="$(node -p "require('./$EXTENSION_DIR/manifest.json').browser_specific_settings.gecko.id")"
+          [ "$VERSION" = "$MANIFEST_VERSION" ] || { echo "::error::Tag $TAG does not match manifest version $MANIFEST_VERSION"; exit 1; }
+          [ "$VERSION" = "$HELPER_VERSION" ] || { echo "::error::Tag $TAG does not match helper/package.json version $HELPER_VERSION"; exit 1; }
+          [ "$MANIFEST_ID" = "$EXTENSION_ID" ] || { echo "::error::Add-on id $MANIFEST_ID, expected $EXTENSION_ID"; exit 1; }
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Check the helper
+        working-directory: ${{ env.HELPER_DIR }}
+        run: |
+          npm ci --omit=optional --no-audit --no-fund
+          for f in host.mjs lib/*.mjs test/*.mjs; do node --input-type=module --check < "$f"; done
+          npm test
+
+      - name: Prepare the extension (inject update_url)
+        run: |
+          rm -rf build/extension && mkdir -p build && cp -R "$EXTENSION_DIR" build/extension
+          node -e '
+            const fs = require("fs");
+            const file = "build/extension/manifest.json";
+            const m = JSON.parse(fs.readFileSync(file, "utf8"));
+            m.browser_specific_settings ??= {};
+            m.browser_specific_settings.gecko ??= {};
+            m.browser_specific_settings.gecko.update_url = process.env.UPDATE_URL;
+            fs.writeFileSync(file, JSON.stringify(m, null, 2) + "\n");
+            console.log("add-on id:", m.browser_specific_settings.gecko.id, "update_url:", process.env.UPDATE_URL);
+          '
+
+      - name: Check the site serves updates for this add-on id
+        run: |
+          ids="$(curl -fsS "$SITE/api/latest" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>console.log((JSON.parse(s).extensionIds||[]).join(",")))')"
+          echo "Site EXTENSION_IDS: $ids"
+          case ",$ids," in *",$EXTENSION_ID,"*) ;; *) echo "::error::$SITE does not list $EXTENSION_ID in EXTENSION_IDS; installed copies would never update"; exit 1 ;; esac
+
+      - name: Lint the extension
+        run: npx --yes web-ext@8 lint --source-dir build/extension --self-hosted
+
+      - name: Sign the extension (unlisted, self-distributed)
+        env:
+          WEB_EXT_API_KEY: ${{ secrets.AMO_JWT_ISSUER }}
+          WEB_EXT_API_SECRET: ${{ secrets.AMO_JWT_SECRET }}
+        run: |
+          npx --yes web-ext@8 sign \
+            --channel unlisted \
+            --source-dir build/extension \
+            --artifacts-dir dist \
+            --timeout 900000
+          XPI="$(ls dist/*.xpi | head -1)"
+          test -n "$XPI"
+          mv "$XPI" "dist/enso-${{ steps.version.outputs.version }}.xpi"
+
+      - name: Build the helper tarball
+        run: |
+          scripts/pack-helper.sh "${{ steps.version.outputs.version }}" dist
+          shasum -a 256 dist/*
+
+      - name: Publish to enso.wicker.life
+        env:
+          ENSO_RELEASE_TOKEN: ${{ secrets.ENSO_RELEASE_TOKEN }}
+        run: |
+          V="${{ steps.version.outputs.version }}"
+          publish() { # publish <kind> <file> [query]
+            curl --fail-with-body -sS -X PUT \
+              -H "Authorization: Bearer $ENSO_RELEASE_TOKEN" \
+              -H "Content-Type: application/octet-stream" \
+              --data-binary "@$2" \
+              "$SITE/api/releases/$1/$V$3"
+            echo
+          }
+          publish extension "dist/enso-$V.xpi" "?strict_min_version=$STRICT_MIN_VERSION"
+          publish helper "dist/enso-helper-$V-darwin.tar.gz"
+          curl -fsS "$SITE/api/latest"
+
+      - name: GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          V="${{ steps.version.outputs.version }}"
+          gh release view "v$V" >/dev/null 2>&1 \
+            && gh release upload "v$V" dist/* --clobber \
+            || gh release create "v$V" dist/* --title "Ensō $V" --generate-notes

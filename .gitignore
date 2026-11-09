@@ -1,0 +1,6 @@
+node_modules
+build/
+dist/
+.DS_Store
+# written by scripts/dev.sh with this machine's node path
+helper/run.sh

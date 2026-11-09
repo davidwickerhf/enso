@@ -1,0 +1,59 @@
+{
+  "defaults": {
+    "engine": "subscription",
+    "model": "claude-opus-5-5",
+    "effort": "low",
+    "includePageByDefault": true,
+    "autoApproveReadOnly": true,
+    "alwaysAllowedTools": [],
+    "dashboard": {
+      "autoRefreshMinutes": 60
+    },
+    "externalControl": "full"
+  },
+  "keychainService": "enso-anthropic",
+  "legacyKeychainServices": ["zen-chat-anthropic"],
+  "claudePath": "",
+  "webSearch": true,
+  "enableNewServers": false,
+  "servers": {
+    "github": {
+      "enabled": true
+    },
+    "claude.ai Gmail": {
+      "enabled": true
+    },
+    "claude.ai Google Calendar": {
+      "enabled": true
+    },
+    "claude.ai Google Drive": {
+      "enabled": true
+    },
+    "claude.ai Google Docs": {
+      "enabled": true
+    },
+    "zen-browser": {
+      "enabled": false
+    }
+  },
+  "extraServers": {},
+  "oauthServers": {},
+  "sensitiveHosts": [
+    "*.paypal.com",
+    "*.wise.com",
+    "*.revolut.com",
+    "*.bunq.com",
+    "*.n26.com",
+    "*.monzo.com",
+    "*.chase.com",
+    "*.americanexpress.com",
+    "*.1password.com",
+    "*.bitwarden.com",
+    "*.lastpass.com",
+    "*.dashlane.com",
+    "*bank*",
+    "*health*",
+    "*patient*"
+  ],
+  "spaceHints": {}
+}

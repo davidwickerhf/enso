@@ -1,0 +1,61 @@
+{
+  "manifest_version": 2,
+  "name": "Ensō",
+  "version": "0.5.0",
+  "description": "Ensō: a personal assistant in your browser. A dashboard, a chat that knows you and your tools, and an agent that can act on web pages.",
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "enso@wicker.life",
+      "strict_min_version": "139.0"
+    }
+  },
+  "permissions": [
+    "nativeMessaging",
+    "tabs",
+    "tabGroups",
+    "history",
+    "menus",
+    "storage",
+    "bookmarks",
+    "search",
+    "cookies",
+    "contextualIdentities",
+    "webRequest",
+    "webNavigation",
+    "<all_urls>"
+  ],
+  "background": {
+    "scripts": [
+      "background.js"
+    ]
+  },
+  "browser_action": {
+    "default_title": "Ensō",
+    "default_icon": "icons/chat.svg",
+    "default_area": "navbar"
+  },
+  "sidebar_action": {
+    "default_title": "Ensō",
+    "default_panel": "sidebar.html",
+    "default_icon": "icons/chat.svg",
+    "open_at_install": false
+  },
+  "chrome_url_overrides": {
+    "newtab": "newtab.html"
+  },
+  "commands": {
+    "_execute_sidebar_action": {
+      "suggested_key": {
+        "default": "Ctrl+E"
+      },
+      "description": "Open or close Ensō"
+    }
+  },
+  "icons": {
+    "48": "icons/chat.svg",
+    "96": "icons/chat.svg"
+  },
+  "chrome_settings_overrides": {
+    "homepage": "newtab.html"
+  }
+}
