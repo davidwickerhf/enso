@@ -1,0 +1,408 @@
+/* Ensō — paper and ink. One accent (copper), system fonts, generous space. */
+
+:root {
+	--paper: #fcf8f1;
+	--paper-2: #f6efe3;
+	--paper-3: #ebe1cf;
+	--card: #fffdf8;
+	--ink: #2a2420;
+	--ink-2: #574c43;
+	--ink-3: #75685d;
+	--rule: rgb(42 36 32 / 0.14);
+	--rule-strong: rgb(42 36 32 / 0.28);
+	--copper: #d9643a;
+	--copper-text: #ad4a24;
+	--copper-wash: rgb(217 100 58 / 0.1);
+	--danger: #a33a2a;
+	--ok: #4c6b3c;
+	--shadow: 0 1px 0 rgb(255 255 255 / 0.6) inset, 0 18px 40px -24px rgb(42 36 32 / 0.35);
+
+	--serif: 'Iowan Old Style', 'Palatino Linotype', Palatino, 'Book Antiqua', 'URW Palladio L', Georgia, serif;
+	--sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, 'Helvetica Neue', sans-serif;
+	--mono: ui-monospace, 'SF Mono', SFMono-Regular, Menlo, Consolas, monospace;
+
+	--measure: 40rem;
+	--wide: 72rem;
+	--gutter: clamp(1.25rem, 4vw, 3rem);
+	--radius: 14px;
+
+	color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+	:root:not([data-theme='light']) {
+		--paper: #1c1815;
+		--paper-2: #221d19;
+		--paper-3: #2b2420;
+		--card: #25201b;
+		--ink: #f1e9dc;
+		--ink-2: #cdbfae;
+		--ink-3: #a7998a;
+		--rule: rgb(241 233 220 / 0.13);
+		--rule-strong: rgb(241 233 220 / 0.26);
+		--copper: #e3784e;
+		--copper-text: #ee9470;
+		--copper-wash: rgb(227 120 78 / 0.12);
+		--danger: #ec8a78;
+		--ok: #a9c48f;
+		--shadow: 0 18px 40px -24px rgb(0 0 0 / 0.7);
+		color-scheme: dark;
+	}
+}
+:root[data-theme='dark'] {
+	--paper: #1c1815;
+	--paper-2: #221d19;
+	--paper-3: #2b2420;
+	--card: #25201b;
+	--ink: #f1e9dc;
+	--ink-2: #cdbfae;
+	--ink-3: #a7998a;
+	--rule: rgb(241 233 220 / 0.13);
+	--rule-strong: rgb(241 233 220 / 0.26);
+	--copper: #e3784e;
+	--copper-text: #ee9470;
+	--copper-wash: rgb(227 120 78 / 0.12);
+	--danger: #ec8a78;
+	--ok: #a9c48f;
+	--shadow: 0 18px 40px -24px rgb(0 0 0 / 0.7);
+	color-scheme: dark;
+}
+
+*,
+*::before,
+*::after {
+	box-sizing: border-box;
+}
+
+html {
+	-webkit-text-size-adjust: 100%;
+	text-size-adjust: 100%;
+	background: var(--paper);
+}
+
+body {
+	margin: 0;
+	min-height: 100vh;
+	color: var(--ink);
+	font-family: var(--serif);
+	font-size: 1.125rem;
+	line-height: 1.6;
+	background: linear-gradient(180deg, var(--paper) 0%, var(--paper-2) 55%, var(--paper-3) 100%);
+	-webkit-font-smoothing: antialiased;
+	font-kerning: normal;
+	font-variant-numeric: oldstyle-nums proportional-nums;
+}
+
+img,
+svg {
+	display: block;
+	max-width: 100%;
+}
+
+a {
+	color: inherit;
+	text-decoration-line: underline;
+	text-decoration-color: var(--copper);
+	text-decoration-thickness: 1px;
+	text-underline-offset: 0.2em;
+	transition: text-decoration-thickness 120ms ease;
+}
+a:hover {
+	text-decoration-thickness: 2px;
+}
+
+:focus-visible {
+	outline: 2px solid var(--copper);
+	outline-offset: 3px;
+	border-radius: 4px;
+}
+
+::selection {
+	background: var(--copper-wash);
+	color: var(--ink);
+}
+
+h1,
+h2,
+h3,
+h4 {
+	font-weight: 400;
+	line-height: 1.15;
+	letter-spacing: -0.012em;
+	text-wrap: balance;
+	margin: 0;
+}
+
+p {
+	text-wrap: pretty;
+}
+
+code,
+kbd,
+pre {
+	font-family: var(--mono);
+	font-size: 0.86em;
+	font-variant-numeric: normal;
+}
+
+kbd {
+	display: inline-block;
+	padding: 0.05em 0.4em;
+	border: 1px solid var(--rule-strong);
+	border-bottom-width: 2px;
+	border-radius: 6px;
+	background: var(--card);
+	font-size: 0.8em;
+	line-height: 1.4;
+}
+
+.skip {
+	position: absolute;
+	left: -999px;
+	top: 0.5rem;
+	padding: 0.5rem 0.9rem;
+	background: var(--ink);
+	color: var(--paper);
+	border-radius: 999px;
+	font-family: var(--sans);
+	font-size: 0.9rem;
+	z-index: 10;
+}
+.skip:focus {
+	left: 0.75rem;
+}
+
+.wrap {
+	width: 100%;
+	max-width: calc(var(--wide) + 2 * var(--gutter));
+	margin: 0 auto;
+	padding: 0 var(--gutter);
+}
+
+.label {
+	font-family: var(--sans);
+	font-size: 0.75rem;
+	font-weight: 600;
+	letter-spacing: 0.12em;
+	text-transform: uppercase;
+	color: var(--copper-text);
+}
+
+.muted {
+	color: var(--ink-2);
+}
+
+.sr-only {
+	position: absolute;
+	width: 1px;
+	height: 1px;
+	padding: 0;
+	margin: -1px;
+	overflow: hidden;
+	clip: rect(0, 0, 0, 0);
+	white-space: nowrap;
+	border: 0;
+}
+
+/* ---------- buttons and forms ---------- */
+
+.btn {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	gap: 0.5em;
+	min-height: 2.75rem;
+	padding: 0.6rem 1.25rem;
+	border: 1px solid var(--ink);
+	border-radius: 999px;
+	background: var(--ink);
+	color: var(--paper);
+	font-family: var(--sans);
+	font-size: 0.95rem;
+	font-weight: 500;
+	line-height: 1.2;
+	text-decoration: none;
+	cursor: pointer;
+	transition:
+		background-color 150ms ease,
+		color 150ms ease,
+		transform 150ms ease;
+}
+.btn:hover {
+	background: color-mix(in srgb, var(--ink) 86%, var(--copper));
+}
+.btn:active {
+	transform: translateY(1px);
+}
+.btn.ghost {
+	background: transparent;
+	color: var(--ink);
+	border-color: var(--rule-strong);
+}
+.btn.ghost:hover {
+	border-color: var(--ink);
+	background: transparent;
+}
+.btn.small {
+	min-height: 2.25rem;
+	padding: 0.4rem 0.95rem;
+	font-size: 0.875rem;
+}
+.btn.danger {
+	background: transparent;
+	color: var(--danger);
+	border-color: color-mix(in srgb, var(--danger) 50%, transparent);
+}
+.btn.danger:hover {
+	border-color: var(--danger);
+}
+.btn[disabled] {
+	opacity: 0.5;
+	cursor: not-allowed;
+}
+
+input[type='email'],
+input[type='text'] {
+	width: 100%;
+	min-height: 2.9rem;
+	padding: 0.6rem 0.9rem;
+	border: 1px solid var(--rule-strong);
+	border-radius: 10px;
+	background: var(--card);
+	color: var(--ink);
+	font: inherit;
+	font-family: var(--sans);
+	font-size: 1rem;
+}
+input:focus-visible {
+	outline: 2px solid var(--copper);
+	outline-offset: 1px;
+	border-color: transparent;
+}
+
+label {
+	font-family: var(--sans);
+	font-size: 0.875rem;
+	font-weight: 500;
+	color: var(--ink-2);
+}
+
+/* ---------- prose (docs, privacy) ---------- */
+
+.prose {
+	max-width: var(--measure);
+}
+.prose > :first-child {
+	margin-top: 0;
+}
+.prose h1 {
+	font-size: clamp(2.2rem, 4.5vw, 3.1rem);
+	margin-bottom: 0.4em;
+}
+.prose h2 {
+	font-size: 1.65rem;
+	margin: 2.4em 0 0.6em;
+	padding-top: 0.2em;
+}
+.prose h3 {
+	font-size: 1.25rem;
+	margin: 1.9em 0 0.4em;
+}
+.prose h2 a.anchor,
+.prose h3 a.anchor {
+	text-decoration: none;
+	color: inherit;
+}
+.prose p,
+.prose ul,
+.prose ol,
+.prose table,
+.prose pre,
+.prose blockquote {
+	margin: 0 0 1.1em;
+}
+.prose ul,
+.prose ol {
+	padding-left: 1.3em;
+}
+.prose li {
+	margin: 0.3em 0;
+}
+.prose li::marker {
+	color: var(--copper);
+}
+.prose .lede {
+	font-size: 1.3rem;
+	line-height: 1.5;
+	color: var(--ink-2);
+}
+.prose code {
+	padding: 0.1em 0.35em;
+	border-radius: 5px;
+	background: var(--copper-wash);
+	overflow-wrap: anywhere;
+}
+.prose pre {
+	position: relative;
+	padding: 1rem 1.1rem;
+	border: 1px solid var(--rule);
+	border-radius: 12px;
+	background: var(--card);
+	overflow-x: auto;
+	line-height: 1.55;
+}
+.prose pre code {
+	padding: 0;
+	background: none;
+	font-size: 0.82rem;
+	overflow-wrap: normal;
+}
+.prose blockquote {
+	margin-left: 0;
+	padding: 0.9rem 1.1rem;
+	border-left: 3px solid var(--copper);
+	background: var(--copper-wash);
+	border-radius: 0 10px 10px 0;
+	color: var(--ink);
+}
+.prose blockquote > :last-child {
+	margin-bottom: 0;
+}
+.prose table {
+	width: 100%;
+	border-collapse: collapse;
+	font-size: 0.95rem;
+	display: block;
+	overflow-x: auto;
+}
+.prose th,
+.prose td {
+	text-align: left;
+	vertical-align: top;
+	padding: 0.55rem 0.75rem 0.55rem 0;
+	border-bottom: 1px solid var(--rule);
+}
+.prose th {
+	font-family: var(--sans);
+	font-size: 0.75rem;
+	font-weight: 600;
+	letter-spacing: 0.08em;
+	text-transform: uppercase;
+	color: var(--ink-2);
+}
+.prose hr {
+	border: 0;
+	border-top: 1px solid var(--rule);
+	margin: 2.5em 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+	*,
+	*::before,
+	*::after {
+		animation-duration: 0.01ms !important;
+		animation-iteration-count: 1 !important;
+		transition-duration: 0.01ms !important;
+		scroll-behavior: auto !important;
+	}
+}
