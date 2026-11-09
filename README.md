@@ -8,7 +8,7 @@ Everything it remembers stays on your Mac.
 
 Website and docs: <https://enso.wicker.life>
 
-> **Licence:** TODO. No licence has been chosen yet; until one is, all rights are reserved.
+> **Licence:** MIT, see [LICENSE](LICENSE).
 
 ## Install
 

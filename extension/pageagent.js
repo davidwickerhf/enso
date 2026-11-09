@@ -157,11 +157,21 @@
       const el = target(ref);
       const description = describe(el);
       el.focus();
+      // insertText goes through the browser's own editing path, so the page
+      // gets real (trusted) beforeinput/input events; sites that ignore
+      // synthetic events (GitHub's confirm boxes, many React forms) see it as
+      // typing. Fall back to setting the value directly if it didn't take.
       if (el.isContentEditable) {
         document.execCommand("selectAll", false);
         document.execCommand("insertText", false, text);
       } else {
-        setValue(el, text);
+        try {
+          el.select?.();
+          if (!text) document.execCommand("delete", false);
+          else document.execCommand("insertText", false, text);
+        } catch {}
+        if (el.value !== text) setValue(el, text);
+        else el.dispatchEvent(new Event("change", { bubbles: true }));
       }
       if (submit) {
         key(el, "Enter");
