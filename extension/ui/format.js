@@ -132,7 +132,7 @@ export function resultCount(preview) {
   return null;
 }
 
-const ACTION_PAST = { click: "Clicked", type: "Typed into", select: "Selected", press: "Pressed", scroll: "Scrolled", navigate: "Opened", back: "Went back on", snapshot: "Read", screenshot: "Captured" };
+const ACTION_PAST = { click: "Clicked", type: "Typed into", select: "Selected", press: "Pressed", scroll: "Scrolled", navigate: "Opened", back: "Went back on", snapshot: "Read", screenshot: "Captured", eval: "Ran", note: "Sent", session_fetch: "Requested", storage: "Read storage of" };
 
 /** 'Clicked "Submit" on example.com' */
 export function describeAction(action, target, url) {
@@ -150,7 +150,7 @@ function quoteTarget(target) {
 }
 
 export function actionIcon(action) {
-  return { click: "cursor", type: "keyboard", select: "cursor", press: "keyboard", navigate: "compass", back: "arrowLeft", scroll: "chevronDown", snapshot: "page", screenshot: "page" }[action] ?? "cursor";
+  return { click: "cursor", type: "keyboard", select: "cursor", press: "keyboard", navigate: "compass", back: "arrowLeft", scroll: "chevronDown", snapshot: "page", screenshot: "page", eval: "command", note: "chat", session_fetch: "globe" }[action] ?? "cursor";
 }
 
 export function stripAsk(s) {

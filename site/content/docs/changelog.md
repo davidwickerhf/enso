@@ -9,6 +9,13 @@ group: Reference
 
 The extension and the helper share one version number. The extension updates itself; run the [installer](/docs/install) again to update the helper.
 
+## 0.5.3 — 10 November 2026
+
+- **See what other agents are doing.** When Claude Code, Codex or another agent works in Zen, the page shows a pill with its name and task for as long as it works, the tab's title starts with ✦ in Zen's tab list, and Ensō's toolbar button shows an **AI** badge on that tab.
+- **Steer them from the sidebar.** A card shows the agent's task and steps as they happen, with **Pause**, **Stop** and **Tell the agent…**; an **Agents** row lists agents in other tabs and spaces. Click the pill to get there. See [Use Zen from other agents](/docs/other-agents#steering-an-agent).
+- **Activity updates live**, including other agents' actions.
+- **Typing into Google Docs** works for agents.
+
 ## 0.5.2 — 10 November 2026
 
 - **Use Zen from Claude Code, Codex and Cursor** without a token in their settings: `enso mcp install` registers Ensō with each of them, and `enso mcp status`, `uninstall` and `rotate` manage it. See [Use Zen from other agents](/docs/other-agents).

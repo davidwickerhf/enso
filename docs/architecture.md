@@ -124,9 +124,15 @@ A content script injected into a tab on first use (`tabs.executeScript`,
   JS world (`window.wrappedJSObject` and `exportFunction`), and storage keys.
   Credential-looking values are redacted before they leave the page.
 
-While a turn acts on a page, the agent outlines the element it touches and shows
-a ribbon at the top of the page: "✦ Claude is working on this page", or the MCP
-client's name ("✦ Codex is working on this page") when another agent is acting.
+While a turn acts on a page, the agent flashes a soft outline on the element it
+touches and shows a pill at the top of the page: "✦ Claude is working on this
+page", or the MCP client's name when another agent is acting. For an external
+agent with a live session the pill stays for the whole session ("✦ Codex · Fix
+the failing checkout test", with Paused/Stopped states), the page title gets a
+"✦ " prefix (followed through title rewrites with a MutationObserver, restored
+exactly), and clicking the pill opens Ensō's sidebar through `pill.html`, an
+extension frame laid over it. On Google Docs, `type` without a ref inserts into
+Docs' hidden input frame.
 
 ## Native messaging
 
@@ -338,6 +344,15 @@ sequenceDiagram
 
 Tokens, scopes, the Origin check and client identity are in
 [security.md](security.md#the-mcp-server); usage and registration in [mcp.md](mcp.md).
+
+**Agent sessions** (`lib/agentsessions.mjs`). Each tool call goes through a
+wrapper that tracks a session per agent (the launcher's `X-Enso-Session` id) and
+tab, refuses calls while the user has paused or stopped that agent, and prepends
+the user's notes to the result. The helper pushes `agents` and `actions.added`
+to background.js and every UI: background.js turns sessions into the page pill,
+title prefix and per-tab toolbar badge; the sidebar shows the agent card for the
+active tab and the Agents row. See [mcp.md](mcp.md#sessions-and-steering) and
+[records/006](records/006-agent-presence-and-steering.md).
 
 ## Dashboard, tasks and GitHub
 

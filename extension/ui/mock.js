@@ -8,6 +8,12 @@
 // "fill in the form on this page" (page actions + approval), "error"
 // (no_api_key error), and Stop while an answer streams.
 // ?onboarding=1 starts without a profile (the first-run card).
+// ?agents=running | paused | delivered | idle | stopped | list | t3 shows external
+// agents (Claude Code, Codex) working in tabs: the agent card and the Agents row
+// (t3: Claude Code running inside a T3 Code thread).
+// Send screenshot: ?shot=sheet | picker | agent | fallback opens the send sheet with a
+// fake capture; ?t3=off | down | revoked | fallback sets the T3 Code connection;
+// ?links=1 adds linked threads (Settings → Send screenshots).
 // ?monday=ok | down | off: monday.com signed in and working (default), signed in
 // but its server failing (HTTP 500), or not connected.
 
@@ -695,10 +701,197 @@ Want me to draft the reply to Jonas, or open the [Vercel deployment](https://ver
     if (alive()) end({ usage: { inputTokens: 14873, outputTokens: 356, costUsd: 0.09 } });
   }
 
+  // ---- external agents (agent card, Agents row) ----
+  const agentPreset = new URLSearchParams(globalThis.location?.search ?? "").get("agents");
+  const ago = sec => iso(now() - sec * 1000);
+  const step = (sec, tool, title, target, extra = {}) => ({ id: nid("st"), at: ago(sec), tool, title, target, ok: true, irreversible: false, ...extra });
+  let agents = [];
+  if (agentPreset) {
+    if (agentPreset !== "list") activeTabId = 16;
+    const docs = {
+      id: "ag-docs", client: "Claude Code", clientName: "claude-code", task: "Draft the methods section of the Assignment 3 brief", tabId: 16,
+      url: "https://docs.google.com/document/d/1x9/edit", title: "Assignment 3 brief: small multiples · Google Docs",
+      startedAt: ago(194), lastAt: ago(2), endsAt: iso(now() + 118_000), running: true, paused: false, stopped: false, explicit: true, idleMs: 2000,
+      actions: [
+        step(190, "session_start", "Start a session", ""),
+        step(184, "page_read", "Read the page", ""),
+        step(150, "page_click", "Click", 'textbox "Document body"'),
+        step(96, "page_type", "Type", "Google Docs document body (at the cursor)", { typed: "Methods. We compared six small-multiple…" }),
+        step(41, "page_eval", "Run JavaScript", "JavaScript: document.querySelectorAll('.kix-paragraphrenderer').length"),
+        step(12, "page_click", "Click", 'button "Share"', { irreversible: false }),
+        step(2, "page_click", "Click", 'button "Send"', { irreversible: true }),
+      ],
+      notes: [],
+    };
+    const codex = {
+      id: "ag-ci", client: "Codex", clientName: "codex-mcp-client", task: "Find why CI fails on PR #431", tabId: 13,
+      url: "https://github.com/northwind-labs/atlas-web/pull/431", title: "Settings: keyboard shortcuts panel · Pull Request #431",
+      startedAt: ago(420), lastAt: ago(25), endsAt: iso(now() + 95_000), running: false, paused: false, stopped: false, explicit: true, idleMs: 25000,
+      actions: [step(400, "page_read", "Read the page", ""), step(25, "devtools_network", "Network requests", "")], notes: [],
+    };
+    const cursor = {
+      id: "ag-travel", client: "Cursor", clientName: "cursor-vscode", task: "", tabId: 20,
+      url: "https://www.airbnb.com/rooms/porto", title: "Weekend in Porto · Airbnb",
+      startedAt: ago(70), lastAt: ago(8), endsAt: iso(now() + 112_000), running: true, paused: false, stopped: false, explicit: false, idleMs: 8000,
+      actions: [step(8, "page_scroll", "Scroll", "")], notes: [],
+    };
+    if (agentPreset === "paused") Object.assign(docs, { paused: true, running: false, notes: [{ id: "n1", text: "Use the second dataset, not the pilot one.", at: ago(20), deliveredAt: null }] });
+    if (agentPreset === "delivered") docs.notes = [{ id: "n1", text: "Use the second dataset, not the pilot one.", at: ago(60), deliveredAt: ago(41) }, { id: "n2", text: "Keep it under 300 words.", at: ago(6), deliveredAt: null }];
+    if (agentPreset === "idle") Object.assign(docs, { running: false, actions: [step(5, "session_start", "Start a session", "")], startedAt: ago(5), lastAt: ago(5) });
+    if (agentPreset === "stopped") Object.assign(docs, { running: false, stopped: true });
+    if (agentPreset === "t3") Object.assign(docs, { client: "Claude Code", task: "Fix the chart legend overlap on the launch dashboard", t3ThreadId: "th-legend", t3: { threadId: "th-legend", title: "Launch dashboard: legend overlaps the chart", projectTitle: "atlas-web", openable: true } });
+    agents = agentPreset === "list" ? [docs, codex, cursor] : agentPreset === "idle" || agentPreset === "t3" ? [docs] : [docs, codex];
+  }
+  // ---- send screenshot: T3 Code threads, connected agents, links ----
+  const params = new URLSearchParams(globalThis.location?.search ?? "");
+  const t3Preset = params.get("t3");
+  const shotPreset = params.get("shot");
+  const t3Status = () => ({ cli: true, origin: "http://127.0.0.1:3773", reachable: t3Preset !== "down", connected: t3Preset !== "off", tokenValid: t3Preset === "revoked" ? false : t3Preset === "off" ? null : true, environmentId: "env-maya", serverVersion: "0.1.9-nightly", label: "Maya’s MacBook Pro", route: t3Preset === "fallback" ? "path" : "attachment", attachments: t3Preset !== "fallback", expiresAt: iso(now() + 29 * 86_400_000), error: t3Preset === "revoked" ? "T3 Code no longer accepts Ensō's token (it expired or was revoked). Connect again in Settings → T3 Code." : t3Preset === "down" ? "T3 Code isn't running. Open T3 Code and try again." : null });
+  let t3State = t3Status();
+  const T3_THREADS = [
+    { id: "th-legend", title: "Launch dashboard: legend overlaps the chart", projectId: "p-atlas", projectTitle: "atlas-web", status: "running", running: true, waiting: false, activeAt: ago(40) },
+    { id: "th-onboard", title: "Onboarding step 3 copy and empty state", projectId: "p-atlas", projectTitle: "atlas-web", status: "waiting", running: false, waiting: true, activeAt: ago(300) },
+    { id: "th-a11y", title: "Keyboard shortcuts panel: focus order", projectId: "p-atlas", projectTitle: "atlas-web", status: "completed", running: false, waiting: false, activeAt: ago(3600) },
+    { id: "th-viz", title: "Small multiples for Assignment 3", projectId: "p-course", projectTitle: "data-vis-course", status: "idle", running: false, waiting: false, activeAt: ago(7200) },
+    { id: "th-garden", title: "Planting plan slides: export as PDF", projectId: "p-garden", projectTitle: "garden-club", status: "completed", running: false, waiting: false, activeAt: ago(26 * 3600) },
+    { id: "th-ci", title: "CI flakes on the settings e2e suite", projectId: "p-atlas", projectTitle: "atlas-web", status: "idle", running: false, waiting: false, activeAt: ago(30 * 3600) },
+  ];
+  const T3_PROJECTS = [{ id: "p-atlas", title: "atlas-web", repo: "github.com/northwind-labs/atlas-web" }, { id: "p-course", title: "data-vis-course", repo: "" }, { id: "p-garden", title: "garden-club", repo: "" }];
+  const connectedAgents = () => [
+    { id: "ag-claude", client: "Claude Code", clientName: "claude-code", task: agents.find(a => a.client === "Claude Code")?.task ?? "Refactor the chart tooltip", tabIds: agents.filter(a => a.client === "Claude Code").map(a => a.tabId), sessionIds: [], active: true, t3ThreadId: null, lastAt: ago(4), pending: 0 },
+    { id: "ag-opencode", client: "OpenCode", clientName: "opencode", task: "", tabIds: [], sessionIds: [], active: false, t3ThreadId: null, lastAt: ago(900), pending: 0 },
+  ];
+  if (params.get("links")) settings.sendLinks = { tabs: [{ tabId: 13, host: "github.com", kind: "t3", id: "th-a11y", title: "Keyboard shortcuts panel: focus order", pageTitle: "Settings: keyboard shortcuts panel · Pull Request #431", at: ago(600) }, { tabId: 16, host: "docs.google.com", kind: "agent", id: "ag-claude", title: "Claude Code", pageTitle: "Assignment 3 brief: small multiples · Google Docs", at: ago(1200) }], hosts: { "localhost:5173": { projectId: "p-atlas", projectTitle: "atlas-web", at: ago(86400) }, "atlas.northwind.example.com": { projectId: "p-atlas", projectTitle: "atlas-web", at: ago(3 * 86400) } } };
+
+  function fakeScreenshot(tab) {
+    const c = document.createElement("canvas");
+    c.width = 1280; c.height = 760;
+    const g = c.getContext("2d");
+    g.fillStyle = "#f6f7f9"; g.fillRect(0, 0, 1280, 760);
+    g.fillStyle = "#1f2430"; g.fillRect(0, 0, 1280, 56);
+    g.fillStyle = "#fff"; g.font = "600 20px -apple-system, Helvetica"; g.fillText("Atlas · Launch dashboard", 28, 36);
+    g.fillStyle = "#fff"; g.fillRect(28, 84, 820, 420); g.strokeStyle = "#e3e6ea"; g.strokeRect(28.5, 84.5, 820, 420);
+    g.fillStyle = "#1f2430"; g.font = "600 16px -apple-system, Helvetica"; g.fillText("Weekly sign-ups", 52, 118);
+    const series = [["#d9643a", [60, 90, 120, 150, 210, 260, 300]], ["#5b7a8c", [40, 70, 80, 120, 140, 170, 230]], ["#8a9a5b", [20, 30, 60, 70, 90, 120, 150]]];
+    for (const [col, vals] of series) { g.strokeStyle = col; g.lineWidth = 3; g.beginPath(); vals.forEach((v, i) => { const x = 70 + i * 120, y = 470 - v; i ? g.lineTo(x, y) : g.moveTo(x, y); }); g.stroke(); }
+    g.fillStyle = "rgba(255,255,255,.92)"; g.fillRect(600, 150, 220, 96); g.strokeStyle = "#c0412c"; g.setLineDash([6, 4]); g.strokeRect(600.5, 150.5, 220, 96); g.setLineDash([]);
+    g.font = "13px -apple-system, Helvetica"; series.forEach(([col], i) => { g.fillStyle = col; g.fillRect(616, 168 + i * 26, 14, 14); g.fillStyle = "#333"; g.fillText(["Organic", "Referral", "Paid"][i], 640, 180 + i * 26); });
+    g.fillStyle = "#fff"; g.fillRect(876, 84, 376, 200); g.strokeStyle = "#e3e6ea"; g.strokeRect(876.5, 84.5, 376, 200);
+    g.fillStyle = "#1f2430"; g.font = "600 16px -apple-system, Helvetica"; g.fillText("Conversion", 900, 118); g.font = "700 44px -apple-system, Helvetica"; g.fillText("4.8%", 900, 190);
+    g.fillStyle = "#fff"; g.fillRect(876, 304, 376, 200); g.strokeStyle = "#e3e6ea"; g.strokeRect(876.5, 304.5, 376, 200);
+    g.fillStyle = "#c0412c"; g.font = "13px ui-monospace, Menlo"; g.fillText("TypeError: legend.width is undefined", 900, 344);
+    g.fillStyle = "#e9ecef"; for (let i = 0; i < 4; i++) g.fillRect(28, 530 + i * 52, 1224, 36);
+    return c.toDataURL("image/png");
+  }
+  const DASH_TAB = { tabId: 21, title: "Atlas · Launch dashboard (localhost)", url: "http://localhost:5173/dashboard/launch", favIconUrl: fav("#1f2430", "A"), active: true, sensitive: false };
+  function mockTargets(tabId, url) {
+    const conn = t3State.connected && t3State.reachable && t3State.tokenValid !== false;
+    const threads = conn ? T3_THREADS : [];
+    const ag = connectedAgents();
+    let target = null, source = "picker", client = null, projectId = null;
+    const sess = agents.find(a => a.tabId === tabId && !a.stopped);
+    const link = (settings.sendLinks?.tabs ?? []).find(l => l.tabId === tabId);
+    let host = ""; try { host = new URL(url).host; } catch { /* no url */ }
+    if (shotPreset === "agent") { target = { kind: "agent", id: "ag-claude" }; source = "agent"; client = "Claude Code"; }
+    else if (sess?.t3ThreadId) { target = { kind: "t3", id: sess.t3ThreadId }; source = "agent"; client = sess.client; }
+    else if (link) { target = { kind: link.kind, id: link.id }; source = "tab-link"; }
+    else if (shotPreset !== "picker" && conn && host.startsWith("localhost")) { target = { kind: "t3", id: "th-legend" }; source = "host-link"; projectId = "p-atlas"; }
+    return { type: "send.targets", tabId, url, host, t3: t3State, threads, projects: conn ? T3_PROJECTS : [], agents: ag, target, source, client, projectId: projectId ?? (host.startsWith("localhost") ? "p-atlas" : null), links: settings.sendLinks ?? { tabs: [], hosts: {} } };
+  }
+  function mockCapture(mode) {
+    const tab = shotPreset ? DASH_TAB : tabOut(activeTab());
+    setTimeout(() => out({ type: "screenshot.captured", image: fakeScreenshot(tab), mode: mode === "region" ? "region" : mode, tab, consoleErrors: [{ t: now() - 4000, text: "TypeError: legend.width is undefined (Legend.tsx:42)", source: "http://localhost:5173/src/Legend.tsx:42:17" }, { t: now() - 2000, text: "Failed to load resource: /api/metrics/weekly (500)", source: "" }] }), mode === "region" ? 500 : 150);
+  }
+  if (shotPreset) setTimeout(() => mockCapture("region"), 300);
+
+  const sendAgents = () => out({ type: "agents", sessions: agents, connected: connectedAgents() });
+  const patchAgent = (id, patch) => { agents = agents.map(a => (a.id === id ? { ...a, ...patch } : a)); sendAgents(); };
+
   function handle(msg) {
     switch (msg.type) {
+      case "agents.list":
+        sendAgents();
+        return;
+      case "screenshot.capture":
+        mockCapture(msg.mode);
+        return;
+      case "send.targets":
+        setTimeout(() => out(mockTargets(msg.tabId, msg.url)), 250);
+        return;
+      case "send.screenshot": {
+        const tgt = msg.target ?? {};
+        const th = T3_THREADS.find(t => t.id === tgt.id);
+        const ag = connectedAgents().find(a => a.id === tgt.id);
+        const fallback = tgt.kind === "t3" && t3State.route === "path";
+        setTimeout(() => out({ type: "send.result", ok: true, kind: tgt.kind, title: tgt.kind === "agent" ? ag?.client ?? "the agent" : th?.title ?? "the thread", route: tgt.kind === "agent" ? "inbox" : fallback ? "path" : "attachment", queued: tgt.kind === "agent", ...(fallback || tgt.kind === "agent" ? { path: `${PATHS.data}/screenshots/20261110-104512-localhost-5173-x1y2.png` } : {}), ...(tgt.kind === "t3" ? { openUrl: `t3code://threads/env-maya/${tgt.id}` } : {}) }), 700);
+        return;
+      }
+      case "screenshot.save":
+        setTimeout(() => out({ type: "screenshot.saved", ok: true, path: `${PATHS.data}/screenshots/20261110-104512-localhost-5173-x1y2.png` }), 200);
+        return;
+      case "send.link": {
+        const l = msg.link ?? {};
+        const links = settings.sendLinks ?? { tabs: [], hosts: {} };
+        if (l.type === "host") links.hosts = { ...links.hosts, [l.host]: { projectId: l.projectId, projectTitle: l.projectTitle, at: iso(now()) } };
+        else links.tabs = [...links.tabs.filter(x => x.tabId !== l.tabId), { ...l, at: iso(now()) }];
+        settings.sendLinks = links;
+        out({ type: "settings", settings });
+        return;
+      }
+      case "send.unlink": {
+        const links = settings.sendLinks ?? { tabs: [], hosts: {} };
+        const l = msg.link ?? {};
+        if (l.type === "host") { const hs = { ...links.hosts }; delete hs[l.host]; links.hosts = hs; }
+        else links.tabs = links.tabs.filter(x => x.tabId !== l.tabId);
+        settings.sendLinks = links;
+        out({ type: "settings", settings });
+        return;
+      }
+      case "t3.status":
+        out({ type: "t3", status: t3State });
+        return;
+      case "t3.connect":
+        setTimeout(() => { t3State = { ...t3Status(), connected: true, tokenValid: true, reachable: true, error: null }; out({ type: "t3", status: t3State, done: { action: "connect", ok: true } }); }, 900);
+        return;
+      case "t3.disconnect":
+        setTimeout(() => { t3State = { ...t3State, connected: false, tokenValid: null, route: null, error: null }; out({ type: "t3", status: t3State, done: { action: "disconnect", ok: true } }); }, 400);
+        return;
+      case "t3.open":
+        console.info("[mock] open in T3", msg.threadId);
+        return;
+      case "agents.pause":
+        patchAgent(msg.id, { paused: true, running: false });
+        return;
+      case "agents.resume":
+        patchAgent(msg.id, { paused: false });
+        return;
+      case "agents.stop":
+        patchAgent(msg.id, { stopped: true, paused: false, running: false });
+        return;
+      case "agents.dismiss":
+        agents = agents.filter(a => a.id !== msg.id);
+        sendAgents();
+        return;
+      case "agents.switch":
+        activeTabId = msg.tabId;
+        out({ type: "page.current", tab: tabOut(activeTab()), space: spaceRef(currentSpaceId()) });
+        return;
+      case "agents.note": {
+        const a = agents.find(x => x.id === msg.id);
+        if (!a) return;
+        const note = { id: nid("n"), text: String(msg.text).trim().replace(/\s+/g, " ").slice(0, 1000), at: iso(now()), deliveredAt: null };
+        patchAgent(a.id, { notes: [...a.notes, note] });
+        if (!a.paused && !a.stopped) setTimeout(() => {
+          // The agent's next tool call carries the note.
+          const cur = agents.find(x => x.id === a.id);
+          if (!cur) return;
+          const read = step(0, "page_read", "Read the page", "");
+          patchAgent(a.id, { notes: cur.notes.map(n => (n.deliveredAt ? n : { ...n, deliveredAt: iso(now()) })), actions: [...cur.actions, read], lastAt: iso(now()) });
+        }, 1800);
+        return;
+      }
       case "hello":
-        out({ type: "state", settings, engines, servers, connections: connectionsList(), conversations: summaries(), activeConversationId: [...turns.keys()][0] ?? null, dashboard: onboarding && !onboardingDone ? null : dashboard, profile: profileState(), paths: PATHS, skills: SKILLS, reports: REPORTS.map(({ id, title, createdAt }) => ({ id, title, createdAt })), spaces: SPACES, sensitiveHosts: ["*bank*", "*health*", "*patient*", "*.paypal.com"] });
+        out({ type: "state", settings, engines, servers, connections: connectionsList(), conversations: summaries(), activeConversationId: [...turns.keys()][0] ?? null, dashboard: onboarding && !onboardingDone ? null : dashboard, profile: profileState(), paths: PATHS, skills: SKILLS, reports: REPORTS.map(({ id, title, createdAt }) => ({ id, title, createdAt })), spaces: SPACES, sensitiveHosts: ["*bank*", "*health*", "*patient*", "*.paypal.com"], agents, connectedAgents: connectedAgents() });
         return;
       case "tabs.list":
         out({ type: "tabs", tabs: TABS

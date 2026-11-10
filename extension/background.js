@@ -54,10 +54,17 @@ function isSensitive(url) {
 }
 const isWeb = url => /^https?:/i.test(url ?? "");
 
+// The window the user last worked in. When Zen loses focus no window is
+// "focused", and falling back to the first window showed whatever space that
+// window had open (e.g. BISS) instead of the one the user just left.
+let lastWindowId = null;
+browser.windows.getLastFocused({ windowTypes: ["normal"] }).then(w => { lastWindowId ??= w?.id ?? null; }).catch(() => {});
+
 async function activeTab() {
   const wins = await browser.windows.getAll({ windowTypes: ["normal"] });
-  const win = wins.find(w => w.focused) ?? wins[0];
+  const win = wins.find(w => w.focused) ?? wins.find(w => w.id === lastWindowId) ?? (await browser.windows.getLastFocused({ windowTypes: ["normal"] }).catch(() => null)) ?? wins[0];
   if (!win) return null;
+  if (win.focused) lastWindowId = win.id;
   const [tab] = await browser.tabs.query({ active: true, windowId: win.id });
   return tab ?? null;
 }
@@ -389,6 +396,11 @@ async function browserAction(action, args) {
     }
     case "tab_text":
       return readTab(args.tabId);
+    case "active_tab": {
+      // The tab a page tool acts on when the caller gives none (for agent sessions and Pause).
+      const t = await activeTab();
+      return t ? { tabId: t.id, url: t.url ?? "", title: t.title ?? "" } : {};
+    }
     case "tabs_open": {
       // Open in the current space's container so the tabs land in that space with its logins.
       const cookieStoreId = (await activeTab())?.cookieStoreId;
@@ -435,6 +447,153 @@ async function browserAction(action, args) {
   throw new Error(`Unknown browser action ${action}`);
 }
 
+
+// ---------- external agents: presence on the page, in the tab title and on the toolbar ----------
+// The helper pushes `agents` (live sessions of MCP clients, lib/agentsessions.mjs).
+// For each tab with a session: the page pill and "✦ " title prefix (pageagent.js
+// "presence") and a copper per-tab badge on Ensō's toolbar button. Zen's own tab
+// list can't be styled by extensions; the title prefix is what shows there.
+
+const AGENT_BADGE = "#d9643a";
+const AGENT_BADGE_PAUSED = "#8a7f74";
+let agentSessions = [];
+let titlePrefixOn = true; // settings.agentTitlePrefix
+const presenceSent = new Map(); // tabId -> last presence sent (JSON)
+
+function setAgentBadge(tabId, s) {
+  const ba = browser.browserAction;
+  ba.setBadgeText({ tabId, text: s.stopped ? "" : "AI" }).catch?.(() => {});
+  ba.setBadgeBackgroundColor({ tabId, color: s.paused ? AGENT_BADGE_PAUSED : AGENT_BADGE }).catch?.(() => {});
+  ba.setBadgeTextColor?.({ tabId, color: "#ffffff" })?.catch?.(() => {});
+  ba.setTitle({ tabId, title: `Ensō · ${s.client}${s.task ? `: ${s.task}` : " is working on this tab"}${s.paused ? " (paused)" : ""}` }).catch?.(() => {});
+}
+function clearAgentBadge(tabId) {
+  const ba = browser.browserAction;
+  ba.setBadgeText({ tabId, text: null }).catch?.(() => {});
+  ba.setTitle({ tabId, title: null }).catch?.(() => {});
+}
+
+async function syncPresence() {
+  const byTab = new Map();
+  for (const s of agentSessions) if (Number.isInteger(s.tabId) && !byTab.has(s.tabId)) byTab.set(s.tabId, s); // newest first
+  for (const [tabId, s] of byTab) {
+    const p = { label: s.client, task: s.task, running: !!s.running, paused: !!s.paused, stopped: !!s.stopped, titlePrefix: titlePrefixOn };
+    const key = JSON.stringify(p);
+    if (presenceSent.get(tabId) === key) continue;
+    presenceSent.set(tabId, key);
+    setAgentBadge(tabId, s);
+    agent(tabId, "presence", p).catch(() => {}); // unloaded or private tabs: no pill
+  }
+  for (const tabId of [...presenceSent.keys()]) {
+    if (byTab.has(tabId)) continue;
+    presenceSent.delete(tabId);
+    clearAgentBadge(tabId);
+    browser.tabs.sendMessage(tabId, { enso: true, action: "presence", args: { off: true } }, { frameId: 0 }).catch(() => {});
+  }
+}
+
+// A navigation drops the content script (and Firefox resets tab-specific badges): show it again.
+browser.tabs.onUpdated.addListener((tabId, info) => {
+  if (info.status !== "complete" || !presenceSent.has(tabId)) return;
+  presenceSent.delete(tabId);
+  syncPresence();
+});
+browser.tabs.onRemoved.addListener(tabId => presenceSent.delete(tabId));
+
+// The pill: pill.html (an extension frame over it) opens the sidebar on click;
+// the content script's own click handler is the fallback when the frame can't load.
+async function pillClicked(tab, opened) {
+  broadcast({ type: "agents.focus", tabId: tab.id });
+  if (opened) return;
+  const open = await browser.sidebarAction.isOpen({ windowId: tab.windowId }).catch(() => false);
+  if (!open) browser.tabs.sendMessage(tab.id, { enso: true, action: "pill_hint", args: { text: "Press ⌘E for Ensō" } }, { frameId: 0 }).catch(() => {});
+}
+browser.runtime.onMessage.addListener((msg, sender) => {
+  if (!sender.tab) return;
+  if (msg?.ensoPill && sender.url === browser.runtime.getURL("pill.html")) {
+    if (msg.ensoPill === "ready") browser.tabs.sendMessage(sender.tab.id, { enso: true, action: "pill_ready", args: {} }, { frameId: 0 }).catch(() => {});
+    if (msg.ensoPill === "click") pillClicked(sender.tab, !!msg.opened);
+  } else if (msg?.ensoPillFallback && sender.frameId === 0) {
+    // Not a user action as far as Firefox is concerned, so open() is usually refused; then focus or hint.
+    let opening;
+    try {
+      opening = browser.sidebarAction.open();
+    } catch (err) {
+      opening = Promise.reject(err);
+    }
+    opening.then(() => pillClicked(sender.tab, true), () => pillClicked(sender.tab, false));
+  }
+});
+
+// ---------- screenshots to agents ("Send screenshot", ⌘⇧2) ----------
+// Captures the visible area, a dragged region (pageagent.js "region_select") or the
+// full page (Firefox's captureTab takes a rect in page coordinates, beyond the
+// viewport), then hands the image to Ensō's UI, which shows the send sheet. The
+// helper sends it on (lib/screenshots.mjs); nothing is captured on private sites.
+
+const MAX_SHOT_SIDE = 16_384; // px of the captured image
+const MAX_SHOT_PIXELS = 36_000_000;
+let pendingCapture = null; // a capture made while no Ensō page was open (the shortcut opens the sidebar)
+
+function consoleErrorsOf(tabId) {
+  const buf = consoleTabs.get(tabId);
+  if (!buf) return null; // console capture never ran on this tab
+  return buf.entries.filter(e => e.level === "error").slice(-20).map(e => ({ t: e.t, text: String(e.text ?? "").slice(0, 600), source: e.source ?? "" }));
+}
+
+async function captureScreenshot(mode = "region") {
+  const tab = await activeTab();
+  if (!tab || !isWeb(tab.url)) throw new Error("Open a web page to take a screenshot of it.");
+  if (isSensitive(tab.url)) throw new Error("This is a private page (banking, health or similar); screenshots are off here.");
+  if (tab.discarded) throw new Error("This tab is unloaded; open it first.");
+  let rect = null;
+  let scale = 1;
+  if (mode === "region") {
+    const sel = await agent(tab.id, "region_select", {});
+    if (sel?.cancelled) return { cancelled: true };
+    mode = sel?.mode ?? "visible";
+    if (mode === "region") rect = sel.rect;
+  }
+  if (mode === "full") {
+    const size = await agent(tab.id, "page_size", {});
+    const w = Math.min(size.width, MAX_SHOT_SIDE);
+    const h = Math.min(size.height, MAX_SHOT_SIDE * 4);
+    rect = { x: 0, y: 0, width: w, height: h };
+    const dpr = size.dpr || 1;
+    scale = Math.min(1, MAX_SHOT_SIDE / (h * dpr), Math.sqrt(MAX_SHOT_PIXELS / (w * h * dpr * dpr))) || 1;
+  }
+  const opts = { format: "png", ...(rect ? { rect } : {}), ...(scale < 1 ? { scale } : {}) };
+  let image = await browser.tabs.captureTab(tab.id, opts);
+  // T3 takes images up to 10 MB: a huge PNG goes as JPEG instead.
+  if (image.length * 0.75 > 9_500_000) image = await browser.tabs.captureTab(tab.id, { ...opts, format: "jpeg", quality: 88 });
+  return { image, mode, tab: tabInfo(tab), consoleErrors: consoleErrorsOf(tab.id), at: Date.now() };
+}
+
+async function screenshotFor(port, mode) {
+  let msg;
+  try {
+    msg = { type: "screenshot.captured", ...(await captureScreenshot(mode)) };
+  } catch (err) {
+    msg = { type: "screenshot.captured", error: String(err.message ?? err) };
+  }
+  if (port) return port.postMessage(msg);
+  // The shortcut: the sidebar shows the send sheet (it may still be opening).
+  const sidebars = [...uis].filter(p => String(p.sender?.url ?? "").includes("/sidebar.html"));
+  if (sidebars.length) for (const p of sidebars) p.postMessage(msg);
+  else pendingCapture = msg; // it gets it when it connects
+}
+
+browser.commands.onCommand.addListener(command => {
+  if (command !== "send-screenshot") return;
+  // open() must run in the user-input handler, before anything is awaited.
+  try {
+    browser.sidebarAction.open().catch(() => {});
+  } catch {}
+  screenshotFor(null, "region");
+});
+
+browser.tabs.onRemoved.addListener(tabId => native?.postMessage({ type: "send.tab_closed", tabId })); // tab → thread links end with the tab
+
 // ---------- the helper connection ----------
 
 function broadcast(msg) {
@@ -462,6 +621,18 @@ function connectNative() {
       return;
     }
     if (msg.type === "state" && Array.isArray(msg.sensitiveHosts)) sensitivePatterns = msg.sensitiveHosts;
+    if ((msg.type === "state" || msg.type === "settings") && msg.settings) {
+      const on = msg.settings.agentTitlePrefix !== false;
+      if (on !== titlePrefixOn) {
+        titlePrefixOn = on;
+        presenceSent.clear();
+        syncPresence();
+      }
+    }
+    if (msg.type === "agents" || (msg.type === "state" && Array.isArray(msg.agents))) {
+      agentSessions = (msg.type === "agents" ? msg.sessions : msg.agents) ?? [];
+      syncPresence();
+    }
     if ((msg.type === "state" || msg.type === "spaces") && Array.isArray(msg.spaces)) {
       spaces = msg.spaces;
       pushCurrentPage();
@@ -504,11 +675,19 @@ async function pushCurrentPage(port) {
 
 browser.runtime.onConnect.addListener(port => {
   if (port.name !== "ui") return;
+  // Only Ensō's own pages: notes to agents and Pause/Stop must never come from page content.
+  if (!String(port.sender?.url ?? "").startsWith(browser.runtime.getURL(""))) return void port.disconnect();
   uis.add(port);
   port.onDisconnect.addListener(() => uis.delete(port));
   connectNative();
   pushCurrentPage(port);
+  port.postMessage({ type: "agents", sessions: agentSessions });
+  if (pendingCapture && String(port.sender?.url ?? "").includes("/sidebar.html")) {
+    if (Date.now() - (pendingCapture.at ?? Date.now()) < 60_000) port.postMessage(pendingCapture);
+    pendingCapture = null;
+  }
   port.onMessage.addListener(async msg => {
+    if (msg.type === "screenshot.capture") return screenshotFor(port, msg.mode);
     if (msg.type === "tabs.list") {
       const tabs = (await browser.tabs.query({ windowType: "normal" })).filter(t => isWeb(t.url));
       const win = (await activeTab())?.windowId;
@@ -519,13 +698,30 @@ browser.runtime.onConnect.addListener(port => {
       return;
     }
     if (msg.type === "page.current") return pushCurrentPage(port);
+    if (msg.type === "agents.switch") {
+      // Agents list: go to the tab an agent works in (in whatever space it is).
+      const t = await browser.tabs.get(Number(msg.tabId)).catch(() => null);
+      if (t) {
+        await browser.tabs.update(t.id, { active: true }).catch(() => {});
+        await browser.windows.update(t.windowId, { focused: true }).catch(() => {});
+      }
+      return;
+    }
     forward(msg).catch(err => port.postMessage({ type: "event", conversationId: msg.conversationId ?? null, event: { kind: "error", text: String(err.message ?? err) } }));
   });
 });
 
 browser.tabs.onActivated.addListener(() => pushCurrentPage());
 browser.tabs.onUpdated.addListener((_id, info, tab) => tab.active && (info.status === "complete" || info.title) && pushCurrentPage());
-browser.windows.onFocusChanged.addListener(() => pushCurrentPage());
+browser.windows.onFocusChanged.addListener(async windowId => {
+  // Zen losing focus (another app in front) changes nothing for Ensō: keep showing the last window's space.
+  if (windowId === browser.windows.WINDOW_ID_NONE) return;
+  const w = await browser.windows.get(windowId).catch(() => null);
+  if (w?.type !== "normal") return;
+  lastWindowId = windowId;
+  pushCurrentPage();
+});
+browser.windows.onRemoved.addListener(id => { if (id === lastWindowId) lastWindowId = null; });
 
 // ---------- new tabs: keyboard focus in Ensō's box, not the address bar ----------
 // Firefox focuses the address bar for every tab opened on the new-tab URL
@@ -547,14 +743,37 @@ async function swapForFocus(tabId) {
   if (!tab?.active || !isNewTabUrl(tab.url)) return;
   swapping = true;
   try {
-    const created = await browser.tabs.create({ url: `${NEWTAB}#f`, index: tab.index, active: true, windowId: tab.windowId, ...(tab.cookieStoreId ? { cookieStoreId: tab.cookieStoreId } : {}) });
+    // Load the replacement in the background, right after the original, and
+    // switch only once it has drawn: switching to a tab that is still blank is
+    // what showed as a white flash between two drawings of the page.
+    const created = await browser.tabs.create({ url: `${NEWTAB}#f`, index: tab.index + 1, active: false, windowId: tab.windowId, ...(tab.cookieStoreId ? { cookieStoreId: tab.cookieStoreId } : {}) });
     ours.add(created.id);
     fresh.delete(created.id);
+    await loaded(created.id, 1500);
+    const still = await browser.tabs.get(tabId).catch(() => null);
+    if (!still?.active || !isNewTabUrl(still.url)) {
+      // The user already moved on (typed in the address bar, switched tabs): keep their tab.
+      await browser.tabs.remove(created.id).catch(() => {});
+      return;
+    }
+    await browser.tabs.update(created.id, { active: true });
     await browser.tabs.remove(tabId);
   } catch {
   } finally {
     swapping = false;
   }
+}
+
+/** Resolves when the tab has finished loading, or after `ms`. */
+function loaded(tabId, ms) {
+  return new Promise(resolve => {
+    let done = false;
+    const finish = () => { if (done) return; done = true; browser.tabs.onUpdated.removeListener(onUpd); clearTimeout(timer); resolve(); };
+    const onUpd = (id, info) => { if (id === tabId && info.status === "complete") finish(); };
+    const timer = setTimeout(finish, ms);
+    browser.tabs.onUpdated.addListener(onUpd);
+    browser.tabs.get(tabId).then(t => { if (t?.status === "complete") finish(); }).catch(finish);
+  });
 }
 
 browser.tabs.onCreated.addListener(tab => {

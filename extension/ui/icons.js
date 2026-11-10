@@ -11,6 +11,8 @@ export const ICONS = {
   arrowUp: ["M12 19V5", "M6 11l6-6 6 6"],
   arrowLeft: ["M19 12H5", "M11 6l-6 6 6 6"],
   arrowUpRight: ["M7 17L17 7", "M8 7h9v9"],
+  pause: ["M9 6.5v11", "M15 6.5v11"],
+  play: ["M8 6.2v11.6a.6.6 0 00.9.5l9-5.8a.6.6 0 000-1L8.9 5.7a.6.6 0 00-.9.5z"],
   stop: ["M8 7h8a1 1 0 011 1v8a1 1 0 01-1 1H8a1 1 0 01-1-1V8a1 1 0 011-1z"],
   home: ["M4 11l8-6.5 8 6.5", "M6 9.5V19h4.5v-5h3v5H18V9.5"],
   clock: ["circle:12,12,8", "M12 7.5V12l3 2"],

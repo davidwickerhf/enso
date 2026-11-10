@@ -9,7 +9,8 @@
     "dashboard": {
       "autoRefreshMinutes": 60
     },
-    "externalControl": "full"
+    "externalControl": "full",
+    "agentTitlePrefix": true
   },
   "keychainService": "enso-anthropic",
   "legacyKeychainServices": ["zen-chat-anthropic"],

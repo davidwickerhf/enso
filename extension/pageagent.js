@@ -1,7 +1,8 @@
 // Page agent: injected into a tab when the assistant reads or acts on it.
 // Builds a numbered list of interactive elements, performs clicks/typing on
-// them, and shows what it is doing (outline + ribbon). Answers messages from
-// background.js: { enso: true, action, args }.
+// them, and shows what it is doing (outline flash + pill, "✦ " title prefix
+// while an external agent's session is active). Types into Google Docs through
+// its hidden input frame. Answers messages from background.js: { enso: true, action, args }.
 //
 // Developer tools: console capture in the page's own JS world (through
 // window.wrappedJSObject + exportFunction, so page CSP doesn't matter),
@@ -84,49 +85,214 @@
   }
 
   // ---------- feedback on the page ----------
+  // Ensō's own turns: a short-lived ribbon per action. External agents with a
+  // live session (lib/agentsessions.mjs → background.js "presence"): a pill that
+  // stays for the whole session, "<Client> · <task>", with a live dot while it
+  // acts. Clicking the pill opens Ensō's sidebar (through pill.html, an
+  // extension frame laid over it, because sidebarAction.open() needs a click in
+  // an extension page). Every element acted on flashes a soft outline.
 
-  let ribbon = null;
-  let ribbonTimer = null;
+  const reduceMotion = () => matchMedia("(prefers-reduced-motion: reduce)").matches;
   let agentName = "Claude"; // who is acting: Ensō's own Claude, or the MCP client (Codex, Cursor…) named in the request
-  function showRibbon() {
-    if (!ribbon) {
-      ribbon = document.createElement("div");
-      Object.assign(ribbon.style, {
-        position: "fixed", top: "10px", left: "50%", transform: "translateX(-50%)", zIndex: 2147483647,
-        background: ACCENT, color: "white", font: "500 12px -apple-system, system-ui, sans-serif",
-        padding: "6px 12px", borderRadius: "999px", boxShadow: "0 4px 14px rgba(0,0,0,.18)", pointerEvents: "none",
-        transition: "opacity .2s",
-      });
-      document.documentElement.appendChild(ribbon);
-    }
-    ribbon.textContent = `✦ ${agentName} is working on this page`;
-    ribbon.style.opacity = "1";
-    clearTimeout(ribbonTimer);
-    ribbonTimer = setTimeout(() => (ribbon.style.opacity = "0"), 4000);
+  let presence = null; // { label, task, running, paused, stopped, titlePrefix } while an external session is active
+  let pill = null; // { host, box, text, state, dot, frame, ready }
+  let liveTimer = null;
+  let fadeTimer = null;
+
+  function buildPill() {
+    if (pill) return pill;
+    const host = document.createElement("div");
+    host.setAttribute("data-enso-pill", "");
+    Object.assign(host.style, { position: "fixed", top: "10px", left: "50%", transform: "translateX(-50%)", zIndex: 2147483647, display: "block", margin: 0, padding: 0, border: 0, background: "none", maxWidth: "min(560px, calc(100vw - 24px))" });
+    const root = host.attachShadow({ mode: "closed" });
+    const wrap = document.createElement("div");
+    Object.assign(wrap.style, { position: "relative", display: "inline-block", maxWidth: "100%" });
+    const box = document.createElement("div");
+    box.setAttribute("role", "status");
+    box.setAttribute("aria-live", "polite");
+    Object.assign(box.style, {
+      display: "flex", alignItems: "center", gap: "7px", maxWidth: "100%", boxSizing: "border-box",
+      background: ACCENT, color: "white", font: "500 12px/1.3 -apple-system, system-ui, sans-serif",
+      padding: "6px 12px 6px 10px", borderRadius: "999px", boxShadow: "0 4px 14px rgba(0,0,0,.18)", cursor: "pointer",
+      transition: reduceMotion() ? "none" : "opacity .2s, background-color .2s", whiteSpace: "nowrap", userSelect: "none",
+    });
+    const dot = document.createElement("span");
+    Object.assign(dot.style, { width: "7px", height: "7px", borderRadius: "50%", background: "white", flex: "none", opacity: "0.55" });
+    const text = document.createElement("span");
+    Object.assign(text.style, { overflow: "hidden", textOverflow: "ellipsis", minWidth: 0 });
+    const state = document.createElement("span");
+    Object.assign(state.style, { flex: "none", fontWeight: "600", opacity: "0.9" });
+    box.append(dot, text, state);
+    // Fallback when the extension frame can't load (a page that blocks it): ask background.js.
+    box.addEventListener("click", () => browser.runtime.sendMessage({ ensoPillFallback: true }).catch(() => {}));
+    const frame = document.createElement("iframe");
+    frame.src = browser.runtime.getURL("pill.html");
+    frame.title = "Open Ensō";
+    frame.setAttribute("tabindex", "0");
+    Object.assign(frame.style, { position: "absolute", inset: 0, width: "100%", height: "100%", border: 0, margin: 0, padding: 0, background: "transparent", colorScheme: "normal", opacity: 0, pointerEvents: "none", borderRadius: "999px" });
+    frame.setAttribute("allowtransparency", "true");
+    wrap.append(box, frame);
+    root.append(wrap);
+    document.documentElement.appendChild(host);
+    pill = { host, box, text, state, dot, frame, ready: false, pulse: null };
+    return pill;
   }
 
-  function highlight(el) {
+  function renderPill() {
+    const p = buildPill();
+    if (!p.host.isConnected) document.documentElement.appendChild(p.host); // pages that rebuild <html> children
+    const label = presence?.label || agentName;
+    const task = presence?.task ? ` · ${presence.task}` : "";
+    p.text.textContent = presence ? `✦ ${label}${task}` : `✦ ${agentName} is working on this page`;
+    if (presence && !presence.task) p.text.textContent = `✦ ${label} is working on this page`;
+    p.state.textContent = presence?.stopped ? "· Stopped" : presence?.paused ? "· Paused" : "";
+    p.box.style.background = presence?.stopped ? "#6b625a" : presence?.paused ? "#8a5a3f" : ACCENT;
+    p.box.setAttribute("aria-label", `${p.text.textContent.replace(/^✦ /, "")}${p.state.textContent}. Click to open Ensō.`);
+    p.host.title = "Open Ensō to see what it is doing, pause or stop it";
+    p.box.style.opacity = "1";
+    const live = !!(presence?.running || liveTimer) && !presence?.paused && !presence?.stopped;
+    p.dot.style.opacity = live ? "1" : "0.55";
+    if (live && !p.pulse && !reduceMotion()) p.pulse = p.dot.animate([{ opacity: 1, transform: "scale(1)" }, { opacity: 0.35, transform: "scale(0.8)" }, { opacity: 1, transform: "scale(1)" }], { duration: 1200, iterations: Infinity });
+    if (!live && p.pulse) {
+      p.pulse.cancel();
+      p.pulse = null;
+    }
+  }
+
+  /** Ensō's own turns, and any action: show the pill; without a session it fades after a few seconds. */
+  function showRibbon() {
+    clearTimeout(liveTimer);
+    liveTimer = setTimeout(() => {
+      liveTimer = null;
+      if (presence) renderPill();
+    }, 1500);
+    renderPill();
+    clearTimeout(fadeTimer);
+    if (!presence) fadeTimer = setTimeout(() => pill && !presence && (pill.box.style.opacity = "0"), 4000);
+  }
+
+  function setPresence(next) {
+    presence = next && typeof next === "object" && !next.off ? { label: String(next.label ?? "").slice(0, 40), task: String(next.task ?? "").slice(0, 200), running: !!next.running, paused: !!next.paused, stopped: !!next.stopped, titlePrefix: next.titlePrefix !== false } : null;
+    clearTimeout(fadeTimer);
+    if (presence) {
+      renderPill();
+      titlePrefix(presence.titlePrefix);
+    } else {
+      titlePrefix(false);
+      if (pill) {
+        pill.box.style.opacity = "0";
+        const p = pill;
+        pill = null;
+        setTimeout(() => p.host.remove(), reduceMotion() ? 0 : 250);
+      }
+    }
+    return { shown: !!presence, title: document.title };
+  }
+
+  // "✦ " in front of the page title while an agent is active, so Zen's tab list shows it.
+  // Pages that rewrite their title (Google Docs, Gmail) are followed with a
+  // MutationObserver; on end the page's latest own title is put back exactly.
+  const TITLE_PREFIX = "✦ ";
+  let titleOn = false;
+  let pageTitle = null; // the page's own title, without our prefix
+  let titleObserver = null;
+  function applyTitle() {
+    const current = document.title;
+    if (current === TITLE_PREFIX + pageTitle) return;
+    pageTitle = current;
+    document.title = TITLE_PREFIX + current;
+  }
+  function titlePrefix(on) {
+    if (on && !titleOn) {
+      titleOn = true;
+      pageTitle = document.title;
+      document.title = TITLE_PREFIX + pageTitle;
+      titleObserver = new MutationObserver(() => titleOn && applyTitle());
+      titleObserver.observe(document.head ?? document.documentElement, { subtree: true, childList: true, characterData: true });
+    } else if (!on && titleOn) {
+      titleOn = false;
+      titleObserver?.disconnect();
+      titleObserver = null;
+      if (document.title === TITLE_PREFIX + pageTitle) document.title = pageTitle;
+      pageTitle = null;
+    }
+  }
+
+  /** A soft outline flash on the element acted on, with who is acting. */
+  function highlight(el, verb = "") {
     const r = el.getBoundingClientRect();
+    const still = reduceMotion();
     const box = document.createElement("div");
+    box.setAttribute("aria-hidden", "true");
     Object.assign(box.style, {
       position: "fixed", left: `${r.left - 4}px`, top: `${r.top - 4}px`, width: `${r.width + 8}px`, height: `${r.height + 8}px`,
       border: `2px solid ${ACCENT}`, borderRadius: "8px", boxShadow: `0 0 0 4px ${ACCENT}33`, zIndex: 2147483646,
-      pointerEvents: "none", transition: "opacity .4s",
+      pointerEvents: "none", boxSizing: "border-box", margin: 0,
     });
+    const tag = document.createElement("div");
+    tag.textContent = verb ? `${presence?.label || agentName} · ${verb}` : presence?.label || agentName;
+    Object.assign(tag.style, { position: "absolute", left: "-2px", top: r.top > 26 ? "-22px" : "calc(100% + 4px)", background: ACCENT, color: "white", font: "600 10.5px/1 -apple-system, system-ui, sans-serif", padding: "4px 7px", borderRadius: "6px", whiteSpace: "nowrap" });
+    box.append(tag);
     document.documentElement.appendChild(box);
-    setTimeout(() => (box.style.opacity = "0"), 1200);
-    setTimeout(() => box.remove(), 1700);
+    if (!still) box.animate([{ opacity: 0, transform: "scale(1.04)" }, { opacity: 1, transform: "scale(1)" }], { duration: 160, easing: "cubic-bezier(.22,1,.36,1)" });
+    setTimeout(() => {
+      if (still) return box.remove();
+      box.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 400, fill: "forwards" }).onfinish = () => box.remove();
+    }, 1200);
   }
 
   // ---------- actions ----------
 
-  function target(ref) {
+  function target(ref, verb) {
     const el = refs.get(Number(ref));
     if (!el || !el.isConnected) throw new Error(`Element [${ref}] is gone; call page_read again.`);
     el.scrollIntoView({ block: "center", inline: "nearest" });
     showRibbon();
-    highlight(el);
+    highlight(el, verb);
     return el;
+  }
+
+  const TEXT_INPUT_TYPES = new Set(["text", "search", "email", "url", "tel", "password", "number", ""]);
+  const isEditable = el => !!el && (el.isContentEditable || el.tagName === "TEXTAREA" || (el.tagName === "INPUT" && TEXT_INPUT_TYPES.has(String(el.type ?? "").toLowerCase())));
+
+  // ---------- Google Docs ----------
+  // Docs draws the document on a canvas and listens for typing in a hidden,
+  // same-origin iframe (.docs-texteventtarget-iframe) holding a contenteditable.
+  // Text goes in with execCommand("insertText") there, at Docs' own cursor; a
+  // new line is an Enter keydown. Sheets and Slides keep the normal path.
+  const docsApp = () => (location.hostname === "docs.google.com" ? /^\/(document|spreadsheets|presentation)\//.exec(location.pathname)?.[1] ?? null : null);
+  function docsInput() {
+    const frame = document.querySelector("iframe.docs-texteventtarget-iframe");
+    let doc = null;
+    try {
+      doc = frame?.contentDocument ?? null;
+    } catch {}
+    const editable = doc?.querySelector('[contenteditable="true"], [contenteditable=""]') ?? (doc?.body?.isContentEditable ? doc.body : null);
+    return frame && doc && editable ? { frame, doc, editable } : null;
+  }
+  function docsEnter(el, win) {
+    const KE = win.KeyboardEvent;
+    const init = { key: "Enter", code: "Enter", keyCode: 13, which: 13, bubbles: true, cancelable: true };
+    el.dispatchEvent(new KE("keydown", init));
+    el.dispatchEvent(new KE("keypress", { ...init, charCode: 13 }));
+    el.dispatchEvent(new KE("keyup", init));
+  }
+  function docsType(text, submit, near) {
+    const d = docsInput();
+    if (!d) throw new Error("Couldn't find Google Docs' text input. Click into the document first (page_click on the page), then type again.");
+    const { frame, doc, editable } = d;
+    const shown = near ?? document.querySelector(".kix-appview-editor, .docs-editor-container, #docs-editor") ?? frame;
+    showRibbon();
+    if (shown?.getBoundingClientRect) highlight(shown, "typing");
+    editable.focus();
+    const win = doc.defaultView;
+    const lines = String(text ?? "").split(/\r?\n/);
+    lines.forEach((line, i) => {
+      if (i > 0) docsEnter(editable, win);
+      if (line) doc.execCommand("insertText", false, line);
+    });
+    if (submit) docsEnter(editable, win);
+    return { description: "Google Docs document body (at the cursor)", url: location.href, title: document.title };
   }
 
   function setValue(el, value) {
@@ -144,10 +310,97 @@
     el.dispatchEvent(new KeyboardEvent("keyup", init));
   }
 
+  // ---- screenshot region select ("Send screenshot", ⌘⇧2): the user drags a box ----
+  // Resolves { mode: "region", rect } (page coordinates, CSS px), { mode: "visible" }
+  // (Enter or a click without dragging), { mode: "full" } (F) or { cancelled: true } (Esc).
+  // The overlay is removed and two frames painted before it resolves, so it never shows in the capture.
+  let selecting = null;
+  function regionSelect() {
+    if (selecting) return selecting;
+    selecting = new Promise(resolve => {
+      const host = document.createElement("div");
+      host.setAttribute("data-enso-region", "");
+      host.style.cssText = "position:fixed;inset:0;z-index:2147483647;";
+      const root = host.attachShadow({ mode: "closed" });
+      const el = (tag, cls, text) => {
+        const n = document.createElement(tag);
+        if (cls) n.className = cls;
+        if (text) n.textContent = text;
+        return n;
+      };
+      const style = el("style");
+      style.textContent = `
+        .layer{position:fixed;inset:0;cursor:crosshair;background:rgba(20,16,12,.32);outline:none}
+        .layer.dragging{background:transparent}
+        .box{position:fixed;display:none;border:1.5px solid ${ACCENT};border-radius:2px;box-shadow:0 0 0 100vmax rgba(20,16,12,.32);pointer-events:none}
+        .size{position:absolute;right:-1px;bottom:-24px;font:600 11px/1 -apple-system,system-ui,sans-serif;color:#fff;background:${ACCENT};padding:4px 6px;border-radius:4px;white-space:nowrap}
+        .hint{position:fixed;left:50%;top:14px;transform:translateX(-50%);display:flex;gap:14px;align-items:center;font:500 12.5px/1.2 -apple-system,system-ui,sans-serif;color:#fff;background:rgba(28,24,20,.92);padding:9px 14px;border-radius:10px;box-shadow:0 6px 24px rgba(0,0,0,.25);pointer-events:none;white-space:nowrap}
+        .hint b{font-weight:650;color:#ffd9c7}
+        kbd{font:600 11px/1 ui-monospace,SFMono-Regular,monospace;background:rgba(255,255,255,.14);border-radius:4px;padding:3px 5px;margin-right:4px}
+        .layer.dragging ~ .hint{opacity:0}
+      `;
+      const layerEl = el("div", "layer");
+      layerEl.tabIndex = -1;
+      const boxEl = el("div", "box");
+      boxEl.append(el("span", "size"));
+      const hint = el("div", "hint");
+      hint.append(el("b", "", "✦ Screenshot"), el("span", "", "Drag to select"));
+      for (const [k, t] of [["↵", "Visible area"], ["F", "Full page"], ["Esc", "Cancel"]]) {
+        const item = el("span");
+        item.append(el("kbd", "", k), document.createTextNode(t));
+        hint.append(item);
+      }
+      root.append(style, layerEl, boxEl, hint);
+      const layer = root.querySelector(".layer");
+      const box = root.querySelector(".box");
+      const size = root.querySelector(".size");
+      let start = null;
+      let rect = null;
+      const finish = result => {
+        window.removeEventListener("keydown", onKey, true);
+        host.remove();
+        selecting = null;
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve(result)));
+      };
+      const onKey = e => {
+        if (e.key === "Escape") finish({ cancelled: true });
+        else if (e.key === "Enter") finish({ mode: "visible" });
+        else if (e.key === "f" || e.key === "F") finish({ mode: "full" });
+        else return;
+        e.preventDefault();
+        e.stopPropagation();
+      };
+      layer.addEventListener("mousedown", e => {
+        if (e.button !== 0) return;
+        start = { x: e.clientX, y: e.clientY };
+        layer.classList.add("dragging");
+        e.preventDefault();
+      });
+      layer.addEventListener("mousemove", e => {
+        if (!start) return;
+        const x = Math.min(start.x, e.clientX), y = Math.min(start.y, e.clientY);
+        const w = Math.abs(e.clientX - start.x), h = Math.abs(e.clientY - start.y);
+        rect = { x, y, width: w, height: h };
+        Object.assign(box.style, { display: "block", left: `${x}px`, top: `${y}px`, width: `${w}px`, height: `${h}px` });
+        size.textContent = `${Math.round(w)} × ${Math.round(h)}`;
+      });
+      layer.addEventListener("mouseup", () => {
+        if (!start) return;
+        start = null;
+        if (!rect || rect.width < 8 || rect.height < 8) return finish({ mode: "visible" });
+        finish({ mode: "region", rect: { x: rect.x + scrollX, y: rect.y + scrollY, width: rect.width, height: rect.height } });
+      });
+      window.addEventListener("keydown", onKey, true);
+      (document.body ?? document.documentElement).append(host);
+      layer.focus();
+    });
+    return selecting;
+  }
+
   const actions = {
     snapshot,
     click({ ref }) {
-      const el = target(ref);
+      const el = target(ref, "clicking");
       const description = describe(el);
       el.focus?.();
       for (const type of ["pointerdown", "mousedown", "pointerup", "mouseup"]) el.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, view: window }));
@@ -155,7 +408,16 @@
       return { description, url: location.href, title: document.title };
     },
     type({ ref, text, submit }) {
-      const el = target(ref);
+      let el = ref != null ? target(ref, "typing") : null;
+      // Google Docs: the page/canvas (or no ref at all) means "the document body, at the cursor".
+      if (docsApp() === "document" && !isEditable(el)) return docsType(text, submit, el);
+      if (!el) {
+        el = document.activeElement;
+        while (el?.shadowRoot?.activeElement) el = el.shadowRoot.activeElement;
+        if (!isEditable(el)) throw new Error("No ref given and no text field has the cursor. Call page_read and pass the ref of the field to type into.");
+        showRibbon();
+        highlight(el, "typing");
+      }
       const description = describe(el);
       el.focus();
       // insertText goes through the browser's own editing path, so the page
@@ -193,7 +455,7 @@
       return { description, url: location.href, title: document.title };
     },
     select({ ref, value }) {
-      const el = target(ref);
+      const el = target(ref, "choosing");
       const description = describe(el);
       const want = String(value).toLowerCase();
       const opt = [...(el.options ?? [])].find(o => o.value.toLowerCase() === want || o.text.trim().toLowerCase() === want) ?? [...(el.options ?? [])].find(o => o.text.toLowerCase().includes(want));
@@ -214,6 +476,27 @@
       if (ref) target(ref);
       else window.scrollBy({ top: (direction === "up" ? -1 : 1) * innerHeight * 0.8, behavior: "smooth" });
       return { url: location.href, title: document.title };
+    },
+    presence: setPresence,
+    region_select: regionSelect,
+    page_size() {
+      const d = document.documentElement;
+      const b = document.body;
+      return { width: Math.max(d.scrollWidth, b?.scrollWidth ?? 0, innerWidth), height: Math.max(d.scrollHeight, b?.scrollHeight ?? 0, innerHeight), viewport: { width: innerWidth, height: innerHeight }, dpr: devicePixelRatio };
+    },
+    pill_ready() {
+      if (pill) {
+        pill.ready = true;
+        pill.frame.style.pointerEvents = "auto"; // clicks now land in pill.html, which can open the sidebar
+      }
+      return {};
+    },
+    pill_hint({ text }) {
+      if (!pill) return {};
+      const before = pill.state.textContent;
+      pill.state.textContent = `· ${String(text ?? "").slice(0, 60)}`;
+      setTimeout(() => pill && (pill.state.textContent = before), 3500);
+      return {};
     },
     text() {
       return { url: location.href, title: document.title, text: document.body?.innerText ?? "" };
@@ -433,13 +716,14 @@
     return { status: res.status, statusText: res.statusText, url: res.url, redirected: res.redirected, headers: hdrs, contentType: type, body: text.length > cap ? text.slice(0, cap) : text, bodyLength: length, truncated: text.length > cap, tabOrigin: location.origin, tabTitle: document.title };
   }
 
+  const PASSIVE = new Set(["presence", "pill_ready", "pill_hint", "text", "console_flush", "region_select", "page_size"]); // not an action by anyone
   browser.runtime.onMessage.addListener(msg => {
     if (!msg?.enso) return undefined;
     return (async () => {
       try {
         const fn = actions[msg.action];
         if (!fn) throw new Error(`Unknown page action ${msg.action}`);
-        agentName = typeof msg.agent === "string" && msg.agent.trim() ? msg.agent.trim().slice(0, 40) : "Claude";
+        if (!PASSIVE.has(msg.action)) agentName = typeof msg.agent === "string" && msg.agent.trim() ? msg.agent.trim().slice(0, 40) : "Claude";
         return { ok: true, result: await fn(msg.args ?? {}) };
       } catch (err) {
         return { ok: false, error: String(err?.message ?? err) };

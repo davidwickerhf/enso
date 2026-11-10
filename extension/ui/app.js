@@ -18,6 +18,8 @@ import { createNav, createContext } from "./views/panels.js";
 import { createReport } from "./views/report.js";
 import { createToolsPage } from "./views/tools.js";
 import { createOnboarding } from "./views/onboarding.js";
+import { createAgentsPanel } from "./views/agents.js";
+import { createSendSheet, SCREENSHOT_SHORTCUT } from "./views/send.js";
 
 const root = document.documentElement;
 const MODES = ["sidebar", "newtab", "full", "report"];
@@ -91,11 +93,16 @@ function bootApp() {
   const viewHost = h("div", { class: "view-host" });
   const scroller = h("div", { class: "scroller", tabindex: "-1" }, viewHost);
   const dock = h("div", { class: "dock" });
-  const main = h("main", { class: "main" }, topbar, banner, scroller, dock);
+  // External agents (Claude Code, Codex…) on the active tab and elsewhere: above the content, sidebar and full page.
+  const agents = mode === "sidebar" || mode === "full" ? createAgentsPanel(store) : null;
+  const main = h("main", { class: "main" }, topbar, banner, agents?.el, scroller, dock);
   const nav = mode === "full" ? createNav(store, ctx) : null;
   const context = mode === "full" ? createContext(store, ctx) : null;
   const app = h("div", { class: "app" }, nav?.el, main, context?.el);
   document.body.append(app);
+  // Send screenshot (⌘⇧2 or the camera button): the send sheet over the app, and its toast.
+  const sendSheet = mode === "sidebar" || mode === "full" ? createSendSheet(store) : null;
+  if (sendSheet) document.body.append(sendSheet.el, sendSheet.toastEl);
   if (mode === "full" && localStorage.getItem("enso.context") === "hidden") app.classList.add("no-context");
 
   let shown = null;
@@ -171,8 +178,10 @@ function bootApp() {
       running ? h("span", { class: "live-dot", title: "Answering…" }) : null);
     const spaceChip = s.space ? h("span", { class: "space-chip", title: `Space: ${s.space.name}` }, spaceIcon(s.space), h("span", { class: "space-name" }, s.space.name)) : null;
     const right = h("div", { class: "topbar-right" }, pill, spaceChip);
+    const shotBtn = iconButton("camera", `Send a screenshot to an agent (${SCREENSHOT_SHORTCUT})`, () => actions.captureScreenshot("region"), { disabled: !s.tab || s.tab.sensitive });
     if (mode === "sidebar") {
       right.append(
+        shotBtn,
         iconButton("plus", `New chat (${MOD}N)`, newChat),
         iconButton("history", "History", () => actions.go("history"), { aria: { pressed: String(v === "history") } }),
         iconButton("sliders", "Settings", () => actions.go("settings"), { aria: { pressed: String(v === "settings") } }),
@@ -187,6 +196,7 @@ function bootApp() {
         iconButton("history", "History", () => actions.go("history")),
         iconButton("sliders", "Settings", () => actions.go("settings")));
     } else {
+      right.append(shotBtn);
       if (v === "chat" && sum) right.append(iconButton("pencil", "Rename", () => renameInline(sum)));
       right.append(iconButton("panelRight", app.classList.contains("no-context") ? "Show context panel" : "Hide context panel", () => {
         app.classList.toggle("no-context");
@@ -285,7 +295,9 @@ function bootApp() {
     for (const v of Object.values(views)) v.update?.(topics);
     nav?.update(topics);
     context?.update(topics);
-    if (["ui", "approvals", "conversations", "settings", "state", "space"].some(t => topics.has(t)) || [...topics].some(t => t.startsWith("conv:"))) renderTopbar();
+    agents?.update(topics);
+    sendSheet?.update(topics);
+    if (["ui", "approvals", "conversations", "settings", "state", "space", "tab"].some(t => topics.has(t)) || [...topics].some(t => t.startsWith("conv:"))) renderTopbar();
     if (topics.has("ui") || [...topics].some(t => t.startsWith("conv:"))) placeComposer();
     if (topics.has("banner") || topics.has("connection")) renderBanner();
     if (topics.has("profile") || topics.has("state")) renderOnboarding();

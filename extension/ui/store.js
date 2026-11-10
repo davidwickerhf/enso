@@ -2,7 +2,9 @@
 // protocol messages into it, and tells views which parts changed ("topics").
 //
 // Topics: connection, state, conversations, conv:<id>, dashboard, settings,
-// servers, approvals, history, actions, memory, ui, tab, github.
+// servers, approvals, history, actions, memory, ui, tab, github, agents
+// (external agents' live sessions), agents-focus (the page pill was clicked),
+// shot (the screenshot send sheet), t3 (T3 Code connection), toast.
 
 export function createStore() {
   const listeners = new Set();
@@ -49,6 +51,14 @@ export function createStore() {
     report: null,            // report.get (report page)
     globalError: null,       // event with conversationId null (e.g. host_disconnected)
     prefill: null,           // composer.prefill text waiting for the composer
+    agents: [],              // live sessions of external agents (Claude Code, Codex…): see docs/PROTOCOL.md "agents"
+    agentNotes: new Map(),   // local id → { sessionId, text, at } notes sent but not yet echoed by the helper
+    agentFocus: null,        // { tabId, at } when the page pill asked for the agent card
+    connectedAgents: [],     // agents connected through `enso mcp` (screenshot targets): [{ id, client, task, tabIds, active, t3ThreadId, pending }]
+    // The screenshot send sheet (views/send.js): capture → targets → send.
+    shot: null,              // { image, mode, tab, consoleErrors, capturing, error, targets, target, picker, sending, includePage, includeErrors, message, remember }
+    t3: { status: null, busy: null, done: null }, // T3 Code connection (Settings), from the helper's `t3` messages
+    toast: null,             // { text, kind, action?: { label, run } }
     ui: { view: "home", currentId: null, includePage: true, pendingSend: null, notice: null, scope: "space" },
   };
 
@@ -197,6 +207,8 @@ export function createStore() {
         if (msg.spaces) s.spaces = msg.spaces;
         if (s.globalError?.code === "host_disconnected") s.globalError = null;
         if (msg.dashboard) s.dashboard = { ...s.dashboard, data: msg.dashboard };
+        if (Array.isArray(msg.agents)) { s.agents = msg.agents; emit("agents"); }
+        if (Array.isArray(msg.connectedAgents)) s.connectedAgents = msg.connectedAgents;
         if (first && s.settings) s.ui.includePage = s.settings.includePageByDefault !== false;
         emit("state", "settings", "servers", "conversations", "dashboard", "ui", "skills", "reports", "banner", "profile");
         return;
@@ -295,6 +307,68 @@ export function createStore() {
         if (who === "log") { s.actions.results = msg.actions ?? []; s.actions.loading = false; emit("actions"); }
         return;
       }
+      case "actions.added": {
+        // Pushed live by the helper (external agents' actions, notes): Activity and "recent" update without a reload.
+        const a = msg.action;
+        if (!a) return;
+        if (s.recentActions) { s.recentActions = [a, ...s.recentActions.filter(x => x.id !== a.id)].slice(0, 8); emit("dashboard", "recent"); }
+        const f = s.actions.filter;
+        if (s.actions.results && (!f?.host || f.host === a.host)) { s.actions.results = [a, ...s.actions.results.filter(x => x.id !== a.id)]; emit("actions"); }
+        return;
+      }
+      case "screenshot.captured": {
+        if (msg.cancelled) { s.shot = null; emit("shot"); return; }
+        if (msg.error) { s.shot = null; showToast(msg.error, "bad"); emit("shot"); return; }
+        const errors = Array.isArray(msg.consoleErrors) ? msg.consoleErrors : null;
+        s.shot = { image: msg.image, mode: msg.mode, tab: msg.tab, consoleErrors: errors, targets: null, target: null, picker: false, sending: false, includePage: true, includeErrors: false, message: "", remember: false, error: null };
+        send({ type: "send.targets", tabId: msg.tab?.tabId ?? null, url: msg.tab?.url ?? "" });
+        emit("shot");
+        return;
+      }
+      case "send.targets": {
+        if (!s.shot) return;
+        if (msg.error) { s.shot.error = msg.error; emit("shot"); return; }
+        s.shot.targets = msg;
+        if (!s.shot.target) s.shot.target = msg.target;
+        if (!s.shot.target) s.shot.picker = true; // nothing known: choose first
+        emit("shot");
+        return;
+      }
+      case "send.result": {
+        if (!s.shot) return;
+        if (!msg.ok) { s.shot.sending = false; s.shot.error = msg.error || "Couldn't send the screenshot."; emit("shot"); return; }
+        const how = msg.kind === "agent" ? (msg.queued ? "it gets it with its next step" : "") : msg.route === "path" ? "as a file path" : "";
+        const threadId = s.shot.target?.kind === "t3" ? s.shot.target.id : null;
+        s.shot = null;
+        showToast(`Sent to ${msg.title}${how ? ` · ${how}` : ""}`, "good", msg.kind === "t3" && msg.openUrl && threadId ? { label: "Open in T3", run: () => actions.openT3(threadId) } : null);
+        emit("shot");
+        return;
+      }
+      case "screenshot.saved":
+        if (!msg.ok) { showToast(msg.error || "Couldn't save the screenshot.", "bad"); return; }
+        navigator.clipboard?.writeText(msg.path).then(() => showToast(`Saved and copied the path: ${msg.path}`, "good"), () => showToast(`Saved at ${msg.path}`, "good"));
+        s.shot = null;
+        emit("shot");
+        return;
+      case "t3":
+        s.t3 = { status: msg.status ?? s.t3.status, busy: null, done: msg.done ?? null };
+        emit("t3");
+        return;
+      case "agents": {
+        if (Array.isArray(msg.connected)) s.connectedAgents = msg.connected;
+        s.agents = Array.isArray(msg.sessions) ? msg.sessions : [];
+        // Drop local "sending" notes the helper now knows about.
+        for (const [id, n] of s.agentNotes) {
+          const sess = s.agents.find(x => x.id === n.sessionId);
+          if (!sess || sess.notes.some(x => x.text === n.text)) s.agentNotes.delete(id);
+        }
+        emit("agents");
+        return;
+      }
+      case "agents.focus":
+        s.agentFocus = { tabId: msg.tabId, at: Date.now() };
+        emit("agents-focus");
+        return;
       case "dashboard":
         if (msg.loading) s.dashboard = { ...s.dashboard, loading: true, error: null };
         else s.dashboard = { data: msg.data ?? s.dashboard.data, loading: false, error: msg.error ?? null };
@@ -371,8 +445,10 @@ export function createStore() {
         s.tab = msg.tab ?? null;
         const space = msg.space !== undefined ? msg.space : msg.tab?.space !== undefined && typeof msg.tab.space === "object" ? msg.tab.space : s.space;
         const changed = (space?.id ?? null) !== (s.space?.id ?? null);
+        const prevSpaceId = s.space?.id ?? null;
         s.space = space ?? null;
         emit("tab");
+        if (changed) followSpace(prevSpaceId, s.space?.id ?? null);
         if (changed) {
           s.spaceMemory = { spaceId: s.space?.id ?? null, text: "", loaded: false, saving: false, savedAt: null };
           if (s.history.query.trim() && s.ui.scope === "space") actions.search(s.history.query);
@@ -636,12 +712,112 @@ export function createStore() {
     saveSkill(skill) { send({ type: "skills.save", skill }); },
     deleteSkill(name) { s.skills = s.skills.filter(k => k.name !== name); send({ type: "skills.delete", name }); emit("skills"); },
     listReports() { send({ type: "reports.list" }); },
+
+    // External agents (lib/agentsessions.mjs): steering from the agent card and the Agents list.
+    pauseAgent(id) { setAgent(id, { paused: true }); send({ type: "agents.pause", id }); },
+    resumeAgent(id) { setAgent(id, { paused: false }); send({ type: "agents.resume", id }); },
+    stopAgent(id) { setAgent(id, { stopped: true, paused: false }); send({ type: "agents.stop", id }); },
+    dismissAgent(id) { s.agents = s.agents.filter(x => x.id !== id); send({ type: "agents.dismiss", id }); emit("agents"); },
+    noteAgent(id, text) {
+      text = String(text ?? "").trim();
+      if (!text) return;
+      s.agentNotes.set(`n${++localSeq}`, { sessionId: id, text: text.replace(/\s+/g, " ").slice(0, 1000), at: new Date().toISOString() });
+      send({ type: "agents.note", id, text });
+      emit("agents");
+    },
+    switchToTab(tabId) { send({ type: "agents.switch", tabId }); },
     getReport(id) { send({ type: "report.get", id }); },
+
+    // Screenshots to agents (views/send.js). capture() asks background.js; the mock fakes it.
+    captureScreenshot(mode = "region") { s.shot = { capturing: true, mode }; emit("shot"); send({ type: "screenshot.capture", mode }); },
+    closeShot() { s.shot = null; emit("shot"); },
+    patchShot(patch) { if (!s.shot) return; Object.assign(s.shot, patch); emit("shot"); },
+    sendShot() {
+      const sh = s.shot;
+      if (!sh?.image || !sh.target || sh.sending) return;
+      sh.sending = true; sh.error = null;
+      if (sh.remember && sh.tab?.tabId != null) {
+        const t = targetInfo(sh.target);
+        let host = ""; try { host = new URL(sh.tab.url).host; } catch { /* not a URL */ }
+        send({ type: "send.link", link: { type: "tab", tabId: sh.tab.tabId, host, kind: sh.target.kind, id: sh.target.id, title: t?.title ?? "", pageTitle: sh.tab.title ?? "" } });
+      }
+      send({ type: "send.screenshot", target: sh.target, image: sh.image, message: sh.message, url: sh.tab?.url ?? "", title: sh.tab?.title ?? "", includePage: sh.includePage, consoleErrors: sh.includeErrors ? sh.consoleErrors ?? [] : [] });
+      emit("shot");
+    },
+    async copyShot() {
+      const sh = s.shot;
+      if (!sh?.image) return;
+      try {
+        const blob = await (await fetch(sh.image)).blob();
+        await navigator.clipboard.write([new ClipboardItem({ [blob.type]: blob })]);
+        s.shot = null;
+        showToast("Image copied: paste it into Claude Code, Codex or OpenCode with ⌘V (Ctrl+V in some terminals).", "good");
+        emit("shot");
+      } catch (err) {
+        s.shot.error = `Couldn't copy the image (${err?.message ?? err}). Try “Save + copy path”.`;
+        emit("shot");
+      }
+    },
+    saveShot() { const sh = s.shot; if (sh?.image) send({ type: "screenshot.save", image: sh.image, url: sh.tab?.url ?? "" }); },
+    linkHost(host, projectId, projectTitle) { send({ type: "send.link", link: { type: "host", host, projectId, projectTitle } }); },
+    unlink(link) { send({ type: "send.unlink", link }); },
+    t3Status() { send({ type: "t3.status" }); },
+    t3Connect() { s.t3 = { ...s.t3, busy: "connect", done: null }; emit("t3"); send({ type: "t3.connect" }); },
+    t3Disconnect() { s.t3 = { ...s.t3, busy: "disconnect", done: null }; emit("t3"); send({ type: "t3.disconnect" }); },
+    openT3(threadId) { send({ type: "t3.open", threadId }); },
+    dismissToast() { s.toast = null; emit("toast"); },
   };
+
+  /** Title and subtitle of a send target from the last targets list. */
+  function targetInfo(target) {
+    const tg = s.shot?.targets;
+    if (!target || !tg) return null;
+    if (target.kind === "agent") {
+      const a = tg.agents?.find(x => x.id === target.id) ?? s.connectedAgents.find(x => x.id === target.id);
+      return a ? { title: a.client, sub: a.task || (a.active ? "Working now" : "Connected, idle"), agent: a } : { title: "An agent", sub: "No longer connected" };
+    }
+    const t = tg.threads?.find(x => x.id === target.id);
+    return t ? { title: t.title, sub: [t.projectTitle, t.waiting ? "Waiting for you" : t.running ? "Running" : null].filter(Boolean).join(" · "), thread: t } : { title: "A T3 thread", sub: "Not in the recent list" };
+  }
+
+  let toastTimer = null;
+  function showToast(text, kind = "info", action = null) {
+    s.toast = { text, kind, action, at: Date.now() };
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => { s.toast = null; emit("toast"); }, action ? 9000 : 5000);
+    emit("toast");
+  }
+
+  function setAgent(id, patch) {
+    s.agents = s.agents.map(x => (x.id === id ? { ...x, ...patch } : x));
+    emit("agents");
+  }
 
   try { const sc = localStorage.getItem("enso.scope"); if (sc === "all" || sc === "space") s.ui.scope = sc; } catch { /* ignore */ }
 
   /** Conversations for lists: this space by default, all spaces when toggled (or without a current space). */
+  // Chats follow the Zen space: switching spaces puts away the chat open in the
+  // old one and brings back the last chat open in the new one (or a new chat).
+  // Running chats keep running; they're only out of sight.
+  const LAST_CHAT_KEY = "enso.lastChatBySpace";
+  const lastChats = () => { try { return JSON.parse(localStorage.getItem(LAST_CHAT_KEY) || "{}"); } catch { return {}; } };
+  function followSpace(fromId, toId) {
+    const view = s.ui.view;
+    if (view !== "chat" && view !== "home") return; // don't pull people out of Settings, History…
+    const cur = s.ui.currentId;
+    if (cur === "draft" || s.ui.pendingSend) return; // something is being sent right now
+    const spaceOf = id => s.conversations.find(c => c.id === id)?.space?.id ?? null;
+    const last = lastChats();
+    if (fromId) {
+      last[fromId] = view === "chat" && cur ? cur : null;
+      try { localStorage.setItem(LAST_CHAT_KEY, JSON.stringify(last)); } catch { /* private mode */ }
+    }
+    if (view === "chat" && cur && (spaceOf(cur) === toId || spaceOf(cur) === null)) return; // already belongs here (or to no space)
+    const back = toId ? last[toId] : null;
+    if (back && spaceOf(back) === toId) actions.open(back);
+    else if (view === "chat") actions.newChat();
+  }
+
   function visibleConversations() {
     if (s.ui.scope !== "space" || !s.space) return s.conversations;
     return s.conversations.filter(c => c.space?.id === s.space.id);
@@ -654,6 +830,7 @@ export function createStore() {
     actions,
     summary,
     conv: id => s.convs.get(id) ?? null,
+    targetInfo,
     subscribe(fn) { listeners.add(fn); return () => listeners.delete(fn); },
     emit,
   };

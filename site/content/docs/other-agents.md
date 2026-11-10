@@ -17,11 +17,12 @@ The installer offers to set up Claude Code. For all of them:
 enso mcp install
 ```
 
-It registers Ensō as `zen-browser` with Claude Code, Codex and Cursor, whichever you have. Restart them, or start a new session, and ask "what tabs do I have open?".
+It registers Ensō as `zen-browser` with Claude Code, Codex, Cursor and OpenCode, whichever you have. Restart them, or start a new session, and ask "what tabs do I have open?".
 
 | Command | Does |
 |---|---|
-| `enso mcp install --client codex` | Just one client: `claude`, `codex` or `cursor` |
+| `enso mcp install --client codex` | Just one client: `claude`, `codex`, `cursor` or `opencode` |
+| `enso mcp install --hooks` | Also lets an idle Claude Code get your [screenshots](/docs/screenshots) with your next message |
 | `enso mcp install --read-only` | Read-only access (below) |
 | `enso mcp status` | Whether Zen's helper is reachable, and which clients are registered |
 | `enso mcp uninstall` | Removes the registrations |
@@ -40,12 +41,29 @@ Any app that can start an MCP server command can use it. Point it at the command
 - **One agent:** `enso mcp install --client cursor --read-only`. It can list and read tabs, take screenshots, read the console and network, search history and read GitHub; nothing else is even listed.
 - **All agents:** **Settings → Claude Code can use Zen → External control**: **Full**, **Read only** or **Off**.
 
-## Seeing what an agent did
+## Seeing what an agent is doing
 
-- While it acts on a page, the ribbon at the top names it: "✦ Codex is working on this page".
-- **Activity** in the full page lists every action with the agent's name.
+While an agent works in Zen, you can see it in three places:
+
+- **On the page**, a pill at the top names it and what it is doing: "✦ Claude Code · Draft the methods section". A dot pulses while it acts, and each thing it clicks or types into flashes a soft outline with its name. Click the pill to open Ensō's sidebar on that tab.
+- **In Zen's tab list**, the tab's title starts with ✦, and Ensō's toolbar button shows a copper **AI** badge on that tab. The title goes back to normal when the agent is done. Turn the ✦ off in **Settings → Claude Code can use Zen → Mark the tab while an agent works**.
+- **In Ensō's sidebar**, a card at the top shows the agent, its task, how long it has been working and its recent steps. Sends, deletes and other steps that can't be undone are highlighted. If agents are working in other tabs or spaces, an **Agents** row lists them: click one to go to its tab.
+
+**Activity** in the full page lists every action with the agent's name, and fills in as it happens.
 
 When one app runs another (T3 Code running Claude Code, for example), set the name yourself with `enso mcp --client "T3 Code"` in the app's MCP settings.
+
+## Steering an agent
+
+From the card in the sidebar:
+
+- **Tell the agent…** sends it a note, such as "use the work account, not the personal one". The agent gets it with the result of its next step, marked as coming from you. The note says "Waiting for the agent's next step" until then, and **Delivered** after.
+- **Pause** holds the agent on this tab: its next steps there are refused and it is told to wait. **Resume** lets it continue, and tells it to read the page again, since you may have changed it.
+- **Stop** ends the task: everything it tries in Zen is refused, and it is told to stop. It keeps running in its own app; a new session there can use Zen again.
+
+You can also send an agent a screenshot of the page, even while it's idle: press <kbd>⌘</kbd><kbd>⇧</kbd><kbd>2</kbd> and pick it under **Agents**. It gets the image with its next step, or when it calls `inbox_read`. See [Send screenshots to your agents](/docs/screenshots).
+
+Agents are asked to say what they are doing when they start (`session_start`). Those that don't still show up, with their name and their latest step.
 
 ## What agents may do
 
@@ -73,3 +91,5 @@ What an agent reads in Zen goes to that agent's AI provider, like anything else 
 | `status` says "registered over http with the token in its config" | An older setup. Run `enso mcp install`. |
 | "external control" or "read-only" errors | Check the settings above. |
 | An agent doesn't see new tools after an update | Restart the agent. |
+| Clicking the pill doesn't open Ensō | Some pages block it; the pill then says "Press ⌘E for Ensō". |
+| A tab title still starts with ✦ | It goes when the agent has been quiet for two minutes. |

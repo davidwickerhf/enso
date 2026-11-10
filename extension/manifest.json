@@ -1,7 +1,7 @@
 {
   "manifest_version": 2,
   "name": "Ensō",
-  "version": "0.5.2",
+  "version": "0.5.3",
   "description": "Ensō: a personal assistant in your browser. A dashboard, a chat that knows you and your tools, and an agent that can act on web pages.",
   "browser_specific_settings": {
     "gecko": {
@@ -11,6 +11,7 @@
   },
   "permissions": [
     "nativeMessaging",
+    "clipboardWrite",
     "tabs",
     "tabGroups",
     "history",
@@ -49,12 +50,22 @@
         "default": "Ctrl+E"
       },
       "description": "Open or close Ensō"
+    },
+    "send-screenshot": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+2",
+        "mac": "Command+Shift+2"
+      },
+      "description": "Send a screenshot to an agent (drag a region; Enter for the visible area, F for the full page)"
     }
   },
   "icons": {
     "48": "icons/chat.svg",
     "96": "icons/chat.svg"
   },
+  "web_accessible_resources": [
+    "pill.html"
+  ],
   "chrome_settings_overrides": {
     "homepage": "newtab.html"
   }

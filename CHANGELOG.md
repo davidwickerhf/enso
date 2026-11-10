@@ -33,6 +33,80 @@ A Tasks widget that keeps up, and monday.com on the new tab.
 - A token refresh that finished after **Disconnect** could write the token back
   to the Keychain; it no longer does.
 
+Send screenshots to your agents: capture a page in Zen and send it, with a
+message, to the agent you're working with. Guide:
+[site/content/docs/screenshots.md](site/content/docs/screenshots.md).
+
+- **Capture**: ⌘⇧2 (Ctrl+Shift+2 elsewhere; manifest command `send-screenshot`)
+  or the camera button in the sidebar and full page. Drag a region, Enter for
+  the visible area, F for the full page (Firefox's `captureTab` with a page
+  rect; long pages are scaled, huge PNGs become JPEG). Private sites refused.
+- **Send sheet and picker**: thumbnail, target, message (Enter sends, Esc
+  cancels), page URL and title (on) and console errors (off) as context;
+  "Always send this tab here"; a site → T3 project link; a toast with
+  "Open in T3" (`t3code://threads/<environment>/<thread>`).
+- **Targets are pluggable** (`lib/screenshots.mjs`): T3 Code threads; agents
+  connected through `enso mcp` (Claude Code, Codex, OpenCode, Cursor…), which
+  get the image as MCP content with their next tool call or from the new
+  `inbox_read` tool; and the clipboard ("Copy image", "Save + copy path").
+- **Target order**: an agent on the tab (its T3 thread when it runs in T3
+  Code), a tab link, a site → project link, then the picker (running and
+  waiting threads first, then the matching project, then recent).
+- **T3 Code** (`lib/t3.mjs`): `enso t3 connect | status | disconnect` and
+  Settings → Send screenshots → Connect T3 issue a T3 session with only
+  `orchestration:read` and `orchestration:operate` (30 days), kept in the
+  Keychain (`enso-t3`). Threads come from `/api/orchestration/shell`; images are
+  uploaded with `attachments.createUploadUrl` and sent with
+  `orchestration.dispatchCommand` (`message.dispatch`, queued after a running
+  turn) over T3's RPC WebSocket. Without attachment uploads the PNG is saved
+  and its path sent with `t3 thread send`.
+- **The launcher** sends `X-Enso-T3-Thread` (`$T3CODE_THREAD_ID`) and
+  `X-Enso-Agent-Pid`; agent sessions and the agent card show the T3 thread.
+- **`enso mcp install`**: OpenCode (`~/.config/opencode/opencode.json`), Codex
+  `env_vars = ["T3CODE_THREAD_ID"]`, and `--hooks`, a Claude Code
+  UserPromptSubmit hook (`enso inbox --session-env`, backed by `POST /inbox`)
+  so an idle Claude Code gets screenshots with the next message.
+- **Settings → Send screenshots**: T3 connection, connected agents, and Linked
+  threads (tab links end with the tab; site links stay until removed).
+
+## 0.5.3 (10 November 2026)
+
+Agent presence and steering: what an external agent does in Zen is visible
+while it happens, and the user can pause, stop or correct it from Ensō.
+Design and reasons: [docs/records/006](docs/records/006-agent-presence-and-steering.md).
+
+- **Agent sessions in the helper** (`lib/agentsessions.mjs`): per agent (the
+  launcher's new `X-Enso-Session` id) and tab, with task, recent steps and a
+  two-minute idle timeout. New MCP tools `session_start`, `session_status` and
+  `session_end`; the server instructions ask agents to call `session_start`
+  first.
+- **Steering through tool results**: notes from Ensō arrive at the start of the
+  agent's next result ("Message from the user (via Ensō): …", once); Pause
+  refuses its calls on that tab and its tab-less actions; Resume adds a
+  hand-back note; Stop refuses every call of that session for 30 minutes.
+- **Live push**: the helper sends `agents` and `actions.added` to every UI, so
+  the sidebar and Activity update without reopening (also for `page_eval`).
+- **Agent card and Agents row** in the sidebar and full page: client, task,
+  elapsed time, steps (irreversible ones highlighted), Pause/Resume, Stop,
+  "Tell the agent…" with delivery state; sessions in other tabs and spaces with
+  Switch and Stop.
+- **On the page**: the pill stays for the whole session ("Claude Code · task"),
+  with live, Paused and Stopped states; clicking it opens the sidebar
+  (`pill.html`, a web-accessible frame); elements acted on flash a soft outline
+  with the agent's name (static with reduced motion).
+- **In Zen's tab list**: a "✦ " title prefix while an agent works (setting
+  `agentTitlePrefix`, on by default; restored exactly afterwards) and a per-tab
+  copper "AI" badge on the toolbar button. Zen offers extensions nothing more
+  direct (see the record).
+- **Google Docs**: `page_type` without a ref (or with the canvas's ref) types
+  into the document body at the cursor; `ref` is now optional everywhere
+  (the focused field).
+- background.js accepts `ui` ports from Ensō's own pages only.
+- Tests: `agents.test.mjs` (sessions, steering, the push, end to end through
+  host.mjs) and `pageagent.test.mjs` (Docs typing, title prefix, pill; needs
+  Playwright's Chromium, skipped without it). `playwright-core` is a dev
+  dependency.
+
 ## 0.5.2 (10 November 2026)
 
 Using Zen from other agents, without a token in their configs.

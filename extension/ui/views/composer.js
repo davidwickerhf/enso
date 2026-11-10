@@ -549,7 +549,30 @@ export function createComposer(store) {
   box.addEventListener("click", e => { if (e.target === box || e.target.classList.contains("composer-row")) textarea.focus(); });
   fileInput.addEventListener("change", () => { addFiles([...fileInput.files]); fileInput.value = ""; });
 
+  // Unsent input belongs to the Zen space it was typed in: switching spaces puts
+  // it aside and brings back what was left in the other space (or an empty box).
+  const drafts = new Map(); // spaceId -> { text, mentions, skill, attachments, screenshot, pageRemoved }
+  let draftSpace = s.space?.id ?? null;
+  function switchDraft(toId) {
+    if (toId === draftSpace) return;
+    const has = textarea.value.trim() || local.mentions.length || local.skill || local.attachments.length || local.screenshot;
+    if (has) drafts.set(draftSpace, { text: textarea.value, mentions: [...local.mentions], skill: local.skill, attachments: [...local.attachments], screenshot: local.screenshot, pageRemoved: local.pageRemoved });
+    else drafts.delete(draftSpace);
+    draftSpace = toId;
+    const d = drafts.get(toId);
+    reset();
+    if (d) {
+      drafts.delete(toId);
+      textarea.value = d.text;
+      typed = d.text;
+      Object.assign(local, { mentions: d.mentions, skill: d.skill, attachments: d.attachments, screenshot: d.screenshot, pageRemoved: d.pageRemoved });
+      autosize();
+      render();
+    }
+  }
+
   store.subscribe(topics => {
+    if (topics.has("space")) switchDraft(s.space?.id ?? null);
     if (topics.has("tabs") && local.picker) renderPicker();
     if (topics.has("skills") && local.picker) renderPicker();
     if (topics.has("tab")) local.pageRemoved = false;
