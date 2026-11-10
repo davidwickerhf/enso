@@ -7,6 +7,21 @@ group: Reference
 
 # Troubleshooting
 
+## If Ensō says the helper stopped
+
+"Ensō's helper isn't running" (or the older "The chat helper stopped") means the helper program Zen starts for Ensō exited. The message says how: **Not found** (Zen can't find it), **Failed to start** (it exited as soon as it started) or **Exited** (it ran, then stopped). Sections that need the helper show the same message, or "Couldn't load" with **Retry** when it doesn't answer within 8 seconds, instead of loading forever.
+
+1. **Are you on a Mac?** The helper runs on macOS only for now; Windows and Linux support is planned. On other systems Ensō says so instead.
+2. **Run the doctor** in Terminal:
+
+   ```sh
+   ~/Library/Application\ Support/Enso/bin/enso doctor
+   ```
+
+   (or just `enso doctor` if `~/.local/bin` is on your PATH). It checks the registration files Zen and Firefox read, the Node.js the helper runs with (still there, version 18 or newer), starts the helper the way Zen does and waits for its answer, checks the agent port (47823), and prints the end of the helper's log. Every ✗ comes with a suggested fix; most are "run the installer again".
+3. **Run the installer again**: `curl -fsSL https://enso.wicker.life/install.sh | bash`. Then press **Try again** in Ensō.
+4. **Send us the details.** Press **Copy diagnostics** in Ensō: it copies the extension version, the helper's status and last error, your browser and system. Paste it in a mail to [support@enso.wicker.life](mailto:support@enso.wicker.life) and attach the log, `~/Library/Logs/Enso/helper.log` (in Finder: Go → Go to Folder…, paste the path). The log has startup lines (versions, Node's path) and errors with their stack. It never contains your messages, page text, keys or tokens.
+
 ## "One step in Terminal", "The helper didn't start" or "Lost Ensō's helper"
 
 Zen couldn't find or start the local helper, or it stopped. Ensō keeps trying by itself (every 2 seconds while it's open), so once the problem is fixed it reconnects without a restart.
@@ -17,7 +32,7 @@ Zen couldn't find or start the local helper, or it stopped. Ensō keeps trying b
    `cat ~/Library/Application\ Support/zen/NativeMessagingHosts/enso.json`
    The `path` in it must point at `~/Library/Application Support/Enso/helper/run.sh`, and `allowed_extensions` must contain `enso@wicker.life`.
 4. Check that Node still exists where the helper expects it. `run.sh` contains the full path to the `node` found at install time; if you removed, upgraded or switched that Node, run the installer again.
-5. Still stuck: open the Browser Console (<kbd>⌘⇧J</kbd>) and look for lines starting with `[enso]`.
+5. Still stuck: run `enso doctor` and look at `~/Library/Logs/Enso/helper.log` ([above](#if-ens-says-the-helper-stopped)).
 
 ## "Install Claude Code"
 
@@ -25,9 +40,9 @@ The subscription engine needs the `claude` command.
 
 - Open **Settings → Setup → Claude**: **Install Claude Code** or **Sign in** open Terminal with the right command, and the item turns green when it worked.
 - By hand: `claude --version`; if it isn't found, install Claude Code ([setup guide](https://docs.anthropic.com/en/docs/claude-code/setup)), then `claude auth login`.
-- Zen starts the helper with a minimal `PATH`. Ensō looks in your `PATH`, `~/.local/bin`, `~/.claude/local`, `/opt/homebrew/bin` and `/usr/local/bin`. If `claude` lives somewhere else, set **Settings → Engine → Claude Code location**.
+- Zen starts the helper with a minimal `PATH`. Ensō looks in your `PATH`, `~/.local/bin`, `~/.claude/local`, `/opt/homebrew/bin` and `/usr/local/bin`. If `claude` lives somewhere else, set **Settings → Advanced → Claude Code location**.
 
-Or switch to the API-key engine in Settings.
+Or switch to the API-key engine in **Settings → General → Engine**.
 
 ## "No Anthropic API key"
 

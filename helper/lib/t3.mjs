@@ -59,9 +59,9 @@ export class T3Error extends Error {
 
 const MESSAGES = {
   cli_missing: "T3 Code's `t3` command wasn't found. Open T3 Code once (it installs ~/.t3/bin/t3), then try again.",
-  not_connected: "Ensō isn't connected to T3 Code yet. Connect it in Settings → T3 Code (or run `enso t3 connect`).",
+  not_connected: "Ensō isn't connected to T3 Code yet. Connect it in Settings → Connections → T3 Code (or run `enso t3 connect`).",
   server_down: "T3 Code isn't running. Open T3 Code and try again.",
-  unauthorized: "T3 Code no longer accepts Ensō's token (it expired or was revoked). Connect again in Settings → T3 Code.",
+  unauthorized: "T3 Code no longer accepts Ensō's token (it expired or was revoked). Connect again in Settings → Connections → T3 Code.",
   incompatible: "This T3 Code version speaks a different protocol than Ensō expects.",
 };
 const err = (code, message = MESSAGES[code]) => new T3Error(code, message);

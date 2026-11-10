@@ -10,7 +10,7 @@
 // people without gh; saved through `security -i` on stdin). It is read at use
 // time, kept in memory only, never logged and never returned to the model.
 // Orgs that still block it can be read with session_fetch on github.com, if
-// the user allowed that site in Ensō → Settings → Developer.
+// the user allowed that site in Ensō → Settings → Privacy & safety → Session access.
 //
 // Approval follows the page tools: what the user asked for runs, Claude's own
 // ideas ask first (Ensō) or are refused (Claude Code, which also needs
@@ -502,7 +502,7 @@ async function write(ctx, tool, { title, input, url, target }, fn) {
   requireGithub();
   const toolUseId = ctx.toolUse?.(tool);
   if (ctx.external) {
-    if (ctx.mode() !== "full") throw new Error("Ensō only lets external agents read right now; GitHub changes need External control = Full (Ensō → Settings).");
+    if (ctx.mode() !== "full") throw new Error("Ensō only lets external agents read right now; GitHub changes need Access = Full (Ensō → Settings → Agents & screenshots).");
     if (!input.requested_by_user) throw new Error(`${title}: Claude Code may only do this when the user asked for exactly this (requested_by_user=true).`);
   } else if (!input.requested_by_user) {
     const decision = await ctx.ask({ toolUseId, tool, title, input, reason: "Claude suggested this step itself." });

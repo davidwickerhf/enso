@@ -13,12 +13,17 @@
 // (t3: Claude Code running inside a T3 Code thread).
 // Send screenshot: ?shot=sheet | picker | agent | fallback opens the send sheet with a
 // fake capture; ?t3=off | down | revoked | fallback sets the T3 Code connection;
-// ?links=1 adds linked threads (Settings → Send screenshots).
+// ?links=1 adds linked threads (Settings → Agents & screenshots).
 // ?monday=ok | down | off: monday.com signed in and working (default), signed in
 // but its server failing (HTTP 500), or not connected.
 // ?helper=missing | failed: no helper yet (the first-run install guide) or one that
 // can't start; &connectAfter=6 connects it after 6 seconds (or __ensoMock.connectHelper()).
-// ?setup=ready | mixed | fresh: the Settings → Setup checklist (default ready); #setup opens it.
+// ?helper=crashed: it ran, then exited (the helper-not-running banner, every section
+// shows it instead of "Loading…"); ?helper=noanswer: connected, but memory and Setup
+// requests go unanswered ("Couldn't load" + Retry after 8 s).
+// ?platform=linux (or win): not macOS, where the helper can't run yet (add &helper=missing).
+// ?setup=ready | mixed | fresh: what the helper reports for Settings → Setup, Connections and Agents
+// (default ready; mixed: an update, Claude Code signed out, Cursor on the old setup). #settings/setup opens it.
 
 const MIN = 60_000;
 const HOUR = 60 * MIN;
@@ -749,7 +754,7 @@ Want me to draft the reply to Jonas, or open the [Vercel deployment](https://ver
   const params = new URLSearchParams(globalThis.location?.search ?? "");
   const t3Preset = params.get("t3");
   const shotPreset = params.get("shot");
-  const t3Status = () => ({ cli: true, origin: "http://127.0.0.1:3773", reachable: t3Preset !== "down", connected: t3Preset !== "off", tokenValid: t3Preset === "revoked" ? false : t3Preset === "off" ? null : true, environmentId: "env-maya", serverVersion: "0.1.9-nightly", label: "Maya’s MacBook Pro", route: t3Preset === "fallback" ? "path" : "attachment", attachments: t3Preset !== "fallback", expiresAt: iso(now() + 29 * 86_400_000), error: t3Preset === "revoked" ? "T3 Code no longer accepts Ensō's token (it expired or was revoked). Connect again in Settings → T3 Code." : t3Preset === "down" ? "T3 Code isn't running. Open T3 Code and try again." : null });
+  const t3Status = () => ({ cli: true, origin: "http://127.0.0.1:3773", reachable: t3Preset !== "down", connected: t3Preset !== "off", tokenValid: t3Preset === "revoked" ? false : t3Preset === "off" ? null : true, environmentId: "env-maya", serverVersion: "0.1.9-nightly", label: "Maya’s MacBook Pro", route: t3Preset === "fallback" ? "path" : "attachment", attachments: t3Preset !== "fallback", expiresAt: iso(now() + 29 * 86_400_000), error: t3Preset === "revoked" ? "T3 Code no longer accepts Ensō's token (it expired or was revoked). Connect again in Settings → Connections → T3 Code." : t3Preset === "down" ? "T3 Code isn't running. Open T3 Code and try again." : null });
   let t3State = t3Status();
   const T3_THREADS = [
     { id: "th-legend", title: "Launch dashboard: legend overlaps the chart", projectId: "p-atlas", projectTitle: "atlas-web", status: "running", running: true, waiting: false, activeAt: ago(40) },
@@ -809,8 +814,11 @@ Want me to draft the reply to Jonas, or open the [Vercel deployment](https://ver
 
   // ---- the native helper (first-run guide) and Settings → Setup ----
   const helperPreset = params.get("helper");
-  let helperState = helperPreset === "missing" || helperPreset === "failed" ? helperPreset : "connected";
-  out({ type: "helper.status", state: helperState, reason: helperState === "failed" ? "exit code 127" : null, at: now() });
+  let helperState = helperPreset === "missing" || helperPreset === "failed" ? helperPreset : helperPreset === "crashed" ? "stopped" : "connected";
+  const crashError = { message: "An unexpected error occurred", state: "stopped", at: now() - 4000, ranMs: 2300 };
+  const helperStatus = () => ({ type: "helper.status", state: helperState, reason: helperState === "failed" ? "exit code 127" : helperState === "stopped" ? crashError.message : helperState === "missing" ? "No such native application enso" : null, at: now() - 4000, failures: helperState === "stopped" ? 3 : 0, lastError: helperState === "stopped" ? crashError : null });
+  out(helperStatus());
+  if (helperPreset === "crashed") out({ type: "event", conversationId: null, event: { kind: "error", code: "host_disconnected", text: "Lost Ensō's helper: An unexpected error occurred. Reconnecting by itself…", at: iso(now()) } });
   function connectHelper() {
     if (helperState === "connected") return;
     helperState = "connected";
@@ -825,7 +833,7 @@ Want me to draft the reply to Jonas, or open the [Vercel deployment](https://ver
     claudeFound: setupPreset !== "fresh",
     loggedIn: setupPreset === "ready",
     apiStored: false,
-    clients: setupPreset === "ready" ? { claude: "launcher", codex: "launcher", cursor: null, opencode: null } : setupPreset === "mixed" ? { claude: "launcher", codex: null, cursor: null, opencode: null } : { claude: null, codex: null, cursor: null, opencode: null },
+    clients: setupPreset === "ready" ? { claude: "launcher", codex: "launcher", cursor: null, opencode: null } : setupPreset === "mixed" ? { claude: "launcher", codex: null, cursor: "http", opencode: null } : { claude: null, codex: null, cursor: null, opencode: null },
     detected: setupPreset === "fresh" ? { claude: false, codex: true, cursor: false, opencode: false } : { claude: true, codex: true, cursor: true, opencode: false },
     hook: setupPreset === "ready",
     t3Installed: setupPreset !== "fresh",
@@ -916,12 +924,17 @@ Want me to draft the reply to Jonas, or open the [Vercel deployment](https://ver
   function handle(msg) {
     // No helper: background.js answers nothing but helper.retry.
     if (helperState !== "connected") {
-      if (msg.type === "helper.retry") out({ type: "helper.status", state: helperState, reason: helperState === "failed" ? "exit code 127" : null, at: now() });
+      if (msg.type === "helper.retry") out({ ...helperStatus(), at: now() });
       return;
     }
+    // Connected, but some requests never get an answer.
+    if (helperPreset === "noanswer" && (msg.type === "memory.get" || msg.type === "setup.status")) return;
     switch (msg.type) {
       case "helper.retry":
         out({ type: "helper.status", state: "connected", at: now() });
+        return;
+      case "helper.log":
+        out({ type: "helper.log", version: "0.5.5", node: { version: "v22.12.0", path: "/opt/homebrew/bin/node" }, platform: "darwin arm64", file: "/Users/maya/Library/Logs/Enso/helper.log", lines: [`${iso(now() - 60_000)} [4242] INFO  Ensō helper 0.5.5 starting (started by run.sh): Node v22.12.0 at /opt/homebrew/bin/node, darwin arm64, macOS 15.1`, `${iso(now() - 59_000)} [4242] INFO  MCP server on http://127.0.0.1:47823/mcp`] });
         return;
       case "setup.status":
         setTimeout(() => out({ type: "setup", status: setupStatus() }), msg.fresh ? 500 : 250);

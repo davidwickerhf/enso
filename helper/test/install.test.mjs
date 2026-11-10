@@ -47,7 +47,9 @@ try {
   assert.match(first.stdout, /Settings → Setup/);
   assert.doesNotMatch(first.stdout, /\[y\/N\]/, "never asks");
   assert.equal(readFileSync(path.join(app, "helper", "VERSION"), "utf8").trim(), "9.9.9");
-  assert.match(readFileSync(path.join(app, "helper", "run.sh"), "utf8"), new RegExp(`exec "${process.execPath.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}"`));
+  const runSh = readFileSync(path.join(app, "helper", "run.sh"), "utf8");
+  assert.ok(runSh.includes(`NODE="${process.execPath}"`), runSh);
+  assert.match(runSh, /exec "\$NODE" "\$HOST" "\$@" 2>>"\$LOG"/, "stderr goes to helper.log");
   for (const dir of ["Mozilla", "zen"]) {
     const m = JSON.parse(readFileSync(path.join(home, "Library/Application Support", dir, "NativeMessagingHosts", "enso.json"), "utf8"));
     assert.equal(m.name, "enso");
@@ -77,6 +79,42 @@ try {
   assert.match(broken.stderr, /not a valid archive|does not contain the helper/);
   assert.equal(readFileSync(path.join(app, "helper", "VERSION"), "utf8").trim(), "9.9.9", "a bad download leaves the installed helper alone");
   console.log("ok - a bad download stops with a clear error and keeps the installed helper");
+
+  // run.sh: the helper's stderr (here a syntax error, as on a too-old Node) lands in ~/Library/Logs/Enso/helper.log.
+  const log = path.join(home, "Library/Logs/Enso/helper.log");
+  const runPath = path.join(app, "helper", "run.sh");
+  writeFileSync(path.join(app, "helper", "host.mjs"), "process.stderr.write('stderr before any logging\\n');\nconst = ;\n");
+  const crashed = spawnSync(runPath, [], { env: { HOME: home, PATH: "/usr/bin:/bin" }, encoding: "utf8", timeout: 20_000 });
+  assert.notEqual(crashed.status, 0);
+  const logged = readFileSync(log, "utf8");
+  assert.match(logged, /SyntaxError/, logged);
+  assert.equal(crashed.stderr, "", "stderr went to the log, not the terminal");
+  // Node gone: run.sh says so in the log and exits 127.
+  writeFileSync(runPath, runSh.replace(`NODE="${process.execPath}"`, `NODE="${path.join(root, "no-node")}"`));
+  const noNode = spawnSync(runPath, [], { env: { HOME: home, PATH: "/usr/bin:/bin" }, encoding: "utf8", timeout: 20_000 });
+  assert.equal(noNode.status, 127);
+  assert.match(readFileSync(log, "utf8"), /run\.sh: Node\.js is not at .*no-node any more/);
+  console.log("ok - run.sh appends the helper's stderr to ~/Library/Logs/Enso/helper.log, and says when Node is missing");
+
+  // Without ENSO_NO_OPEN, a throwaway HOME still never opens Zen (a fake `open` first on PATH records any call).
+  const fakeBin = path.join(root, "fakebin");
+  mkdirSync(fakeBin);
+  writeFileSync(path.join(fakeBin, "open"), `#!/bin/sh\necho "$@" >> "${path.join(root, "open-calls")}"\n`, { mode: 0o755 });
+  const { ENSO_NO_OPEN, ...noFlag } = env;
+  const quiet = spawnSync("/bin/bash", [script], { env: { ...noFlag, PATH: `${fakeBin}:${env.PATH}` }, encoding: "utf8", input: "", timeout: 60_000 });
+  assert.equal(quiet.status, 0, quiet.stderr + quiet.stdout);
+  assert.ok(!existsSync(path.join(root, "open-calls")), "open was not called");
+  assert.match(quiet.stdout, /Add the extension from/);
+  console.log("ok - install.sh in a temporary HOME doesn't open Zen, even without ENSO_NO_OPEN");
+
+  // Linux (a fake uname): the plain macOS-only message, nothing installed.
+  writeFileSync(path.join(fakeBin, "uname"), "#!/bin/sh\necho Linux\n", { mode: 0o755 });
+  const linux = spawnSync("/bin/bash", [script], { env: { ...env, HOME: path.join(root, "linux-home"), PATH: `${fakeBin}:${env.PATH}` }, encoding: "utf8", input: "", timeout: 60_000 });
+  assert.notEqual(linux.status, 0);
+  assert.match(linux.stderr, /Ensō's helper runs on macOS only for now\. Windows and Linux support is planned\./);
+  assert.match(linux.stderr, /docs\/install#requirements/);
+  assert.ok(!existsSync(path.join(root, "linux-home")), "nothing written on Linux");
+  console.log("ok - install.sh on Linux says the helper is macOS-only, and installs nothing");
 } finally {
   rmSync(root, { recursive: true, force: true });
 }

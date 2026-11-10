@@ -27,7 +27,10 @@ Website and user docs: <https://enso.wicker.life>. Licence: the extension, helpe
 
 ## Install
 
-Two steps, macOS only for now (Zen, or Firefox 139 or newer):
+> **Requires macOS.** The helper runs on macOS only for now. Windows and Linux
+> support is planned; on other systems the installer and the extension say so.
+
+Two steps (Zen, or Firefox 139 or newer, on a Mac):
 
 1. **Add the extension** from <https://enso.wicker.life> (signed by Mozilla, updates itself).
 2. **Run one command.** Press <kbd>⌘E</kbd>: Ensō shows it with a Copy button, and
@@ -46,7 +49,8 @@ installed first. It asks no questions, needs no `sudo` and never touches your da
 
 A WebExtension can't install or start a native program (native messaging needs
 the host's manifest on disk first), so that one command is the only manual step.
-Everything after it is a button in **Settings → Setup**, run by the helper:
+Everything after it is a button in **Settings** (Setup, Connections, Agents &
+screenshots), run by the helper:
 updating the helper, installing and signing in to Claude Code or storing an API
 key in the Keychain, letting Claude Code, Codex, Cursor or OpenCode use Zen,
 connecting T3 Code and GitHub, and rotating the agent token. The same checks and
@@ -64,8 +68,8 @@ Step by step, with what each permission is for: [site/content/docs/install.md](s
    form with my address". The page is attached by default (the page chip).
 3. Open a new tab. Type a site, a search or a question in the box; choose
    **Add widgets** for your calendar, tasks, mail or GitHub at a glance.
-4. Optional: let other agents use Zen, in **Settings → Setup → Use Zen from
-   your agents** (or `enso mcp install`).
+4. Optional: let other agents use Zen, in **Settings → Agents & screenshots**
+   (or `enso mcp install`).
 
 ## Features
 

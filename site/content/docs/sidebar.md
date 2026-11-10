@@ -13,7 +13,7 @@ Press <kbd>⌘E</kbd>, or click the Ensō button in the toolbar, for a chat next
 
 The composer shows everything that will be sent:
 
-- **The page chip** (on by default): the text of the tab you are looking at. Click it to leave the page out of this message, or turn the default off in **Settings → Behaviour**. On banking, payment, password-manager, health, tax and government sites the chip shows a lock and the page is never sent.
+- **The page chip** (on by default): the text of the tab you are looking at. Click it to leave the page out of this message, or turn the default off in **Settings → General → Include the current page**. On banking, payment, password-manager, health, tax and government sites the chip shows a lock and the page is never sent.
 - **<kbd>@</kbd>** mentions another open tab; **All open tabs** in the **+** menu sends all of them. Tabs in the current [Zen space](/docs/spaces) are listed first.
 - **+** attaches files: any type, up to 25 MB in total. Images (HEIC too), PDFs, Word, Excel, PowerPoint, text and code are converted so Claude can read them. You can also drop or paste files.
 - **The camera** adds a screenshot of the visible page.
@@ -41,7 +41,7 @@ Right-click the Ensō toolbar button and choose **Open Ensō as a page**. It has
 
 ## The brief
 
-**Home** in the sidebar and the full page shows a short briefing: a greeting, one line on what matters today, your calendar, mail that needs a reply, deadlines and tasks. Ensō makes it with read-only calls to your tools, about once an hour and on the first start each morning; the refresh button runs it now. Choose how often in **Settings → Home**. The brief also feeds the [widgets](/docs/widgets). It needs Claude Code.
+**Home** in the sidebar and the full page shows a short briefing: a greeting, one line on what matters today, your calendar, mail that needs a reply, deadlines and tasks. Ensō makes it with read-only calls to your tools, about once an hour and on the first start each morning; the refresh button runs it now. Choose how often in **Settings → General → Refresh the brief**. The brief also feeds the [widgets](/docs/widgets). It needs Claude Code.
 
 ## Keyboard shortcuts
 

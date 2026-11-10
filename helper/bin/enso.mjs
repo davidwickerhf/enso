@@ -11,6 +11,7 @@
 //   enso t3 connect | status | disconnect        Ensō's scoped token for T3 Code (Keychain)
 //   enso setup [--json]                          the Setup checklist (what Settings → Setup shows)
 //   enso update                                  run the installer again (Setup → Update helper)
+//   enso doctor                                  why the helper doesn't start: manifests, Node, hello, port, log
 //
 // Nothing here prints a token or a config value.
 
@@ -31,7 +32,9 @@ const USAGE = `Usage:
   enso t3 status                               is T3 Code reachable, and does Ensō's token work
   enso t3 disconnect                           revoke the token and delete it from the Keychain
   enso setup [--json]                          what's set up and what isn't (the same checks as Ensō → Settings → Setup)
-  enso update                                  download and run the installer again (updates the helper; quit and reopen Zen after)`;
+  enso update                                  download and run the installer again (updates the helper; quit and reopen Zen after)
+  enso doctor                                  check why Ensō's helper doesn't start (manifests, Node, a test start, the MCP port,
+                                               and the end of ~/Library/Logs/Enso/helper.log)`;
 
 function parseFlags(argv) {
   const flags = { readOnly: false, client: undefined, help: false, hooks: false };
@@ -187,6 +190,10 @@ async function main(argv) {
   if (cmd === "t3") return t3Command(sub);
   if (cmd === "setup") return setupCommand([sub, ...rest].filter(Boolean));
   if (cmd === "update") return updateCommand();
+  if (cmd === "doctor") {
+    const { runDoctor } = await import("../lib/doctor.mjs");
+    return (await runDoctor()).ok ? 0 : 1;
+  }
   if (cmd === "inbox") return inboxCommand();
   if (cmd !== "mcp") {
     console.log(USAGE);

@@ -25,7 +25,8 @@
 #   ENSO_EXTENSION_ID    add-on id allowed to talk to the helper (default enso@wicker.life)
 #   ENSO_SKIP_CHECKSUM   1 = don't require the SHA-256 from /api/latest (not recommended)
 #   ENSO_REGISTER_MCP    1 = also register zen-browser with Claude Code (otherwise: Setup in Ensō)
-#   ENSO_NO_OPEN         1 = don't open the extension in Zen at the end
+#   ENSO_NO_OPEN         1 = don't open the extension in Zen at the end (also skipped when
+#                        HOME isn't your home folder, e.g. a test run in a temporary HOME)
 #   ENSO_NODE            private = always use Ensō's own Node; system = never download one
 
 # Everything runs inside main(), so a download cut off halfway runs nothing.
@@ -71,7 +72,8 @@ main() {
 
 	# 1. macOS
 	step "Checking your system"
-	[ "$(uname -s)" = "Darwin" ] || die "Ensō currently runs on macOS only."
+	[ "$(uname -s)" = "Darwin" ] || die "Ensō's helper runs on macOS only for now. Windows and Linux support is planned.
+    Requirements: $SITE/docs/install#requirements · Follow along: https://github.com/davidwickerhf/enso"
 	info "macOS $(sw_vers -productVersion 2>/dev/null || echo '') on $(uname -m)"
 
 	local tmp
@@ -94,6 +96,11 @@ main() {
 		[ -n "$candidate" ] && [ -x "$candidate" ] || continue
 		major="$(node_major_of "$candidate")"
 		if [ -n "$major" ] && [ "$major" -ge "$MIN_NODE" ] 2>/dev/null; then
+			# A version manager's shim (asdf, nodenv, Volta's ~/.volta/bin/node) works in
+			# this shell but not under Zen's minimal environment: use the binary it runs.
+			local real
+			real="$("$candidate" -p 'process.execPath' 2>/dev/null || true)"
+			if [ -n "$real" ] && [ -x "$real" ] && [ "$(node_major_of "$real")" = "$major" ]; then candidate="$real"; fi
 			node_bin="$candidate" node_source="system"
 			break
 		fi
@@ -175,6 +182,35 @@ main() {
 		die "$LATEST_URL did not list a checksum. Nothing was installed."
 	fi
 
+	# The part of run.sh after its variables (dev.sh writes the same; keep them in sync).
+	run_sh_body() {
+		cat <<'RUNSH'
+LOG_DIR="$HOME/Library/Logs/Enso"
+LOG="$LOG_DIR/helper.log"
+mkdir -p "$LOG_DIR" 2>/dev/null
+# Keep it near 1 MB × 2 (the helper rotates too, while it runs).
+if [ -f "$LOG" ] && [ "$(stat -f %z "$LOG" 2>/dev/null || echo 0)" -gt 1000000 ]; then mv -f "$LOG" "$LOG.1" 2>/dev/null; fi
+note() {
+	printf '%s run.sh: %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*" >>"$LOG" 2>/dev/null
+	printf 'Ensō helper: %s\n' "$*" >&2
+}
+if [ ! -x "$NODE" ]; then
+	note "Node.js is not at $NODE any more. Run the installer again: curl -fsSL https://enso.wicker.life/install.sh | bash"
+	exit 127
+fi
+major="$("$NODE" -p 'process.versions.node.split(".")[0]' 2>/dev/null)"
+if ! [ "${major:-0}" -ge "$MIN_NODE" ] 2>/dev/null; then
+	note "$NODE is Node ${major:-?}, too old or not working (Ensō needs $MIN_NODE+). Run the installer again: curl -fsSL https://enso.wicker.life/install.sh | bash"
+	exit 1
+fi
+if { : >>"$LOG"; } 2>/dev/null; then
+	export ENSO_STDERR_LOG="$LOG"
+	exec "$NODE" "$HOST" "$@" 2>>"$LOG"
+fi
+exec "$NODE" "$HOST" "$@"
+RUNSH
+	}
+
 	# 5. Unpack and install (replace the helper folder in one move)
 	step "Installing into $HELPER_DIR"
 	mkdir -p "$tmp/unpacked"
@@ -196,7 +232,13 @@ main() {
 	cat >"$HELPER_DIR/run.sh" <<EOF
 #!/bin/bash
 # Started by Zen/Firefox through native messaging. Written by install.sh.
-exec "$node_bin" "$HELPER_DIR/host.mjs"
+# The helper's stderr is appended to ~/Library/Logs/Enso/helper.log, so a crash
+# before the helper's own logging starts (Node missing, too old, a syntax error)
+# is there too. "enso doctor" shows the end of it.
+NODE="$node_bin"
+HOST="$HELPER_DIR/host.mjs"
+MIN_NODE=$MIN_NODE
+$(run_sh_body)
 EOF
 	chmod +x "$HELPER_DIR/run.sh"
 	info "Helper $(cat "$HELPER_DIR/VERSION" 2>/dev/null || echo '') installed; it runs with $node_bin"
@@ -239,14 +281,14 @@ EOF
 	done
 
 	# 7. Letting Claude Code, Codex, Cursor or OpenCode use Zen is a switch per
-	#    client in Ensō → Settings → Setup (or `enso mcp install`).
+	#    client in Ensō → Settings → Agents & screenshots (or `enso mcp install`).
 	#    ENSO_REGISTER_MCP=1 registers Claude Code here, for scripted installs.
 	if [ "${ENSO_REGISTER_MCP:-}" = "1" ] && [ -n "$claude_bin" ]; then
 		step "Claude Code and Zen"
 		if "$ENSO_BIN" mcp install --client claude >/dev/null 2>&1; then
 			info "Added zen-browser to Claude Code."
 		else
-			warn "Claude Code did not accept the server; turn it on later in Ensō → Settings → Setup."
+			warn "Claude Code did not accept the server; turn it on later in Ensō → Settings → Agents & screenshots."
 		fi
 	fi
 
@@ -260,10 +302,16 @@ EOF
 	' "$APP_DIR/install.json" "$(cat "$HELPER_DIR/VERSION" 2>/dev/null || true)" "$node_bin" "$node_version" "$node_source" "$claude_bin" "$claude_version" "$SITE"
 
 	# 8. The extension: open it in Zen, unless a Zen profile already has it.
+	home_is_real() {
+		local real_home
+		real_home="$(dscl . -read "/Users/$(id -un)" NFSHomeDirectory 2>/dev/null | sed 's/^NFSHomeDirectory: *//')"
+		[ -z "$real_home" ] || [ "$(cd "$HOME" 2>/dev/null && pwd -P)" = "$(cd "$real_home" 2>/dev/null && pwd -P)" ]
+	}
 	local ext_state
 	if grep -qs "\"$EXTENSION_ID\"" "$SUPPORT"/zen/Profiles/*/extensions.json; then
 		ext_state="installed"
-	elif [ "${ENSO_NO_OPEN:-}" = "1" ]; then
+	elif [ "${ENSO_NO_OPEN:-}" = "1" ] || ! home_is_real; then
+		# ENSO_NO_OPEN=1, or a test run in a throwaway HOME: never pop "Add Ensō" in the real Zen.
 		ext_state="skipped"
 	elif open -Ra Zen >/dev/null 2>&1; then
 		open -a Zen "$XPI_URL"

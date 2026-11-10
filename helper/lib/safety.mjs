@@ -28,10 +28,10 @@ export const devToolsOn = () => getSettings().developerTools !== false;
 export const headlessOn = () => getSettings().headless !== false;
 
 export function requireDevTools() {
-  if (!devToolsOn()) throw new Error("The user has switched developer tools off in Ensō → Settings → Developer.");
+  if (!devToolsOn()) throw new Error("The user has switched developer tools off in Ensō → Settings → Advanced.");
 }
 export function requireHeadless() {
-  if (!headlessOn()) throw new Error("The user has switched headless mode off in Ensō → Settings → Developer.");
+  if (!headlessOn()) throw new Error("The user has switched headless mode off in Ensō → Settings → Advanced.");
 }
 
 /** "github.com", "https://github.com/x" → { scheme, host, origin } (https by default). */

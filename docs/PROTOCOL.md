@@ -74,6 +74,7 @@ All messages are objects with a `type`. Times are ISO strings. Ids are strings.
 | `t3.connect` | | `t3` `{ status, done: { action: "connect", ok, error? } }` (runs `t3 auth session issue`, token into the Keychain) |
 | `t3.disconnect` | | `t3` `{ status, done }` (revokes the session, deletes the item) |
 | `t3.open` | `threadId` | none: opens `t3code://threads/<environment>/<thread>` in the T3 Code app the `t3` CLI belongs to |
+| `helper.log` | `lines?` (1–200, default 40) | `helper.log` `{ version, node: { version, path }, platform, file, lines: [string] }`: the helper's version and the last lines of `~/Library/Logs/Enso/helper.log`, redacted (Copy diagnostics) |
 | `setup.status` | `fresh?` (bool: re-check for a helper update now instead of using the 30-minute cache) | `setup` `{ status: SetupStatus }` (see [Setup](#setup)) |
 | `setup.run` | `step` (one of the [setup steps](#setup)), `options?` (per step) | `setup` `{ status, done: { step, ok, message?, error?, restart? } }`; also `engines` after `engine.*`, `servers` after `github.*`, `t3` after `t3.*`, and `helper.restarting` then an exit after a successful `helper.update` |
 
@@ -109,19 +110,26 @@ background.js also sends messages of its own to every UI:
   only, which the command opens; if the sidebar isn't connected yet it is kept
   for up to a minute and sent when it connects. `consoleErrors` is null when
   console capture never ran on that tab. Private sites are refused.
-- `helper.status`: `{ type, state, reason, at }`, sent to each UI when it connects
+- `helper.status`: `{ type, state, reason, at, lastError, failures, connectedAt }`, sent to each UI when it connects
   and whenever the helper's state changes. `state`: `"connecting"`, `"connected"`
   (the helper sent its first message), `"missing"` (Zen says "No such native
   application": install.sh hasn't run), `"failed"` (the manifest is there but the
   helper exited before saying anything, e.g. its Node is gone), `"stopped"` (it ran,
   then went away) or `"restarting"` (it sent `helper.restarting` first). `reason` is
-  the browser's error text, if any. While it isn't connected, background.js retries
+  the browser's error text, if any (`port.error.message`, or `runtime.lastError`).
+  `lastError` `{ message, state, at, ranMs }` is the last time the port closed, kept
+  after a reconnect; `failures` counts attempts in a row that failed or crashed
+  within 30 s; both go into Copy diagnostics. While it isn't connected, background.js retries
   `connectNative`: every 2 s while an Ensō page is open and the manifest is missing,
   with backoff (up to 30 s) when it fails or keeps crashing, and every minute
   (missing) or 5 minutes (failed) with no page open. Zen reads the manifest on each
   attempt, so a fresh install is picked up without restarting Zen. The UI shows the
-  first-run guide (`ui/views/setup.js`) for `missing` and `failed`, and sends `hello`
-  again when the state comes back to `connected`.
+  first-run guide (`ui/views/setup.js`) for `missing` and `failed` (on macOS; on
+  other systems a "macOS only for now" notice instead), "Ensō's helper isn't
+  running" (`ui/views/helperstate.js`) for `stopped`, and sends `hello` again, plus
+  any request a view was still waiting for, when the state comes back to
+  `connected`. Requests a view shows a spinner for that get no answer within 8 s
+  show "Couldn't load" with Retry (`store.js` `wait()` / `loadState()`).
 - an `event` with `conversationId: null` and `code: "host_disconnected"` when the
   native port closes after the helper was running (the UI shows a banner with
   Reconnect; background.js reconnects by itself as well). Not sent for `restarting`.
@@ -242,7 +250,7 @@ and offer the current space's memory next to the global memory in settings.
   spaceHints: { "{space id}": "what this space is for" } }
 ```
 `profile.md` in the data folder is `# <name>` followed by `about`. Space hints
-come from Settings → Profile (`settings.spaceHints`, by space id or name), else
+come from Settings → You & memory (`settings.spaceHints`, by space id or name), else
 from `spaceHints` in `config.local.json` (by space name).
 
 `engines.subscription` also carries `reason` when Claude Code wasn't found, and
@@ -326,7 +334,7 @@ starts a fresh warm session. A Claude Code registration of the same name
   spaceHints: { "{space id}": "what this space is for" },
   homeWidgets: [{ id, type, size: "S" | "M" }],       // new-tab widget layout
   onboardingDone: true,
-  claudePath: "/path/to/claude"                       // Settings → Engine → Claude Code location
+  claudePath: "/path/to/claude"                       // Settings → Advanced → Claude Code location
 }
 ```
 `sessionAccess` keys are origins; an entry also covers its subdomains (same

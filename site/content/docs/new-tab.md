@@ -34,7 +34,7 @@ The page stays empty until you add something: choose **Add widgets** under the b
 
 Ensō adds itself to Zen as a search engine called **Ensō**. Make it the default and Zen's address bar becomes Ensō's box too: web addresses still open directly, and everything else you type comes to Ensō.
 
-**Turn it on:** Zen Settings → Search → Default Search Engine → **Ensō**. Ensō never changes your default engine by itself. Settings → **Address bar** shows whether it's on.
+**Turn it on:** Zen Settings → Search → Default Search Engine → **Ensō**. Ensō never changes your default engine by itself. Settings → General → **Address bar** shows whether it's on.
 
 What happens when you press <kbd>Enter</kbd> depends on one setting, **Address-bar queries go to**:
 

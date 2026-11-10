@@ -3,6 +3,7 @@
 // an "Add more" catalog modelled on Dia's Settings → Apps.
 
 import { h, icon, clear } from "../dom.js";
+import { loadingOr } from "./helperstate.js";
 
 const CONNECTORS_URL = "https://claude.ai/customize/connectors";
 
@@ -281,7 +282,7 @@ export function createToolsPage(store, ctx) {
       ["MCP servers", all.filter(x => x.source !== "built in" && !(x.source === "claude.ai connector" || /^claude\.ai /i.test(x.name ?? "")))],
     ];
     clear(listEl, groups.filter(([, l]) => l.length).map(([title, l]) => h("section", { class: "tools-group" }, h("h3", { class: "group-label" }, title), h("ul", { class: "tool-rows" }, l.map(row)))),
-      all.length ? null : h("p", { class: "muted" }, "No tools yet."));
+      all.length ? null : s.ready ? h("p", { class: "muted" }, "No tools yet.") : loadingOr(store, "state", "Loading your tools…"));
     const names = all.map(x => `${labelOf(x)} ${x.name}`);
     clear(catalogEl, CATALOG.map(c => {
       const have = all.find(x => c.match.test(`${labelOf(x)} ${x.name}`));
@@ -306,7 +307,7 @@ export function createToolsPage(store, ctx) {
   render();
   return {
     el,
-    update(topics) { if (topics.has("servers") || topics.has("state") || topics.has("github")) render(); },
+    update(topics) { if (topics.has("servers") || topics.has("state") || topics.has("github") || (!s.ready && (topics.has("waits") || topics.has("helper")))) render(); },
     show() { render(); },
   };
 }

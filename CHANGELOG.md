@@ -5,6 +5,32 @@ share one version number. Dates are the tag dates. Releases are published to
 <https://enso.wicker.life> by the release workflow ([docs/releasing.md](docs/releasing.md));
 the extension updates itself, the helper updates when you run the installer again.
 
+## Unreleased
+
+Make a helper crash diagnosable, and stop waiting forever.
+
+- **Helper log.** The helper writes `~/Library/Logs/Enso/helper.log` (about 1 MB,
+  plus one older file): startup (helper and Node version, Node's path, macOS),
+  errors it handled, and uncaught exceptions with their stack, written before it
+  exits. No messages, page text or secrets. `run.sh` appends the helper's stderr
+  to the same file, so a crash before Node runs (Node removed, too old, a syntax
+  error) is there too; it also checks Node's version before starting.
+- **"Ensō's helper isn't running".** When the helper stops, Ensō says how (not
+  found, failed to start, exited) with the browser's reason, and offers **Try
+  again**, **Copy diagnostics** (versions, status, last error, browser, system,
+  and the log's end when the helper answers) and **Open the install guide**.
+- **No more endless "Loading…".** Settings, memory, Setup, history, Activity,
+  tools, the brief, widgets and conversations show that state, or "Couldn't
+  load" with **Retry** after 8 seconds without an answer.
+- **`enso doctor`** checks the native-messaging manifests, run.sh's Node, a test
+  start of the helper (hello answered), the MCP port and the log's last lines,
+  with a fix for each problem.
+- **macOS only, said plainly.** On Linux and Windows the extension, `install.sh`
+  and `enso doctor` say "Ensō's helper runs on macOS only for now. Windows and
+  Linux support is planned" instead of an install command or "helper stopped".
+- The installer resolves version-manager shims (asdf, nodenv, Volta) to the real
+  Node binary, and never opens Zen from a temporary HOME.
+
 ## 0.5.5 (10 November 2026)
 
 Setup from inside Ensō, a privacy policy that matches the code, and a listing

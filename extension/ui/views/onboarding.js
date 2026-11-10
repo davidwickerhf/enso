@@ -1,14 +1,14 @@
 // First run: Ensō asks who you are before the first conversation. Two short
 // steps (you, then optionally what each Zen space is for), saved to the
 // helper with `profile.save` (profile.md and settings.spaceHints in the data
-// folder). Everything can be changed later in Settings → Profile; "Skip for
+// folder). Everything can be changed later in Settings → You & memory; "Skip for
 // now" just marks onboarding as done.
 
 import { h, clear, spaceIcon } from "../dom.js";
 
 const ABOUT_PLACEHOLDER = "What you do, where you're based, the projects and tools you use, and how you like answers. For example:\n- Product designer at a small studio, based in Lisbon\n- Mail in Gmail, work chat in Slack\n- Short answers; tables when comparing things";
 
-/** Profile fields shared by onboarding and Settings → Profile. */
+/** Profile fields shared by onboarding and Settings → You & memory. */
 export function profileFields(store, draft, { idPrefix = "pf", onInput = () => {} } = {}) {
   const name = h("input", { type: "text", class: "input", id: `${idPrefix}-name`, value: draft.name ?? "", maxlength: 80, autocomplete: "given-name", placeholder: "Your first name", aria: { required: "true" } });
   const about = h("textarea", { class: "input", id: `${idPrefix}-about`, rows: 6, placeholder: ABOUT_PLACEHOLDER, maxlength: 4000 });
@@ -77,7 +77,7 @@ export function createOnboarding(store) {
     const body = which === "you"
       ? [
           h("h1", { id: "ob-title", class: "ob-title" }, "Welcome to Ensō"),
-          h("p", { class: "ob-lede" }, "Tell Ensō a little about yourself, so its answers fit you. This stays on your Mac, and you can change it any time in Settings."),
+          h("p", { class: "ob-lede" }, "Tell Ensō a little about yourself, so its answers fit you. This stays on your Mac, and you can change it any time in Settings → You & memory."),
           profileFields(store, draft, { idPrefix: "ob" }).el,
         ]
       : [
