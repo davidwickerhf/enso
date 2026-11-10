@@ -5,7 +5,7 @@ share one version number. Dates are the tag dates. Releases are published to
 <https://enso.wicker.life> by the release workflow ([docs/releasing.md](docs/releasing.md));
 the extension updates itself, the helper updates when you run the installer again.
 
-## Unreleased
+## 0.5.4 (10 November 2026)
 
 A Tasks widget that keeps up, and monday.com on the new tab.
 
@@ -69,7 +69,7 @@ message, to the agent you're working with. Guide:
 - **Settings → Send screenshots**: T3 connection, connected agents, and Linked
   threads (tab links end with the tab; site links stay until removed).
 
-## 0.5.3 (10 November 2026)
+## 0.5.3 (not released on its own; ships in 0.5.4)
 
 Agent presence and steering: what an external agent does in Zen is visible
 while it happens, and the user can pause, stop or correct it from Ensō.

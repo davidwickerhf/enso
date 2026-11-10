@@ -1,7 +1,7 @@
 {
   "manifest_version": 2,
   "name": "Ensō",
-  "version": "0.5.3",
+  "version": "0.5.4",
   "description": "Ensō: a personal assistant in your browser. A dashboard, a chat that knows you and your tools, and an agent that can act on web pages.",
   "browser_specific_settings": {
     "gecko": {
