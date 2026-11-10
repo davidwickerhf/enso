@@ -10,6 +10,7 @@ import { profileFields, spaceHintFields } from "./onboarding.js";
 import { SCREENSHOT_SHORTCUT } from "./send.js";
 import { setupSummary } from "./setup.js";
 import { loadingOr } from "./helperstate.js";
+import { secretStoreName } from "../platform.js";
 
 const MODELS = [
   ["claude-opus-5-5", "Claude Opus 5.5"],
@@ -46,7 +47,7 @@ export function createSettings(store, ctx) {
   const skillUi = { editing: null, error: null }; // null | "new" | name
 
   const el = h("section", { class: "page-view settings-view", aria: { label: "Settings" } },
-    h("header", { class: "page-head" }, h("h2", null, "Settings"), h("p", { class: "muted" }, "Saved to the Ensō helper on this Mac.")),
+    h("header", { class: "page-head" }, h("h2", null, "Settings"), h("p", { class: "muted" }, s.platform === "mac" || !s.platform ? "Saved to the Ensō helper on this Mac." : "Saved to the Ensō helper on this computer.")),
     setupBlock, profile, general, sendBlock, developer, servers, skills, memory);
 
   function block(title, desc, ...content) {
@@ -118,9 +119,9 @@ export function createSettings(store, ctx) {
         eng.subscription?.available === false && eng.subscription.reason ? h("p", { class: "hint" }, eng.subscription.reason) : null,
         h("div", { class: "setting" },
           h("div", { class: "setting-text" }, h("label", { for: "set-claude-path" }, "Claude Code location"),
-            h("p", null, eng.subscription?.path ? `Using ${eng.subscription.path}${eng.subscription.version ? ` (${eng.subscription.version})` : ""}.` : "Found automatically on your PATH, in ~/.local/bin or Homebrew. Set a path only if yours lives elsewhere.")),
+            h("p", null, eng.subscription?.path ? `Using ${eng.subscription.path}${eng.subscription.version ? ` (${eng.subscription.version})` : ""}.` : `Found automatically on your PATH, in ${s.platform === "win" ? "%USERPROFILE%\\.local\\bin or npm" : s.platform === "linux" ? "~/.local/bin, npm or Linuxbrew" : "~/.local/bin or Homebrew"}. Set a path only if yours lives elsewhere.`)),
           h("input", { type: "text", class: "input mono", id: "set-claude-path", value: st.claudePath ?? "", placeholder: "/path/to/claude", spellcheck: "false", onchange: e => actions.updateSettings({ claudePath: e.target.value.trim() }) })),
-        eng.api?.available === false || eng.subscription?.available === false ? h("p", { class: "hint" }, eng.subscription?.available === false ? "Install and sign in to Claude Code, or add an API key, in " : "Add an API key (kept in your Keychain) in ", h("button", { type: "button", class: "link-btn", onclick: () => actions.go("setup") }, "Setup"), ".") : null),
+        eng.api?.available === false || eng.subscription?.available === false ? h("p", { class: "hint" }, eng.subscription?.available === false ? "Install and sign in to Claude Code, or add an API key, in " : `Add an API key (kept in ${s.setup?.status?.secrets?.location ?? secretStoreName(s.platform)}) in `, h("button", { type: "button", class: "link-btn", onclick: () => actions.go("setup") }, "Setup"), ".") : null),
       block("Model", null,
         h("div", { class: "setting" }, h("div", { class: "setting-text" }, h("label", null, "Model")), modelSelect),
         h("div", { class: "setting" }, h("div", { class: "setting-text" }, h("label", null, "Effort"), h("p", null, "Higher effort thinks longer before answering.")),
@@ -197,7 +198,7 @@ export function createSettings(store, ctx) {
     clear(sendBlock, block("Send screenshots", `Take a screenshot with ${SCREENSHOT_SHORTCUT} or the camera button and send it to a T3 Code thread, to an agent connected through enso mcp (Claude Code, Codex, OpenCode, Cursor…), or copy it for any terminal agent. Screenshots stay on this Mac.`,
       h("div", { class: "setting stacked" },
         h("div", { class: "setting-text" }, h("label", null, "T3 Code"),
-          h("p", null, "Connecting gives Ensō a token that can read and message your T3 threads (orchestration read and operate, nothing else) for 30 days. It is kept in your Keychain.")),
+          h("p", null, `Connecting gives Ensō a token that can read and message your T3 threads (orchestration read and operate, nothing else) for 30 days. It is kept in ${s.setup?.status?.secrets?.location ?? secretStoreName(s.platform)}.`)),
         h("p", { class: ["t3-state", t3State[0]], role: "status" }, h("i"), t3State[1]),
         done && !done.ok ? h("p", { class: "form-error", role: "alert" }, done.error) : null,
         t3Buttons),

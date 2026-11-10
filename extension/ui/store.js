@@ -16,6 +16,8 @@
 // card), "timeout" (no answer within WAIT_MS: "Couldn't load" + Retry) or
 // "loading". So nothing shows "Loading…" forever.
 
+import { isSupportedOs } from "./platform.js";
+
 export const WAIT_MS = 8000;
 
 export function createStore({ waitMs = WAIT_MS } = {}) {
@@ -39,7 +41,7 @@ export function createStore({ waitMs = WAIT_MS } = {}) {
     activeConversationId: null,
     profile: null,           // { name, about, summary, set, onboarding, spaceHints: { spaceId: text } }
     profileSaving: false,
-    paths: null,             // { data, localConfig } on this Mac
+    paths: null,             // { data, localConfig } on this computer (from the helper)
     dashboard: { data: null, loading: false, error: null },
     github: { data: null, loading: false, error: null, at: 0, saving: false, saved: null }, // new-tab widget + token entry
     tasks: { data: null, loading: false, error: null, at: 0, completing: new Set(), lastError: null, added: [] }, // Tasks widget (task apps, tasks.widget); added: keys a chat just created
@@ -72,7 +74,7 @@ export function createStore({ waitMs = WAIT_MS } = {}) {
     t3: { status: null, busy: null, done: null }, // T3 Code connection (Settings), from the helper's `t3` messages
     // The native helper as background.js sees it (`helper.status`): connecting | connected | missing | failed | stopped | restarting.
     helper: { state: "connecting", reason: null, at: 0, everConnected: false, lastError: null, failures: 0, connectedAt: null },
-    platform: null,          // runtime.getPlatformInfo().os ("mac", "linux", "win"…); the helper runs on macOS only for now
+    platform: null,          // runtime.getPlatformInfo().os ("mac", "linux", "win"…); supported ones: ui/platform.js SUPPORTED_OSES
     helperLog: null,         // last `helper.log` answer (Copy diagnostics): { version, node, platform, file, lines, at }
     waits: new Map(),        // key → { since, timedOut, resend }: requests the UI shows a spinner for (see wait())
     setup: { status: null, busy: null, done: null, loading: false }, // Settings → Setup (`setup` messages)
@@ -834,7 +836,7 @@ export function createStore({ waitMs = WAIT_MS } = {}) {
         const blob = await (await fetch(sh.image)).blob();
         await navigator.clipboard.write([new ClipboardItem({ [blob.type]: blob })]);
         s.shot = null;
-        showToast("Image copied: paste it into Claude Code, Codex or OpenCode with ⌘V (Ctrl+V in some terminals).", "good");
+        showToast(`Image copied: paste it into Claude Code, Codex or OpenCode with ${s.platform === "mac" ? "⌘V (Ctrl+V in some terminals)" : "Ctrl+V (Ctrl+Shift+V in some terminals)"}.`, "good");
         emit("shot");
       } catch (err) {
         s.shot.error = `Couldn't copy the image (${err?.message ?? err}). Try “Save + copy path”.`;
@@ -851,7 +853,7 @@ export function createStore({ waitMs = WAIT_MS } = {}) {
     dismissToast() { s.toast = null; emit("toast"); },
     // First-run guide: ask background.js to try the helper again now.
     helperRetry() { send({ type: "helper.retry" }); },
-    /** Which system this is (Ensō's helper is macOS-only for now). os: for the mock's ?platform=. */
+    /** Which system this is (install command, paths, shortcuts; ui/platform.js). os: for the mock's ?platform=. */
     async detectPlatform(os) {
       try { os = os ?? (await globalThis.browser?.runtime?.getPlatformInfo?.())?.os; } catch { /* not in the extension */ }
       if (os && os !== s.platform) { s.platform = os; emit("helper", "waits"); }
@@ -939,12 +941,12 @@ export function createStore({ waitMs = WAIT_MS } = {}) {
 
   function subscribe(fn) { listeners.add(fn); return () => listeners.delete(fn); }
 
-  /** True on a system the helper doesn't run on yet (anything but macOS). */
-  const unsupported = () => !!s.platform && s.platform !== "mac";
+  /** True on a system the helper doesn't run on (not in ui/platform.js SUPPORTED_OSES). */
+  const unsupported = () => !isSupportedOs(s.platform);
 
   /**
    * The helper as background.js last saw it, when it isn't running (missing | failed | stopped); else null.
-   * On Linux and Windows it can't run at all: down (with unsupported: true) unless it somehow connected.
+   * On an unsupported system it can't run at all: down (with unsupported: true) unless it somehow connected.
    */
   function helperDown() {
     if (unsupported() && s.helper.state !== "connected") return { ...s.helper, unsupported: true };

@@ -100,7 +100,7 @@ export function createSendSheet(store) {
       sh.error ? h("p", { class: "form-error", role: "alert" }, sh.error) : null,
       h("div", { class: "shot-actions" },
         h("button", { type: "button", class: "btn primary", disabled: !sh.target || sh.sending, onclick: () => actions.sendShot() }, sh.sending ? [h("span", { class: "spinner" }), "Sending…"] : [icon("arrowUp"), "Send"]),
-        h("button", { type: "button", class: "btn", onclick: () => actions.copyShot(), title: "For any terminal agent: paste with ⌘V" }, icon("copy"), "Copy image"),
+        h("button", { type: "button", class: "btn", onclick: () => actions.copyShot(), title: `For any terminal agent: paste with ${/Mac/.test(globalThis.navigator?.platform ?? "") ? "⌘V" : "Ctrl+V (Ctrl+Shift+V in some terminals)"}` }, icon("copy"), "Copy image"),
         h("button", { type: "button", class: "btn ghost", onclick: () => actions.saveShot(), title: "Save the PNG in Ensō's folder and copy its path" }, "Save + copy path")),
       h("p", { class: "shot-keys muted" }, h("kbd", null, "↵"), " send · ", h("kbd", null, "⇧↵"), " new line · ", h("kbd", null, "Esc"), " cancel"));
   }

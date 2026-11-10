@@ -64,15 +64,21 @@ function make() {
 {
   const { store } = make();
   store.receive({ type: "helper.status", state: "missing", reason: "No such native application enso", at: Date.now() });
-  await store.actions.detectPlatform("linux");
+  // Supported systems are a list (ui/platform.js SUPPORTED_OSES): macOS, Linux, Windows.
+  for (const os of ["mac", "linux", "win"]) {
+    await store.actions.detectPlatform(os);
+    assert.equal(store.unsupported(), false, os);
+    assert.equal(store.helperDown().unsupported, undefined, `${os}: a missing helper is "not found", not unsupported`);
+  }
+  await store.actions.detectPlatform("cros");
   assert.equal(store.unsupported(), true);
   assert.equal(store.helperDown().unsupported, true);
   store.receive({ type: "helper.status", state: "connecting", at: Date.now() });
-  assert.equal(store.loadState("state"), "down", "on Linux a helper that isn't connected is down, even while 'connecting'");
-  await store.actions.detectPlatform("mac");
+  assert.equal(store.loadState("state"), "down", "on an unsupported system a helper that isn't connected is down, even while 'connecting'");
+  await store.actions.detectPlatform("linux");
   assert.equal(store.unsupported(), false);
   assert.equal(store.helperDown(), null);
-  console.log("ok - Linux/Windows: the helper counts as not running (unsupported) unless it connected");
+  console.log("ok - supported systems come from a list: macOS, Linux and Windows wait for the helper; others count as unsupported");
 }
 
 {
@@ -88,6 +94,12 @@ function make() {
   const online = diagnosticsText({ extVersion: "0.5.5", browserName: "Zen", platform: "mac", helper: { state: "connected" }, helperLog: { version: "0.5.5", node: { version: "v22.1.0", path: "/opt/homebrew/bin/node" }, platform: "darwin arm64", lines: ["a", "b"] } });
   assert.match(online, /Helper: 0\.5\.5, Node v22\.1\.0 at \/opt\/homebrew\/bin\/node, darwin arm64\n\nLast 2 lines of ~\/Library\/Logs\/Enso\/helper\.log \(secrets removed\):\na\nb$/);
   assert.doesNotMatch(online, /Also send/);
-  console.log("ok - Copy diagnostics: versions, status, last error, browser, platform; the log's end when the helper answers, else the path to send");
+  const win = diagnosticsText({ extVersion: "0.5.5", browserName: "Zen", platform: "win x86-64", helper, helperLog: null });
+  assert.match(win, /Also send %LOCALAPPDATA%\\Enso\\Logs\\helper\.log \(in File Explorer/);
+  const lin = diagnosticsText({ extVersion: "0.5.5", browserName: "Zen", platform: "linux x86-64", helper, helperLog: null });
+  assert.match(lin, /Also send ~\/\.local\/state\/enso\/helper\.log/);
+  const real = diagnosticsText({ extVersion: "0.5.5", browserName: "Zen", platform: "linux", helper: { state: "connected" }, helperLog: { version: "0.5.5", node: { version: "v22.1.0", path: "/usr/bin/node" }, platform: "linux x64", file: "/home/m/.local/state/enso/helper.log", lines: ["a"] } });
+  assert.match(real, /Last 1 lines of \/home\/m\/\.local\/state\/enso\/helper\.log/);
+  console.log("ok - Copy diagnostics: versions, status, last error, browser, platform; the log's end when the helper answers, else the path to send (per OS)");
 }
 console.log("ui loading checks passed");

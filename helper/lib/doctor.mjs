@@ -278,6 +278,17 @@ export async function runDoctor({ home = process.env.HOME || homedir(), env = pr
     for (const l of lines) out(`  ${l}`);
   }
 
+  // Windows: run.cmd keeps what the helper printed before its own log started.
+  const stderrFile = path.join(path.dirname(file), "helper-stderr.log");
+  if (platform === "win32" && existsSync(stderrFile)) {
+    const errLines = tailLines(stderrFile, 15);
+    if (errLines.length) {
+      out("");
+      out(`Last ${errLines.length} lines of ${tilde(stderrFile)} (the helper's last start):`);
+      for (const l of errLines) out(`  ${l}`);
+    }
+  }
+
   const ok = results.every(r => r.ok !== false);
   out("");
   out(ok ? "Everything Ensō needs looks fine. If Ensō still says the helper stopped, send the log above (or Copy diagnostics in Ensō)." : `Something needs fixing (✗ above). Still stuck? Send this output and ${tilde(file)}.`);

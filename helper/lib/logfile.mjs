@@ -20,6 +20,7 @@
 // <ENSO_DATA>/logs when ENSO_DATA is set (tests), else the OS's log folder.
 
 import { closeSync, existsSync, fstatSync, mkdirSync, openSync, readFileSync, renameSync, statSync, writeSync } from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { logDir as platformLogDir } from "./platform.mjs";
 
@@ -189,14 +190,22 @@ function readVersion(helperDir) {
 export function startHelperLog({ helperDir, env = process.env, exit = code => process.exit(code) } = {}) {
   if (current) return current;
   current = createLog({ file: logFile(env) });
-  echo = !(env.ENSO_STDERR_LOG && (env.ENSO_STDERR_LOG === current.file || stderrIsFile(current.file)));
+  // Windows' run.cmd sends stderr to helper-stderr.log (only what happens before this log
+  // starts matters there) and sets ENSO_LOG_NO_ECHO=1, so lines aren't written twice.
+  echo = env.ENSO_LOG_NO_ECHO !== "1" && !(env.ENSO_STDERR_LOG && (env.ENSO_STDERR_LOG === current.file || stderrIsFile(current.file)));
   const version = readVersion(helperDir);
   let osRelease = "";
   try {
     osRelease = readFileSync("/System/Library/CoreServices/SystemVersion.plist", "utf8").match(/ProductVersion<\/key>\s*<string>([^<]+)/)?.[1] ?? "";
   } catch {}
-  const by = env.ENSO_DOCTOR === "1" ? " (started by enso doctor)" : env.ENSO_STDERR_LOG ? " (started by run.sh)" : "";
-  current.write("info", `Ensō helper ${version} starting${by}: Node ${process.version} at ${process.execPath}, ${process.platform} ${process.arch}${osRelease ? `, macOS ${osRelease}` : ""}, helper in ${helperDir}`);
+  if (!osRelease && process.platform === "linux") {
+    try {
+      osRelease = readFileSync("/etc/os-release", "utf8").match(/^PRETTY_NAME="?([^"\n]+)/m)?.[1] ?? "";
+    } catch {}
+  }
+  if (!osRelease && process.platform === "win32") osRelease = `Windows ${os.release()}`;
+  const by = env.ENSO_DOCTOR === "1" ? " (started by enso doctor)" : env.ENSO_STDERR_LOG ? " (started by run.sh)" : env.ENSO_LOG_NO_ECHO === "1" ? " (started by run.cmd)" : "";
+  current.write("info", `Ensō helper ${version} starting${by}: Node ${process.version} at ${process.execPath}, ${process.platform} ${process.arch}${osRelease ? `, ${process.platform === "darwin" ? "macOS " : ""}${osRelease}` : ""}, helper in ${helperDir}`);
 
   let dying = false;
   process.on("uncaughtException", (err, origin) => {

@@ -17,14 +17,17 @@
 
 import { h, icon, clear } from "../dom.js";
 import { WAIT_MS } from "../store.js";
+import { logPath, openFolderHint, supportedText, unsupportedText } from "../platform.js";
 
 const SITE = "https://enso.wicker.life";
 export const INSTALL_GUIDE = `${SITE}/docs/install`;
 export const TROUBLESHOOTING = `${SITE}/docs/troubleshooting#if-ens-says-the-helper-stopped`;
-export const LOG_PATH = "~/Library/Logs/Enso/helper.log";
+/** helper.log for this system (default path; the helper's own answer carries the real one). */
+export const LOG_PATH = logPath("mac");
+export const logPathFor = os => logPath(os);
 export const PLATFORM_DOCS = `${SITE}/docs/install#requirements`;
 export const REPO = "https://github.com/davidwickerhf/enso";
-export const UNSUPPORTED_TEXT = "Ensō's helper runs on macOS only for now. Windows and Linux support is planned.";
+export const UNSUPPORTED_TEXT = unsupportedText();
 
 /** { kind, title, explain } for a helper status (missing | failed | stopped). */
 export function describeHelper(hp) {
@@ -46,7 +49,8 @@ export function describeHelper(hp) {
 const time = at => (at ? new Date(at).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", second: "2-digit" }) : "");
 
 /** The text Copy diagnostics puts on the clipboard (pure, for tests). */
-export function diagnosticsText({ extVersion, browserName, platform, helper, helperLog, now = Date.now() }) {
+export function diagnosticsText({ extVersion, browserName, platform, os = String(platform ?? "").split(" ")[0] || "mac", helper, helperLog, now = Date.now() }) {
+  const log = helperLog?.file || logPath(os);
   const d = describeHelper(helper);
   const lines = [`Ensō diagnostics (${new Date(now).toISOString()})`];
   lines.push(`Extension: ${extVersion ?? "unknown"}`);
@@ -64,9 +68,9 @@ export function diagnosticsText({ extVersion, browserName, platform, helper, hel
   }
   if (helperLog) {
     lines.push(`Helper: ${helperLog.version ?? "unknown"}, Node ${helperLog.node?.version ?? "?"} at ${helperLog.node?.path ?? "?"}${helperLog.platform ? `, ${helperLog.platform}` : ""}`);
-    lines.push("", `Last ${helperLog.lines.length} lines of ${LOG_PATH} (secrets removed):`, ...helperLog.lines);
+    lines.push("", `Last ${helperLog.lines.length} lines of ${log} (secrets removed):`, ...helperLog.lines);
   } else {
-    lines.push("", `Also send ${LOG_PATH} (in Finder: Go → Go to Folder…, paste the path).`);
+    lines.push("", `Also send ${log} (${openFolderHint(os)}).`);
   }
   return lines.join("\n");
 }
@@ -119,14 +123,15 @@ function copyDiagnosticsButton(store, cls = "btn small") {
 export { copyDiagnosticsButton };
 
 /**
- * Linux and Windows: the helper can't run there yet. No install command, no
- * waiting, no Try again: just what works and where to follow the work.
+ * A system outside ui/platform.js SUPPORTED_OSES: the helper can't run there.
+ * No install command, no waiting, no Try again: just what works and where to
+ * follow the work.
  */
-function unsupportedCard({ compact }) {
+function unsupportedCard({ compact, os }) {
   return h("div", { class: ["helper-down", "unsupported", compact && "compact"], role: "status" },
     icon("info"),
     h("div", { class: "hd-body" },
-      h("strong", null, UNSUPPORTED_TEXT),
+      h("strong", null, unsupportedText(os)),
       compact ? null : h("p", { class: "hd-reason" }, "Chat, memory, history, settings and your tools all run in the helper, so they're unavailable on this computer. The new tab's search box, clock, quick links and note still work."),
       h("div", { class: "hd-actions" },
         h("a", { class: "btn small", href: PLATFORM_DOCS, target: "_blank", rel: "noopener" }, "Requirements", icon("arrowUpRight")),
@@ -135,7 +140,8 @@ function unsupportedCard({ compact }) {
 
 /** "Ensō's helper isn't running" with the reason and the three actions. compact: for inside a section. */
 export function helperDownCard(store, { compact = false } = {}) {
-  if (store.unsupported()) return unsupportedCard({ compact });
+  if (store.unsupported()) return unsupportedCard({ compact, os: store.state.platform });
+  const os = store.state.platform;
   const hp = store.state.helper;
   const d = describeHelper(hp);
   const retry = h("button", { type: "button", class: ["btn", "small", !compact && "primary"], onclick: () => { store.actions.helperRetry(); } }, icon("refresh"), "Try again");
@@ -151,7 +157,7 @@ export function helperDownCard(store, { compact = false } = {}) {
         retry,
         copyDiagnosticsButton(store),
         compact ? null : h("a", { class: "btn small ghost", href: INSTALL_GUIDE, target: "_blank", rel: "noopener" }, "Open the install guide", icon("arrowUpRight"))),
-      compact ? null : h("p", { class: "hd-hint muted" }, "Copy diagnostics and send it with ", h("code", null, LOG_PATH), ". In Terminal, ", h("code", null, "enso doctor"), " checks the install. ", h("a", { href: TROUBLESHOOTING, target: "_blank", rel: "noopener" }, "Troubleshooting"))));
+      compact ? null : h("p", { class: "hd-hint muted" }, "Copy diagnostics and send it with ", h("code", null, logPath(os)), `. In ${os === "win" ? "PowerShell" : os === "linux" ? "a terminal" : "Terminal"}, `, h("code", null, "enso doctor"), " checks the install. ", h("a", { href: TROUBLESHOOTING, target: "_blank", rel: "noopener" }, "Troubleshooting"))));
 }
 
 /** "Couldn't load: <reason>" with Retry. */
@@ -170,7 +176,7 @@ export function loadFailed(store, key, reason = `Ensō's helper didn't answer wi
 export function loadingOr(store, key, label = "Loading…", { placeholder, tiny = false } = {}) {
   const st = store.loadState(key);
   if (tiny && st === "down" && store.unsupported()) {
-    return h("p", { class: "load-tiny", role: "status" }, icon("info"), "Needs Ensō's helper, which runs on macOS only for now. ", h("a", { class: "b-link", href: PLATFORM_DOCS, target: "_blank", rel: "noopener" }, "Why"));
+    return h("p", { class: "load-tiny", role: "status" }, icon("info"), `Needs Ensō's helper, which runs on ${supportedText()}. `, h("a", { class: "b-link", href: PLATFORM_DOCS, target: "_blank", rel: "noopener" }, "Why"));
   }
   if (tiny && st !== "loading") {
     // Small tiles (new-tab widgets, the context panel): one line and a link-style button.

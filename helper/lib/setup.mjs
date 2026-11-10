@@ -137,7 +137,7 @@ async function defaultRunInstaller({ site, dataDir, fetchImpl, env, platform = p
   const res = await fetchImpl(`${site}/${win ? "install.ps1" : "install.sh"}`, { signal: AbortSignal.timeout(30_000) });
   if (!res.ok) throw new Error(`Couldn't download the installer (${res.status}).`);
   const script = await res.text();
-  if (win ? !/Ensō installer/.test(script) : !script.startsWith("#!")) throw new Error("The installer download looks wrong; nothing was changed.");
+  if (win ? !/Ens(ō|o) installer/.test(script) : !script.startsWith("#!")) throw new Error("The installer download looks wrong; nothing was changed.");
   const logs = path.join(dataDir, "logs");
   mkdirSync(logs, { recursive: true });
   const installerEnv = { ...env, ENSO_SITE: site, ENSO_NO_OPEN: "1", ENSO_REGISTER_MCP: "0", ENSO_FROM_HELPER: "1" };

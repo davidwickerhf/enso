@@ -564,13 +564,24 @@ browser.tabs.onUpdated.addListener((tabId, info) => {
 });
 browser.tabs.onRemoved.addListener(tabId => presenceSent.delete(tabId));
 
+// The sidebar shortcut as the user sees it (the manifest's Ctrl+E is ⌘E on macOS).
+let openKey = null;
+async function openShortcut() {
+  if (openKey) return openKey;
+  const cmd = (await browser.commands.getAll().catch(() => [])).find(c => c.name === "_execute_sidebar_action");
+  const os = (await browser.runtime.getPlatformInfo().catch(() => null))?.os;
+  const raw = cmd?.shortcut || "Ctrl+E";
+  openKey = os === "mac" ? raw.replace(/Command\+|Ctrl\+/g, "⌘").replace(/Shift\+/g, "⇧").replace(/Alt\+/g, "⌥") : raw;
+  return openKey;
+}
+
 // The pill: pill.html (an extension frame over it) opens the sidebar on click;
 // the content script's own click handler is the fallback when the frame can't load.
 async function pillClicked(tab, opened) {
   broadcast({ type: "agents.focus", tabId: tab.id });
   if (opened) return;
   const open = await browser.sidebarAction.isOpen({ windowId: tab.windowId }).catch(() => false);
-  if (!open) browser.tabs.sendMessage(tab.id, { enso: true, action: "pill_hint", args: { text: "Press ⌘E for Ensō" } }, { frameId: 0 }).catch(() => {});
+  if (!open) browser.tabs.sendMessage(tab.id, { enso: true, action: "pill_hint", args: { text: `Press ${await openShortcut()} for Ensō` } }, { frameId: 0 }).catch(() => {});
 }
 browser.runtime.onMessage.addListener((msg, sender) => {
   if (!sender.tab) return;
