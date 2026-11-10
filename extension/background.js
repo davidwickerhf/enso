@@ -929,7 +929,15 @@ function loaded(tabId, ms) {
   });
 }
 
+// Off by default: the swap opens a second tab and closes the first, which Zen
+// shows as an extra tab appearing and vanishing. Settings can turn it on
+// (storage.local newTabFocus) for people who prefer typing straight into Ensō.
+let newTabFocus = false;
+browser.storage.local.get("newTabFocus").then(r => { newTabFocus = r.newTabFocus === true; }).catch(() => {});
+browser.storage.onChanged.addListener((changes, area) => { if (area === "local" && changes.newTabFocus) newTabFocus = changes.newTabFocus.newValue === true; });
+
 browser.tabs.onCreated.addListener(tab => {
+  if (!newTabFocus) return;
   if (swapping || ours.has(tab.id) || (tab.url ?? "").includes("#f")) return; // our own replacement
   if (isNewTabUrl(tab.url)) return void setTimeout(() => swapForFocus(tab.id), 30);
   if (tab.url === "about:blank") {
