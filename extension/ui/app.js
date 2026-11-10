@@ -317,4 +317,12 @@ if (mode === "newtab") {
 }
 
 // The new tab's static first frame (newtab.html #boot) has done its job.
-requestAnimationFrame(() => document.getElementById("boot")?.remove());
+requestAnimationFrame(() => {
+  document.getElementById("boot")?.remove();
+  // Let entrance animations run again once the real page is on screen (ui/boot.js).
+  // Removing the class would start them on what is already showing, so finish those at once.
+  requestAnimationFrame(() => requestAnimationFrame(() => {
+    document.documentElement.classList.remove("booting");
+    for (const a of document.getAnimations()) try { a.finish(); } catch { /* infinite: leave it */ }
+  }));
+});
