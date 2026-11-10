@@ -1,14 +1,29 @@
 # Ensō
 
-A personal assistant built into the [Zen browser](https://zen-browser.app): a
-dashboard on every new tab, a chat in the sidebar that knows you and your
-tools, and an agent that can read and act on web pages. It runs Claude on your
-own Claude subscription (through Claude Code) or with an Anthropic API key.
-Everything it remembers stays on your Mac.
+Ensō is a personal assistant built into the [Zen browser](https://zen-browser.app).
+It puts a chat in the sidebar, a search-or-ask box and widgets on every new tab,
+and an agent that can read and act on web pages. It runs Claude on your own
+Claude subscription (through Claude Code) or on an Anthropic API key, uses the
+tools you connect (mail, calendar, GitHub, any MCP server), and keeps what it
+remembers in files on your Mac. Other agents on the same Mac (Claude Code,
+Codex, Cursor) can use Zen through it too.
 
-Website and docs: <https://enso.wicker.life>
+Website and user docs: <https://enso.wicker.life>. Licence: MIT, see [LICENSE](LICENSE).
 
-> **Licence:** MIT, see [LICENSE](LICENSE).
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://enso.wicker.life/screenshots/act-dark-1600.webp">
+  <img src="https://enso.wicker.life/screenshots/act-light-1600.webp" width="800" alt="A registration form with the student number just typed in and outlined. Beside it, the Ensō sidebar lists its steps and asks before clicking Register, with Allow, Always allow and Deny.">
+</picture>
+
+## Contents
+
+- [Install](#install)
+- [Quick start](#quick-start)
+- [Features](#features)
+- [How it is built](#how-it-is-built)
+- [Repository layout](#repository-layout)
+- [Development](#development)
+- [Documentation](#documentation)
 
 ## Install
 
@@ -16,171 +31,121 @@ Website and docs: <https://enso.wicker.life>
 curl -fsSL https://enso.wicker.life/install.sh | bash
 ```
 
-macOS only, for now. You need [Node.js](https://nodejs.org) 18 or newer and, for
-the subscription engine, [Claude Code](https://docs.anthropic.com/en/docs/claude-code/setup)
-signed in once (`claude`). The installer ([`scripts/install.sh`](scripts/install.sh)):
+macOS only for now. You need:
 
-1. downloads the latest helper from `https://enso.wicker.life/api/latest`, checks its SHA-256
-   and installs it into `~/Library/Application Support/Enso/helper`;
-2. writes the native-messaging manifest `enso.json` (with an absolute path to your
-   `node`) into `~/Library/Application Support/Mozilla/NativeMessagingHosts` and
-   `~/Library/Application Support/zen/NativeMessagingHosts`;
-3. writes the `enso` command (`~/Library/Application Support/Enso/bin/enso`, also
-   linked as `~/.local/bin/enso` when that folder exists and the name is free);
-4. offers to register the `zen-browser` MCP server with Claude Code through
-   `enso mcp install --client claude`, so Claude in a terminal can use your tabs;
-5. opens the signed extension in Zen.
+- Zen (or Firefox 139 or newer);
+- [Node.js](https://nodejs.org) 18 or newer;
+- for the default engine, [Claude Code](https://docs.anthropic.com/en/docs/claude-code/setup)
+  installed and signed in once (`claude`). Without it you can use an Anthropic API key.
 
-Run it again to update. On first open Ensō asks your name, a few lines about
-you and (optionally) what each Zen space is for; change it later in
-**Settings → Profile**.
+The installer ([`scripts/install.sh`](scripts/install.sh)) downloads the helper
+listed at `https://enso.wicker.life/api/latest`, checks its SHA-256, installs it
+in `~/Library/Application Support/Enso/helper`, registers it with Zen and
+Firefox, writes the `enso` command, offers to let Claude Code use Zen, and opens
+the signed extension in Zen. It needs no `sudo` and never touches your data.
+Run it again to update the helper; the extension updates itself.
 
-## What's in this repo
+Step by step, with what each permission is for: [docs/help/getting-started.md](docs/help/getting-started.md).
+
+## Quick start
+
+1. Press <kbd>⌘E</kbd> in Zen to open the sidebar. The first time, Ensō asks
+   your name, a few lines about you and, optionally, what each Zen space is for.
+2. Ask something about the page you are on: "summarise this", "fill in this
+   form with my address". The page is attached by default (the page chip).
+3. Open a new tab. Type a site, a search or a question in the box; choose
+   **Add widgets** for your calendar, tasks, mail or GitHub at a glance.
+4. Optional: let other agents use Zen.
+
+   ```sh
+   enso mcp install        # registers zen-browser with Claude Code, Codex and Cursor (those installed)
+   enso mcp status
+   ```
+
+## Features
+
+| Area | What it does | More |
+|---|---|---|
+| Sidebar chat | Claude next to the page, with the page, mentioned tabs (`@`), files (up to 25 MB) and screenshots as context; slash commands (`/summarize`, `/reply`, your own). | [help](docs/help/sidebar-and-new-tab.md) |
+| New tab | One box that opens sites, searches with your default engine, or asks Ensō; widgets you add and arrange. | [help](docs/help/sidebar-and-new-tab.md#the-new-tab) |
+| Widgets | Next up, Due soon, Tasks (from task apps such as Commonfold), Mail, Practice, GitHub, Clock, Recent chats, Quick links, Note, Ask. | [help](docs/help/widgets.md) |
+| Acting on pages | Read, click, type, select, press keys, scroll, navigate, go back, screenshot. What you ask for runs; steps Claude proposes and anything irreversible ask first. | [help](docs/help/sidebar-and-new-tab.md#when-ensō-asks-first) |
+| Tools | claude.ai connectors and Claude Code's MCP servers (subscription engine), MCP servers Ensō signs in to itself (OAuth), and built-in GitHub across all your orgs. | [help](docs/help/connecting-tools.md) |
+| Zen spaces | Conversations, memory, tab tools and notes per Zen space, detected from each space's container. | [help](docs/help/spaces-and-containers.md) |
+| Developer tools | Console, network log, JavaScript and storage keys of a tab; requests with your signed-in session on sites you allow; a separate headless Zen for testing. | [help](docs/help/session-access.md) |
+| Other agents | A local MCP server, `zen-browser`, that Claude Code, Codex, Cursor and others reach through the `enso mcp` launcher. 44 tools; a read-only scope. | [docs/mcp.md](docs/mcp.md) |
+| Memory and history | `profile.md` and `memory.md` you can edit, per-space memory, every conversation with its tool calls, a per-site activity log, reports with charts. | [data model](docs/data-model.md) |
+| Safety | Banking, payment, password-manager and health sites are never read or acted on; cookie values and tokens are never returned to Claude; every action is logged. | [security](docs/security.md) |
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://enso.wicker.life/screenshots/sidebar-tools-dark.webp">
+  <img src="https://enso.wicker.life/screenshots/sidebar-tools-light.webp" width="300" alt="The sidebar answering “What matters today?”: it searched Gmail and listed today’s events, then shows a table of the day and the mail that needs you.">
+</picture>
+
+## How it is built
+
+Two parts, installed together:
+
+- **The extension** (`extension/`, id `enso@wicker.life`, Manifest V2 for
+  Firefox/Zen) is the interface: one app (`ui/`) shown in the sidebar, the new
+  tab, a full page and report tabs. `background.js` connects to the helper and
+  carries out page and browser actions; `pageagent.js` is injected into a tab
+  to read it and act on it.
+- **The helper** (`helper/`, Node.js 18+) is a native-messaging host (`enso`)
+  that Zen starts when the extension connects. It owns all state, runs each
+  chat turn on the subscription engine (Claude Agent SDK on your `claude` CLI)
+  or the API engine (Messages API), signs in to MCP servers, and serves the
+  `zen-browser` MCP server on `127.0.0.1:47823`.
+
+```mermaid
+flowchart LR
+  UI["Extension UI<br/>sidebar · new tab · full page"] <-->|runtime port| BG[background.js]
+  BG <-->|native messaging| H[helper host.mjs]
+  BG -->|actions| PA[pageagent.js in the tab]
+  H -->|Agent SDK| CC[claude CLI] --> A[(Anthropic)]
+  H -->|API key| A
+  H <-->|MCP| T[(Your tools)]
+  X[Claude Code · Codex · Cursor] -->|stdio| L[enso mcp] -->|HTTP 127.0.0.1:47823| H
+```
+
+Details: [docs/architecture.md](docs/architecture.md).
+
+## Repository layout
 
 | Path | What it is |
 |---|---|
-| `extension/` | The Zen/Firefox extension (id `enso@wicker.life`): `background.js`, the page agent, and the UI in `ui/` (one app in the sidebar, new tab and a full page). |
-| `helper/` | The local helper Zen starts through native messaging (host name `enso`): conversations, memory, the dashboard, the Claude engines, MCP servers and the local `zen-browser` MCP server. |
-| `docs/PROTOCOL.md` | The message contract between the UI, `background.js` and the helper. |
-| `scripts/install.sh` | The installer above (also served at enso.wicker.life/install.sh). |
-| `scripts/dev.sh` | Run Ensō from a checkout. |
-| `scripts/pack-helper.sh` | Builds the helper tarball for a release. |
-| `.github/workflows/` | `ci.yml` (checks on every push and PR) and `release.yml` (signs and publishes on a `v*` tag). |
-
-## Where your data lives
-
-`~/Library/Application Support/Enso/`:
-
-| File | |
-|---|---|
-| `profile.md` | Who you are (`# Name`, then a few lines). Written by onboarding, editable in Settings. |
-| `memory.md`, `memory/<space>.md` | What Ensō has learned, everywhere and per Zen space. |
-| `settings.json` | Your settings (engine, model, space notes, tool toggles, …). |
-| `config.local.json` | Your personal overlay on the shipped [`helper/config.json`](helper/config.json); see below. |
-| `conversations/`, `actions.jsonl`, `reports/`, `dashboard.json` | History, the page-action log, reports, the last briefing. |
-| `mcp-token`, `mcp-token-read` | Bearer tokens (0600) for the local `zen-browser` MCP server (`http://127.0.0.1:47823/mcp`): full access, and read-only tools only. `enso mcp` reads them itself. |
-| `bin/enso` | The `enso` command (`enso mcp`, the stdio launcher MCP clients start). |
-| `mcp-tools-cache*.json` | The last tool list `enso mcp` saw, so clients see the tools while Zen is closed. |
-| `helper/` | The installed helper (replaced on update). |
-
-Secrets live in the macOS Keychain: `enso-anthropic` (API key, optional),
-`enso-github` (GitHub token when you don't use `gh`), `enso-mcp-<server>` (MCP sign-ins).
-
-Upgrading from the pre-release "Zen Chat" builds: on first start the helper
-copies `~/Library/Application Support/zen-chat/` into the new folder (once, when
-the new folder has no conversations yet; the old folder is left as it is), and
-reads the old Keychain item `zen-chat-anthropic` when `enso-anthropic` is missing.
-The MCP token is copied too, so an existing `zen-browser` registration in Claude
-Code keeps working (`enso mcp install` moves it to the launcher).
-
-### Using Zen from Claude Code, Codex and Cursor
-
-The helper serves a local MCP server, `zen-browser`, while Zen is open. Register
-it with your MCP clients through the `enso` launcher: clients start
-`enso mcp` (stdio), which reads the token from the data folder itself and
-forwards to the helper, so no token sits in any client config.
-
-```sh
-enso mcp install                    # Claude Code, Codex and Cursor (the ones installed)
-enso mcp install --client codex     # just one: claude | codex | cursor | all
-enso mcp install --read-only        # read-only tools only (tabs, page text, screenshots, devtools, history, GitHub reads)
-enso mcp status                     # is Zen's helper reachable, and which clients are registered
-enso mcp uninstall [--client …]
-enso mcp rotate                     # new tokens; launcher clients keep working
-```
-
-`install` replaces an older registration (http with the token in a header):
-`claude mcp remove/add --scope user` for Claude Code, `[mcp_servers.zen-browser]`
-in `~/.codex/config.toml` (only that table changes; the rest of the file is kept
-byte for byte), `mcpServers.zen-browser` in `~/.cursor/mcp.json`. Config files
-are backed up next to themselves (`*.enso-backup-<time>`, 0600) first, and only
-what changed is printed, never values. While Zen is closed the launcher still
-starts: it lists the tools it saw last and answers calls with "Zen isn't
-running: open Zen and try again".
-
-Ensō shows which client is acting: the activity log records it (`source`:
-"Claude Code", "Codex", "Cursor", …, from the client's MCP `clientInfo`), and
-the page ribbon says "Codex is working on this page". `enso mcp --client "T3 Code"`
-(or `ENSO_MCP_CLIENT`) sets the label when a tool runs one client inside another.
-The http endpoint with `Authorization: Bearer <mcp-token>` keeps working for
-existing registrations; after `enso mcp rotate` those need `enso mcp install`.
-
-### `config.local.json`
-
-Personal configuration that shouldn't live in the shipped defaults. Every key is optional:
-
-```json
-{
-  "servers": { "claude.ai Gmail": { "enabled": false }, "my-notes": { "enabled": true } },
-  "extraServers": { "my-notes": { "type": "http", "url": "https://notes.example.com/mcp", "tokenKeychainService": "enso-notes-token" } },
-  "oauthServers": { "fieldnotes": { "url": "https://fieldnotes.example.com/mcp", "label": "Fieldnotes" } },
-  "catalog": { "my-notes": { "label": "Notes", "about": "My notes app.", "examples": ["What did I write about the launch?"] } },
-  "spaceHints": { "Work": "My job at Northwind: Figma, Linear. Use my work accounts." },
-  "sensitiveHosts": ["*.mybank.example"],
-  "claudePath": "/opt/custom/bin/claude"
-}
-```
-
-`servers`, `extraServers`, `oauthServers`, `catalog` and `spaceHints` merge by
-name over the defaults; `sensitiveHosts` are added to the built-in list (sites
-Ensō never reads or acts on). Restart the helper (quit and reopen Zen) after
-editing. Space notes written in Settings → Profile take precedence over `spaceHints`.
-
-## Engines
-
-- **Claude subscription** (default): runs through the Claude Agent SDK on your
-  installed `claude` CLI, so it uses your plan and brings your claude.ai
-  connectors and Claude Code MCP servers. The helper doesn't ship its own Claude
-  Code binary; it looks for `claude` on your PATH, in `~/.local/bin`,
-  `~/.claude/local` and Homebrew, or at the path in Settings → Engine
-  (`claudePath`). Without it, Ensō says so and the API-key engine still works.
-- **API key**: `security add-generic-password -s enso-anthropic -a "$USER" -w`,
-  then choose **API key** in Settings.
+| `extension/` | The extension: `manifest.json`, `background.js`, `pageagent.js`, the HTML entry points (`sidebar.html`, `newtab.html`, `full.html`, `report.html`, `app.html`) and the UI in `ui/` (`ui/mock.js` is an in-page mock helper for working on the UI without Zen). |
+| `helper/` | The helper: `host.mjs` (message handling), `lib/` (engines, tools, MCP server, connections, storage), `bin/enso.mjs` (the `enso` command), `config.json` (shipped defaults), `test/`. |
+| `docs/` | Developer documentation, user help (`docs/help/`), decision records and plans. Start at [docs/README.md](docs/README.md). |
+| `scripts/install.sh` | The release installer (also served at `enso.wicker.life/install.sh`). |
+| `scripts/dev.sh` | Run Ensō from this checkout. |
+| `scripts/pack-helper.sh` | Build the helper tarball for a release. |
+| `.github/workflows/` | `ci.yml` (checks on pushes to `main` and on pull requests) and `release.yml` (signs and publishes on a `v*` tag). |
 
 ## Development
 
 ```sh
-scripts/dev.sh --open    # helper deps, enso.json manifests pointing at this checkout, unsigned build/enso-dev.xpi, open in Zen
+scripts/dev.sh --open            # helper deps, manifests pointing at this checkout, unsigned build/enso-dev.xpi, open in Zen
+cd helper && npm test            # offline tests
+python3 -m http.server -d extension 8000   # UI on a mock helper: http://127.0.0.1:8000/full.html
 ```
 
-Zen installs unsigned extensions only with signature checks off:
-`about:config` → `xpinstall.signatures.required` = `false` (or
-`user_pref("xpinstall.signatures.required", false);` in the profile's `user.js`).
-Release builds are signed and don't need this. After changing `extension/`, bump
-`version` in `extension/manifest.json` and run `scripts/dev.sh --open` again;
-after changing `helper/`, quit and reopen Zen. `scripts/dev.sh` also writes
-`~/Library/Application Support/Enso/bin/enso` pointing at this checkout, and
-`scripts/dev.sh --mcp` registers the `zen-browser` MCP server with Claude Code
-through it if it isn't yet.
+Unsigned builds need `xpinstall.signatures.required = false` in `about:config`.
+Everything else, including debugging the helper and Marionette: [docs/development.md](docs/development.md).
+Releases: [docs/releasing.md](docs/releasing.md).
 
-UI without Zen: serve `extension/` (`python3 -m http.server -d extension 8000`)
-and open `http://127.0.0.1:8000/full.html`, `sidebar.html` or `newtab.html`. Outside the
-extension the UI talks to an in-page mock host (`extension/ui/mock.js`) with a
-fictional user; add `?onboarding=1` for the first-run card.
+## Documentation
 
-Tests (offline; `connections` and `host-connect` store and delete test items in
-the login Keychain, skip them with `ENSO_SKIP_KEYCHAIN=1`):
-
-```sh
-cd helper && npm test
-ENSO_TEST_SDK=1 npm test   # also one real turn on your Claude plan
-```
-
-Useful environment variables for the helper: `ENSO_DATA` (data folder),
-`ENSO_LEGACY_DATA` (old folder to migrate from), `ENSO_MCP_PORT`,
-`ENSO_CLAUDE_PATH`. For `enso mcp`: `ENSO_MCP_CLIENT` (label override) and
-`CODEX_HOME` (where Codex's `config.toml` is).
-
-## Releasing
-
-Bump `version` in `extension/manifest.json` and `helper/package.json` (they must
-match), commit, then tag:
-
-```sh
-git tag -a v0.5.0 -m "Ensō 0.5.0" && git push origin v0.5.0
-```
-
-`release.yml` checks, signs the extension on addons.mozilla.org (unlisted, with
-`update_url` = `https://enso.wicker.life/updates.json`), builds the helper
-tarball and publishes both to enso.wicker.life and a GitHub release. The site's
-`EXTENSION_IDS` must include `enso@wicker.life`.
+| Page | What it covers |
+|---|---|
+| [docs/README.md](docs/README.md) | Index of everything below. |
+| [Architecture](docs/architecture.md) | The extension's pages, background.js, the page agent, native messaging, the helper's modules, data flow. |
+| [Data model](docs/data-model.md) | Every file in the data folder, Keychain items, extension storage, the Zen Chat migration. |
+| [Security](docs/security.md) | Threat model, approvals, session access, private sites, the MCP server's defences, secrets, OAuth. |
+| [Privacy](docs/privacy.md) | What stays on your Mac and what leaves it, matched to the site's privacy policy. |
+| [MCP](docs/mcp.md) | Using Zen from Claude Code, Codex, Cursor and others; the tool reference. |
+| [Development](docs/development.md) | Setup, tests, mock UI, debugging. |
+| [Releasing](docs/releasing.md) | Versions, tags, signing, the update feed. |
+| [Protocol](docs/PROTOCOL.md) | The message contract between the UI, background.js and the helper. |
+| [User help](docs/help/) | Guides for people using Ensō. |
+| [CHANGELOG.md](CHANGELOG.md) | What changed in each release. |
