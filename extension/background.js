@@ -172,9 +172,31 @@ browser.runtime.onMessage.addListener((msg, sender) => {
   if (msg?.ensoConsole && sender.tab?.id != null && Array.isArray(msg.entries)) pushConsole(sender.tab.id, msg.entries.slice(0, 300));
 });
 
+// Console capture starts by itself on development sites (localhost, LAN
+// addresses, .local/.test/.localhost) and on sites the user turned it on for
+// ("Always on <site>" in the screenshot sheet); elsewhere when asked.
+const DEV_HOST = /^(localhost|127\.\d+\.\d+\.\d+|0\.0\.0\.0|\[::1\]|10\.\d+\.\d+\.\d+|192\.168\.\d+\.\d+|172\.(1[6-9]|2\d|3[01])\.\d+\.\d+|[^/]+\.(localhost|local|test))$/i;
+let consoleHosts = new Set();
+browser.storage.local.get("consoleHosts").then(r => { consoleHosts = new Set(r.consoleHosts ?? []); }).catch(() => {});
+const hostOfUrl = u => { try { return new URL(u).hostname; } catch { return ""; } };
+const autoConsole = url => { const h = hostOfUrl(url); return !!h && (DEV_HOST.test(h) || consoleHosts.has(h)); };
+
+async function startConsole(tabId, url) {
+  if (!consoleTabs.has(tabId)) consoleTabs.set(tabId, { entries: [], dropped: 0 });
+  pushConsole(tabId, [{ t: Date.now(), level: "nav", text: url }]);
+  try {
+    await browser.tabs.executeScript(tabId, { file: "/pageagent.js", runAt: "document_start" });
+    await browser.tabs.sendMessage(tabId, { enso: true, action: "console_start", args: {} });
+  } catch {}
+}
+
 // Re-arm console capture as early as possible after a captured tab navigates.
 browser.webNavigation.onCommitted.addListener(async ({ tabId, frameId, url }) => {
-  if (frameId !== 0 || !consoleTabs.has(tabId)) return;
+  if (frameId !== 0) return;
+  if (!consoleTabs.has(tabId)) {
+    if (isWeb(url) && !isSensitive(url) && autoConsole(url)) await startConsole(tabId, url);
+    return;
+  }
   pushConsole(tabId, [{ t: Date.now(), level: "nav", text: isSensitive(url) ? "(a private site: not captured)" : url }]);
   if (!isWeb(url) || isSensitive(url)) return;
   try {
@@ -533,6 +555,7 @@ browser.runtime.onMessage.addListener((msg, sender) => {
 
 const MAX_SHOT_SIDE = 16_384; // px of the captured image
 const MAX_SHOT_PIXELS = 36_000_000;
+let capturingTab = null; // tab showing the region overlay; Ensō's pages forward Enter/F/Esc to it
 let pendingCapture = null; // a capture made while no Ensō page was open (the shortcut opens the sidebar)
 
 function consoleErrorsOf(tabId) {
@@ -549,7 +572,15 @@ async function captureScreenshot(mode = "region") {
   let rect = null;
   let scale = 1;
   if (mode === "region") {
-    const sel = await agent(tab.id, "region_select", {});
+    capturingTab = tab.id;
+    broadcast({ type: "capture.active", on: true });
+    let sel;
+    try {
+      sel = await agent(tab.id, "region_select", {});
+    } finally {
+      capturingTab = null;
+      broadcast({ type: "capture.active", on: false });
+    }
     if (sel?.cancelled) return { cancelled: true };
     mode = sel?.mode ?? "visible";
     if (mode === "region") rect = sel.rect;
@@ -698,6 +729,20 @@ browser.runtime.onConnect.addListener(port => {
       return;
     }
     if (msg.type === "page.current") return pushCurrentPage(port);
+    if (msg.type === "console.start") {
+      const tab = await browser.tabs.get(Number(msg.tabId)).catch(() => null);
+      if (!tab || !isWeb(tab.url) || isSensitive(tab.url)) return;
+      if (msg.always) {
+        const h = hostOfUrl(tab.url);
+        if (h) { consoleHosts.add(h); browser.storage.local.set({ consoleHosts: [...consoleHosts] }).catch(() => {}); }
+      }
+      await startConsole(tab.id, tab.url);
+      return;
+    }
+    if (msg.type === "capture.key") {
+      if (capturingTab != null) agent(capturingTab, "region_key", { key: msg.key }).catch(() => {});
+      return;
+    }
     if (msg.type === "agents.switch") {
       // Agents list: go to the tab an agent works in (in whatever space it is).
       const t = await browser.tabs.get(Number(msg.tabId)).catch(() => null);

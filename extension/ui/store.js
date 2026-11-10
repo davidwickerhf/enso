@@ -316,6 +316,10 @@ export function createStore() {
         if (s.actions.results && (!f?.host || f.host === a.host)) { s.actions.results = [a, ...s.actions.results.filter(x => x.id !== a.id)]; emit("actions"); }
         return;
       }
+      case "capture.active":
+        s.capturing = !!msg.on;
+        emit("shot");
+        return;
       case "screenshot.captured": {
         if (msg.cancelled) { s.shot = null; emit("shot"); return; }
         if (msg.error) { s.shot = null; showToast(msg.error, "bad"); emit("shot"); return; }
@@ -731,6 +735,8 @@ export function createStore() {
     // Screenshots to agents (views/send.js). capture() asks background.js; the mock fakes it.
     captureScreenshot(mode = "region") { s.shot = { capturing: true, mode }; emit("shot"); send({ type: "screenshot.capture", mode }); },
     closeShot() { s.shot = null; emit("shot"); },
+    captureKey(key) { send({ type: "capture.key", key }); },
+    startConsole(tabId, always) { send({ type: "console.start", tabId, always: !!always }); if (s.shot) { s.shot.consoleErrors = []; emit("shot"); } },
     patchShot(patch) { if (!s.shot) return; Object.assign(s.shot, patch); emit("shot"); },
     sendShot() {
       const sh = s.shot;

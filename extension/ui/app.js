@@ -334,3 +334,13 @@ requestAnimationFrame(() => {
     for (const a of document.getAnimations()) try { a.finish(); } catch { /* infinite: leave it */ }
   }));
 });
+
+// While the screenshot overlay is up in the page, keyboard focus is often still
+// here (the shortcut opens the sidebar). Hand Enter / F / Esc on to the page.
+window.addEventListener("keydown", e => {
+  if (!store?.state?.capturing) return;
+  if (!["Enter", "Escape", "f", "F"].includes(e.key) || e.metaKey || e.ctrlKey || e.altKey) return;
+  e.preventDefault();
+  e.stopPropagation();
+  store.actions.captureKey(e.key);
+}, true);
