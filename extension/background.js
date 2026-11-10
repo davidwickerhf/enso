@@ -123,6 +123,7 @@ async function ensureAgent(tabId) {
 
 // `who`: the external agent acting (e.g. "Codex"), shown on the page ribbon; Ensō's own turns leave it unset ("Claude").
 async function agent(tabId, action, args, who) {
+  if (action === "eval" && !PAGE_EVAL) throw new Error(PAGE_EVAL_UNAVAILABLE);
   const tab = await browser.tabs.get(tabId);
   if (!isWeb(tab.url)) throw new Error("This tab isn't a web page, so it can't be read or operated.");
   if (isSensitive(tab.url)) throw new Error("This is a private page (banking, health, tax or similar); page tools are off here.");
@@ -756,6 +757,14 @@ function broadcast(msg) {
 // ranMs }: the last time the port closed with or without a reason, kept after a
 // reconnect), `failures` (attempts in a row that failed or crashed soon after
 // starting) and `connectedAt`.
+// The build channel (channel.js): "listed" (addons.mozilla.org), "unlisted"
+// (self-distributed) or "dev". The listed build has no page_eval: its page
+// agent can't evaluate JavaScript (scripts/build-extension.mjs strips it).
+const CHANNEL = globalThis.ENSO_CHANNEL ?? "dev";
+const PAGE_EVAL = CHANNEL !== "listed";
+const PAGE_EVAL_UNAVAILABLE = "page_eval is not available in the Firefox Add-ons build of Ensō. Use page_read, devtools_console, devtools_network or page_storage instead.";
+const extensionHello = () => ({ type: "extension.hello", version: browser.runtime.getManifest().version, channel: CHANNEL, capabilities: { pageEval: PAGE_EVAL } });
+
 let helper = { state: "connecting", reason: null, at: Date.now(), lastError: null, failures: 0, connectedAt: null };
 let helperGotMessage = false;
 let helperRetryTimer = null;
@@ -861,6 +870,8 @@ function connectNative() {
     } else setHelper("failed", reason ?? "the helper exited as soon as it started", lastError);
     scheduleHelperRetry();
   });
+  // Which build this is, first: the helper hides page_eval when this build can't run it.
+  native.postMessage(extensionHello());
   // Space detection must work with no Ensō page open (e.g. Claude Code calling over MCP).
   native.postMessage({ type: "spaces.list" });
   return native;
@@ -1014,6 +1025,19 @@ function loaded(tabId, ms) {
     browser.tabs.get(tabId).then(t => { if (t?.status === "complete") finish(); }).catch(finish);
   });
 }
+
+// Search suggestions while typing in the new tab (ui/omnibox.js) are off for
+// new installs since 0.5.7. Installs updated from an earlier version had them
+// on, so they keep them: set once, only when the user never chose.
+browser.runtime.onInstalled.addListener(async ({ reason, previousVersion }) => {
+  if (reason !== "update" || !previousVersion) return;
+  const [a = 0, b = 0, c = 0] = previousVersion.split(".").map(Number);
+  if (a > 0 || b > 5 || (b === 5 && c >= 7)) return;
+  try {
+    const r = await browser.storage.local.get("searchSuggestions");
+    if (typeof r.searchSuggestions !== "boolean") await browser.storage.local.set({ searchSuggestions: true });
+  } catch {}
+});
 
 // Off by default: the swap opens a second tab and closes the first, which Zen
 // shows as an extra tab appearing and vanishing. Settings can turn it on

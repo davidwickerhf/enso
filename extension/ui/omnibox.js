@@ -90,10 +90,30 @@ export async function engineInfo() {
   return { name, suggest };
 }
 
-/** Search-engine suggestions; abortable. Network goes straight to the engine, never the host. */
+// "Search suggestions while typing" (Settings → General → New tab & Home):
+// browser.storage.local.searchSuggestions, off unless it is true. New installs
+// start without it (nothing is sent while typing); background.js sets it to
+// true once for installs updated from before 0.5.7, which had it on. The mock
+// uses localStorage.
+export const SEARCH_SUGGESTIONS = "searchSuggestions";
+const inExt = () => typeof globalThis.browser?.storage?.local?.get === "function";
+export async function readSearchSuggestions() {
+  try {
+    if (inExt()) return (await globalThis.browser.storage.local.get(SEARCH_SUGGESTIONS))[SEARCH_SUGGESTIONS] === true;
+    return localStorage.getItem(`enso.${SEARCH_SUGGESTIONS}`) === "true";
+  } catch { return false; }
+}
+export async function writeSearchSuggestions(on) {
+  try {
+    if (inExt()) await globalThis.browser.storage.local.set({ [SEARCH_SUGGESTIONS]: !!on });
+    else localStorage.setItem(`enso.${SEARCH_SUGGESTIONS}`, String(!!on));
+  } catch {}
+}
+
+/** Search-engine suggestions, only with the setting on; abortable. Network goes straight to the engine, never the host. */
 export async function engineSuggestions(text, engine, signal) {
+  if (!engine?.suggest || !text.trim() || !(await readSearchSuggestions())) return [];
   const api = await getBrowserApi();
-  if (!engine?.suggest || !text.trim()) return [];
   return api.suggestions(text.trim(), engine.suggest, signal).catch(() => []);
 }
 

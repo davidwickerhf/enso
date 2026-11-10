@@ -1551,3 +1551,12 @@ button.set-callout:hover { background: var(--accent-soft); }
 }
 .settings-view .set-row.stacked .setting-text { flex: none; }
 .settings-view.searching .set-attn-slot, .settings-view.searching .setup-summary, .settings-view.searching .set-foot { display: none; }
+
+/* Onboarding: the daily brief offer (off for new installs) */
+.ob-brief { display: flex; align-items: center; gap: 14px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 12px; background: var(--accent-softer); }
+.ob-brief.on { background: transparent; }
+.ob-brief-text { flex: 1; min-width: 0; }
+.ob-brief-text strong { font-size: 13.5px; }
+.ob-brief-text p { margin: 2px 0 0; color: var(--text-2); font-size: 12.5px; line-height: 1.45; }
+.ob-brief .btn { flex: none; }
+@media (max-width: 480px) { .ob-brief { flex-direction: column; align-items: stretch; } }

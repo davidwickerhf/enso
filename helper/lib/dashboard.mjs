@@ -42,15 +42,20 @@ Then a greeting (time of day, my first name if you know it), a one-line headline
 
 let running = null;
 
-/** Whether the brief should refresh by itself. Settings → General → Refresh the brief → "Off" (0) means never: only the refresh button makes one. */
+/**
+ * Whether the brief should refresh by itself. Settings → General → Refresh the
+ * brief → "Off" (0, the default for new installs since 0.5.7) means never: only
+ * the refresh button makes one. "Once a day" (1440) refreshes each morning.
+ */
 export function dashboardStale(settings) {
-  if ((settings.dashboard?.autoRefreshMinutes ?? 60) === 0) return false;
+  const every = settings.dashboard?.autoRefreshMinutes ?? 0;
+  if (!every) return false;
   const d = getDashboard();
   if (!d?.generatedAt) return true;
   const age = (Date.now() - Date.parse(d.generatedAt)) / 60000;
   const morning = new Date();
   morning.setHours(5, 0, 0, 0);
-  return age > (settings.dashboard?.autoRefreshMinutes ?? 60) || (Date.now() > morning.getTime() && Date.parse(d.generatedAt) < morning.getTime());
+  return age > every || (Date.now() > morning.getTime() && Date.parse(d.generatedAt) < morning.getTime());
 }
 
 /**

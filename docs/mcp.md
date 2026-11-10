@@ -262,7 +262,7 @@ unchanged.
 
 ## Tool reference
 
-49 tools, from the definitions in `helper/lib/pagetools.mjs`,
+51 tools, from the definitions in `helper/lib/pagetools.mjs`,
 `browsertools.mjs`, `devtools.mjs`, `headless.mjs` and `github.mjs`, plus the
 three session tools above from `mcpserver.mjs` (Ensō 0.5.3).
 **Kind** is the tool's `kind` in the code: `read` tools never ask in Ensō, `act`
@@ -277,6 +277,8 @@ tool also takes `tabId?` (from `tabs_list`; default: the active tab).
 | Tool | What it does | Kind | Read scope | Parameters |
 |---|---|---|---|---|
 | `page_read` | URL, title, visible text and a numbered list of interactive elements (the `ref`s other page tools use). Call it before acting and after the page changes. | read | yes | `tabId?` |
+| `page_query` | Elements matching a CSS selector: how many, and for each (up to `limit`, max 200) its tag, trimmed text (300 characters), the attributes you ask for (`href`, `src`, `value`, `alt`, `title`, `id`, `class`, `type`, `role`, `name`, `placeholder`, `aria-*`, `data-*`; relative URLs resolved), whether it is visible, and its rect. A fixed query: no code is evaluated. Password values are never returned; output is capped at 60k characters. Every build. | read | yes | `selector`, `attributes?`, `limit?`, `includeText?` (default true), `tabId?` |
+| `page_inspect` | One element, by `ref` or CSS selector (the first match): role and accessible name, rect, scroll size, visible / in view / covered (and by what), and a curated set of computed styles (display, visibility, position and offsets, size, margins, padding, font, color, background, z-index, overflow, opacity, flex/grid basics). A fixed query: no code is evaluated. Every build. | read | yes | `ref?` or `selector?`, `tabId?` |
 | `page_screenshot` | PNG of the visible part of the tab. | read | yes | `tabId?` |
 | `page_scroll` | Scroll up or down, or to an element. | read | yes | `direction?` (`up`, `down`), `ref?`, `tabId?` |
 | `page_click` | Click an element by `ref`. | act | no | `ref`, `tabId?`; `requested_by_user`, `irreversible` |
@@ -312,9 +314,27 @@ Off when Settings → Advanced → Developer tools is off. Refused on private si
 |---|---|---|---|---|
 | `devtools_console` | Console messages and uncaught errors of a tab, with time and source. Capture starts on the first call for a tab and survives reloads; pass the previous `now` as `since` for new entries. | read | yes | `tabId?`, `since?`, `level?` (`all`, `error`, `warn`, `info`, `log`, `debug`), `limit?` (≤ 500) |
 | `devtools_network` | Requests made by a tab (last 500): method, URL, status, type, timing, sizes, initiator. Secret header values redacted; bodies never captured. | read | yes | `tabId?`, `filter?` (substring or `/regex/`), `type?`, `failedOnly?`, `since?`, `includeHeaders?`, `limit?` |
-| `page_eval` | Run JavaScript in the page's own world and return a JSON-safe result. A returned promise is awaited for up to `timeoutMs` (default 30 s, max 120 s; `awaitPromise: false` returns at once); on a timeout the code keeps running and the result says so. Logged. `document.cookie` is refused. | act | no | `tabId?`, `expression` (up to 8 MB), `awaitPromise?`, `timeoutMs?`; `requested_by_user`, `irreversible?` |
+| `page_eval` | Run JavaScript in the page's own world and return a JSON-safe result. A returned promise is awaited for up to `timeoutMs` (default 30 s, max 120 s; `awaitPromise: false` returns at once); on a timeout the code keeps running and the result says so. Logged. `document.cookie` is refused. **Direct download and development builds only** (see [page_eval and the two builds](#page_eval-and-the-two-builds)). | act | no | `tabId?`, `expression` (up to 8 MB), `awaitPromise?`, `timeoutMs?`; `requested_by_user`, `irreversible?` |
 | `page_storage` | localStorage and sessionStorage keys with value lengths, cookie names and flags (never values). `includeValues` adds storage values (credential-looking ones redacted) and counts as an action. | read | yes | `tabId?`, `includeValues?`; `requested_by_user?` |
 | `session_fetch` | An HTTP request made inside a tab of the site, with your signed-in session and the right container. Body capped at 100k characters. Needs the site in Session access; MCP callers also need Full, and non-GET methods need `requested_by_user`. | act | no | `url`, `method?`, `headers?`, `body?`, `timeoutMs?` (default 75 s, max 120 s); `requested_by_user` |
+
+### page_eval and the two builds
+
+Ensō comes in two builds (the extension reports which one in `extension.hello`, [PROTOCOL.md](PROTOCOL.md)):
+
+| Build | Where from | `page_eval` |
+|---|---|---|
+| **Firefox Add-ons build** (`listed`) | addons.mozilla.org | Not included. addons.mozilla.org doesn't allow an add-on to run code that isn't in its package, so `scripts/build-extension.mjs` removes it from this build. |
+| **Direct download build** (`unlisted`, four-part versions such as 0.5.7.1) | enso.wicker.life | Included. |
+| **Development build** (`dev`) | the `extension/` folder, loaded by hand | Included. |
+
+With the Firefox Add-ons build connected, the server leaves `page_eval` out of
+`tools/list`, its instructions and the `session_start` reply say it isn't
+available, and a call returns "page_eval is not available in the Firefox
+Add-ons build of Ensō…". `page_query`, `page_inspect`, `page_read` and the
+`devtools_*` tools answer most of the same questions without running code.
+Ensō's own chat follows the same rule. Until an extension has said which build
+it is (an older one), `page_eval` stays listed.
 
 ### Headless Zen
 

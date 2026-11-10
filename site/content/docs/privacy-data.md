@@ -42,11 +42,11 @@ These are ordinary files in your home folder, readable by your user account, and
 
 **To Anthropic, when you send a message.** Your message, your profile and memory, the time and your Zen space with your note about it, the conversation so far, and whatever context you included: the current page's text, mentioned tabs, attachments, screenshots, and the results of tools Ensō used to answer. With the subscription engine this goes through Claude Code; with an API key, directly to the Anthropic API. Anthropic handles it under the terms you agreed with them.
 
-**To Anthropic, for the brief, without a message.** About once an hour while Ensō runs, and when it first connects in the morning, Ensō makes the Home brief: your profile and memory, plus what read-only tools return (calendar, mail, tasks, a GitHub summary), go to Anthropic through Claude Code. To stop it, set **Settings → Home → Refresh the briefing** to **Off**; the brief then only updates when you press its refresh button.
+**To Anthropic, for the brief.** The Home brief is off by default: it is made when you press its refresh button, or by itself once you turn it on (**Turn on the daily brief** during setup, or **Settings → General → Refresh the brief**). Each brief sends your profile and memory, plus what read-only tools return (calendar, mail, tasks, a GitHub summary), to Anthropic through Claude Code. **Off** stops every automatic refresh. Installs from before 0.5.7 keep the hourly refresh they had until they change it.
 
 **To the services you connected, when a tool runs.** A Gmail search goes to Google, a calendar event is created in your calendar, a GitHub comment goes to GitHub, and so on. Read-only tools run without asking; anything that changes something asks first. The Tasks and monday.com widgets ask those services for your open items every few minutes. Tools you connect with the Connect button sign in with OAuth, and the helper talks to them directly.
 
-**To your search engine, as you type in the new tab's search box.** Google or DuckDuckGo (whichever is your default) gets what you type, for suggestions, without cookies.
+**To your search engine, as you type in the new tab's search box, only if you turn it on.** With **Settings → General → Search suggestions while typing** on, Google or DuckDuckGo (whichever is your default) gets what you type, for suggestions, without cookies. It is off for new installs; installs from before 0.5.7 keep it on until they switch it off.
 
 **To the web, when Ensō searches or opens a page** on your behalf, like any browser request, and requests with your session on sites you [allowed](/docs/session-access).
 

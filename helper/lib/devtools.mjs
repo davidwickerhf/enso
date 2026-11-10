@@ -11,6 +11,7 @@
 import { z } from "zod";
 import { pageActionNeedsApproval } from "./pagetools.mjs";
 import { DEFAULT_TIMEOUTS, MAX_TIMEOUT_MS, clampTimeout } from "./timeouts.mjs";
+import { requirePageEval } from "./extinfo.mjs";
 import { SAFETY_NOTE, allowSessionAccess, isSensitiveHost, parseSite, redactHeaders, redactUrl, requireDevTools, sessionAccessFor } from "./safety.mjs";
 
 const text = t => ({ content: [{ type: "text", text: t }] });
@@ -86,6 +87,7 @@ export const DEV_TOOLS = [
     },
     kind: "act",
     async run(args, ctx) {
+      requirePageEval(); // not in the Firefox Add-ons build (lib/extinfo.mjs)
       requireDevTools();
       if (/document\s*\.\s*cookie|cookieStore/.test(args.expression)) throw new Error("Reading cookies is not allowed; use page_storage for cookie names and flags.");
       const timeoutMs = clampTimeout(args.timeoutMs) ?? DEFAULT_TIMEOUTS.eval;

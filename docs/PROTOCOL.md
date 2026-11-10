@@ -44,6 +44,7 @@ All messages are objects with a `type`. Times are ISO strings. Ids are strings.
 | `memory.get` | `spaceId?` (omit for global memory) | `memory` |
 | `memory.set` | `text`, `spaceId?` | `memory` |
 | `spaces.list` | | `spaces` |
+| `extension.hello` | `version`, `channel` (`"listed"` \| `"unlisted"` \| `"dev"`), `capabilities: { pageEval }` | none. Sent by background.js itself each time it connects, before anything else (since 0.5.7). `channel` comes from `extension/channel.js`, written by `scripts/build-extension.mjs`: `listed` is the addons.mozilla.org build, which has no `eval` page action, so the helper (`lib/extinfo.mjs`) hides `page_eval` from Ensō's chat and from MCP `tools/list`, and refuses a call with "not available in the Firefox Add-ons build". Before any `extension.hello` (an older extension), `page_eval` stays available. |
 | `tools.toggle` | `name`, `enabled` (bool) | `settings` + `servers` |
 | `connections.status` | | `connections` + `servers` |
 | `connections.start` | `server` (name of an OAuth server) | `connections` (`state: "connecting"`, opens the sign-in page in a new tab), later `connections` with `done` |
@@ -327,7 +328,8 @@ starts a fresh warm session. A Claude Code registration of the same name
   includePageByDefault: true,
   autoApproveReadOnly: true,
   alwaysAllowedTools: ["mcp__notes__search_notes", ...],
-  dashboard: { autoRefreshMinutes: 60 },
+  dashboard: { autoRefreshMinutes: 0 },        // 0 = only the refresh button (default for new installs since 0.5.7); 1440 = once a day
+  settingsEpoch: 1,                            // written once by store.pinPreviousDefaults: existing installs keep autoRefreshMinutes 60
   externalControl: "full" | "read" | "off",   // what MCP clients (zen-browser) may do; a read-scope token caps it at "read"
   agentTitlePrefix: true,                      // "✦ " in front of the page title while an external agent works on the tab
   developerTools: true,                        // console/network/eval/storage/session tools (default on)
@@ -560,7 +562,9 @@ whole session.
 | `upload` | `uploadId`, `sha256` (one hex digest per file), `files` (labels for the approval), `ref?` or `selector?`, `mode?` (`input`, `drop`), `timeoutMs?` | `{ mode, description, received: [{ name, size, type, lastModified }], url, title }`, plus `accept`, `notAccepted`, `multiple` (input) or `handled`, `overAccepted` (drop: whether the page called `preventDefault`). background.js takes the files staged by `upload_begin`/`upload_chunk`, checks each file's size and SHA-256, and sends them to the page agent as `upload_part` messages (raw bytes, up to 8 MB each), then `upload`. |
 | `screenshot` | | `{ dataUrl }` (PNG) |
 | `console` | `since?` (ms), `level?`, `limit?` | `{ tabId, url, now, started, dropped, entries: [{ t, level, text, source?, stack? }] }`; the first call for a tab starts capture (`started: true`); `level: "nav"` entries mark navigations |
-| `eval` | `expression`, `awaitPromise?` (default true), `timeoutMs?` (default 30 s, max 120 s) | `{ ok, world: "page", type?, json?, error?, stack?, timedOut?, waitedMs?, url, title, description }` (page world only; a page whose CSP blocks eval returns an error, since 0.5.5). `timedOut`: a returned promise didn't settle in time; the code keeps running in the page. |
+| `query` | `selector`, `attributes?` (allowed: `href`, `src`, `value`, `alt`, `title`, `id`, `class`, `type`, `role`, `name`, `placeholder`, `aria-*`, `data-*` and a few more), `limit?` (≤ 200), `includeText?` | `{ url, title, description, selector, total, count, truncated, refusedAttributes, elements: [{ tag, text?, attributes?, visible, rect }] }`. A fixed query (`querySelectorAll`), no code evaluated; URL attributes resolved; password values never returned; ≤ 60k characters. Every build (since 0.5.7). |
+| `inspect` | `ref?` or `selector?` | `{ url, title, description, tag, role, name, matched?, rect, scroll, viewport, visible, inView, covered, coveredBy, styles }`. A curated set of computed styles. Every build (since 0.5.7). |
+| `eval` | `expression`, `awaitPromise?` (default true), `timeoutMs?` (default 30 s, max 120 s) | `{ ok, world: "page", type?, json?, error?, stack?, timedOut?, waitedMs?, url, title, description }` (page world only; a page whose CSP blocks eval returns an error, since 0.5.5). `timedOut`: a returned promise didn't settle in time; the code keeps running in the page. **Not in the listed (addons.mozilla.org) build**: the page agent answers "Unknown page action eval", and background.js refuses it first. |
 | `presence` | `{ label, task, running, paused, stopped, titlePrefix }`, or `{ off: true }` | `{ shown, title }`. Sent by background.js itself (not the host) from `agents`: shows or updates the session pill and the "✦ " title prefix, or removes both (the page's latest own title restored exactly). |
 | `pill_ready` / `pill_hint` | — / `{ text }` | background.js → page agent: the pill's frame loaded (clicks go to it now) / a short hint on the pill ("Press ⌘E for Ensō", or Ctrl+E off macOS) |
 | `ping` / `probe` | — / `{ for, value, visible? }` | background.js → page agent: is it injected (cheap, unlike `text`) / one check for `wait`: `{ met, detail }` |
@@ -615,7 +619,7 @@ the zen-browser MCP server get the same set:
 |---|---|---|
 | `devtools_console` | console + uncaught errors of a tab, from first use | read |
 | `devtools_network` | the tab's requests (redacted) | read |
-| `page_eval` | JS in the page world, JSON-safe result | action: asks unless requested by the user; logged |
+| `page_eval` | JS in the page world, JSON-safe result. Not with the listed build (`extension.hello`) | action: asks unless requested by the user; logged |
 | `page_storage` | storage keys, cookie names/flags; `includeValues` = action | read / action |
 | `session_fetch` | request with the user's session in a tab of that site | `sessionAccess` allow, else asks (Ensō) / refused (MCP); non-GET also needs `requested_by_user` |
 | `headless_start` | separate headless Zen (`-headless -no-remote`, temp profile, Marionette port from 2829), optional `sites` whose cookies (+ localStorage) are copied | copying a site needs `sessionAccess` allow or approval (Ensō) / allow + Full (MCP) |

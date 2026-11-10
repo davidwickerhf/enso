@@ -108,6 +108,22 @@ export async function latest(kind: ReleaseKind, platform?: Exclude<ReleasePlatfo
 	return fits[0] ?? null;
 }
 
+/**
+ * Self-distributed ("direct download") extension builds have four-part versions
+ * (0.5.7.1); three-part versions are the builds listed on addons.mozilla.org.
+ */
+export const isDirectBuild = (version: string) => /^\d+\.\d+\.\d+\.\d+$/.test(version);
+
+/**
+ * The newest direct-download extension (four-part version), which
+ * /releases/enso-latest.xpi serves: it includes page_eval and updates from
+ * this site. Before any four-part version was published, the newest of all.
+ */
+export async function latestDirect(): Promise<Release | null> {
+	const all = await listReleases('extension');
+	return all.find((r) => isDirectBuild(r.version)) ?? all[0] ?? null;
+}
+
 export type PublishResult =
 	| { ok: true; release: Release; unchanged: boolean }
 	| { ok: false; status: number; error: string };

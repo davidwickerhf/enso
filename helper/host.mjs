@@ -13,6 +13,7 @@ import { log, logError, onMessage, send } from "./lib/native.mjs";
 import { helperLog, logFile, tailLines } from "./lib/logfile.mjs";
 import { pageActionNeedsApproval } from "./lib/pagetools.mjs";
 import { BrowserTimeoutError, requestBudget } from "./lib/timeouts.mjs";
+import { setExtensionInfo, unavailableTools } from "./lib/extinfo.mjs";
 import { turnContext } from "./lib/prompt.mjs";
 import { deleteSkill, expandSkill, listSkills, saveSkill } from "./lib/skills.mjs";
 import { convertAttachment } from "./lib/attachments.mjs";
@@ -44,6 +45,12 @@ const helperVersion = () => {
 };
 
 store.setDefaults(config.defaults);
+try {
+  const pin = store.pinPreviousDefaults(); // new defaults apply to new installs only
+  if (pin.pinned?.length) log(`kept the previous defaults for an existing install: ${pin.pinned.join(", ")}`);
+} catch (err) {
+  log("settings: couldn't check the defaults:", err.message);
+}
 if (configError) log(configError);
 
 // Zen starts us with a minimal environment; MCP servers and the claude CLI need these.
@@ -136,7 +143,8 @@ async function externalServers() {
 /** claude.ai connectors (and anything else) switched off in config.servers. */
 const disallowedTools = () => {
   const names = new Set([...Object.keys(config.servers), ...Object.keys(store.getSettings().serverOverrides ?? {}), ...serverStatus.map(s => s.name)]);
-  return [...names].filter(n => !serverEnabled(n)).map(toolPrefix);
+  // Tools the connected extension can't run (page_eval in the Firefox Add-ons build).
+  return [...[...names].filter(n => !serverEnabled(n)).map(toolPrefix), ...unavailableTools().map(t => `mcp__browser__${t}`)];
 };
 
 // Last known server status, so the UI can show "Your tools" before the first chat.
@@ -650,6 +658,10 @@ async function handle(msg) {
       refreshGithub();
       break;
     }
+    case "extension.hello":
+      // background.js, on every connect: version, build channel, capabilities (lib/extinfo.mjs).
+      log(`extension ${String(msg.version ?? "?").slice(0, 40)} (${setExtensionInfo(msg).channel} build)`);
+      break;
     case "helper.log": {
       // Copy diagnostics in the extension: versions and the log's last lines (redacted; no message contents are logged).
       const n = Math.min(200, Math.max(1, Number(msg.lines) || 40));
@@ -696,6 +708,7 @@ async function handle(msg) {
       send({ type: "settings", settings });
       if ("claudePath" in (msg.patch ?? {})) send({ type: "engines", engines: await enginesState() });
       if (settings.engine === "api") connectMcp(await externalServers(), setServers);
+      if (msg.patch?.dashboard?.autoRefreshMinutes) dashboard(false); // just turned on (onboarding, Settings): a first brief if there is none
       break;
     }
     case "profile.save": {

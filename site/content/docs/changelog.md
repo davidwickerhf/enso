@@ -9,6 +9,12 @@ group: Reference
 
 The extension and the helper share one version number. The extension updates itself; run the [installer](/docs/install) again to update the helper.
 
+## 0.5.7 — 10 November 2026
+
+- **Two builds.** The **Firefox Add-ons build** from addons.mozilla.org (recommended) and the **direct download build** from this site, which also has `page_eval` for agents that debug your pages with JavaScript. **Settings → Setup** says which one you have. See [Install → Two builds](/docs/install#two-builds).
+- **Find elements and inspect them**, without running code: `page_query` and `page_inspect` for Claude and your [agents](/docs/other-agents), in both builds.
+- **Nothing is sent automatically on new installs.** The Home brief only runs when you press refresh, or once a day after **Turn on the daily brief**; new-tab search suggestions are off until you turn on **Search suggestions while typing**. Existing installs keep their settings.
+
 ## 0.5.5 — 10 November 2026
 
 - **On Firefox Add-ons.** Ensō is now a listed add-on on addons.mozilla.org, and updates come from there. Copies installed from this site move over with this update.

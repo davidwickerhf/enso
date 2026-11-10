@@ -6,9 +6,14 @@
 //
 // Developer tools: console capture in the page's own JS world (through
 // window.wrappedJSObject + exportFunction, so page CSP doesn't matter),
-// page-world eval, storage keys, and session requests with content.fetch
-// (a request made as the page, with its cookies). Credential-looking values
-// (JWTs, bearer tokens, secret-named keys) are redacted before they leave.
+// storage keys, session requests with content.fetch (a request made as the
+// page, with its cookies), and in self-distributed and dev builds only,
+// page_eval in the page's world. Credential-looking values (JWTs, bearer
+// tokens, secret-named keys) are redacted before they leave.
+//
+// Code between the "unlisted-only" marker comments exists only for page_eval.
+// scripts/build-extension.mjs removes it from the build listed on
+// addons.mozilla.org, which doesn't evaluate JavaScript at all.
 
 (() => {
   if (window.__ensoAgent) return;
@@ -677,9 +682,13 @@
       consoleBuf = [];
       return { entries, capturing: consoleOn };
     },
+    // <unlisted-only>
     eval: evaluate,
+    // </unlisted-only>
     storage,
     fetch: sessionFetch,
+    query,
+    inspect,
   };
 
   // ---------- developer tools ----------
@@ -729,12 +738,14 @@
       return `[unserialisable: ${err.message}]`;
     }
   }
+  // <unlisted-only>
   const typeOf = v => {
     if (v === null) return "null";
     if (Array.isArray(v)) return "array";
     if (typeof v !== "object") return typeof v;
     try { return Object.prototype.toString.call(v.wrappedJSObject ?? v).slice(8, -1); } catch { return "object"; }
   };
+  // </unlisted-only>
 
   // Console capture: buffered here, pushed to background.js in small batches.
   let consoleOn = false;
@@ -795,6 +806,7 @@
     return { started: true };
   }
 
+  // <unlisted-only>
   const MAX_JSON = 20_000;
   async function evaluate({ expression, awaitPromise = true, timeoutMs = 30_000 }) {
     showRibbon();
@@ -832,6 +844,7 @@
     if (json.length > MAX_JSON) json = `${json.slice(0, MAX_JSON)}\n[result cut at ${MAX_JSON} characters]`;
     return { ...base, ok: true, world, type: typeOf(value), json };
   }
+  // </unlisted-only>
 
   function storage({ includeValues }) {
     const read = which => {
@@ -853,6 +866,131 @@
     const local = read("local");
     const session = read("session");
     return { url: location.href, title: document.title, description: includeValues ? "storage values" : "storage keys", local: local.items, localError: local.error, session: session.items, sessionError: session.error };
+  }
+
+  // ---------- fixed queries (page_query, page_inspect) ----------
+  // Read-only answers to fixed questions about elements: no code is evaluated,
+  // the selector only goes to querySelectorAll. Every build has them.
+
+  const URL_ATTRS = new Set(["href", "src", "action", "poster", "formaction", "cite", "data"]);
+  const QUERY_ATTR = /^(href|src|srcset|value|alt|title|name|id|class|type|role|placeholder|lang|dir|for|rel|target|action|method|poster|download|disabled|checked|selected|required|readonly|hidden|tabindex|contenteditable|aria-[\w-]+|data-[\w-]+)$/i;
+  const MAX_QUERY_JSON = 60_000;
+  const rectOf = el => {
+    const r = el.getBoundingClientRect();
+    return { x: Math.round(r.x), y: Math.round(r.y), width: Math.round(r.width), height: Math.round(r.height) };
+  };
+  const isPassword = el => el instanceof HTMLInputElement && el.type === "password";
+  const capText = (t, n) => {
+    const s = String(t ?? "").replace(/\s+/g, " ").trim();
+    return s.length > n ? `${s.slice(0, n)}…` : s;
+  };
+  function attrValue(el, name) {
+    const lower = name.toLowerCase();
+    if (lower === "value") {
+      if (isPassword(el)) return el.value ? "[redacted: password field]" : "";
+      if ("value" in el && typeof el.value === "string") return capText(el.value, 500);
+    }
+    if (lower === "checked" && "checked" in el) return String(!!el.checked);
+    if (lower === "selected" && "selected" in el) return String(!!el.selected);
+    const raw = el.getAttribute(name);
+    if (raw == null) return null;
+    let v = raw;
+    if (URL_ATTRS.has(lower)) {
+      try { v = new URL(raw, document.baseURI).href; } catch {}
+    }
+    v = capText(v, 500);
+    return (SECRET_NAME.test(lower) && v.length > 6) || looksSecret(v) ? REDACTED : v;
+  }
+  function accessibleName(el) {
+    if (isPassword(el)) {
+      return clean(el.getAttribute("aria-label") || el.labels?.[0]?.innerText || el.getAttribute("placeholder") || el.getAttribute("name") || "");
+    }
+    return nameOf(el);
+  }
+  function selectAll(selector) {
+    const sel = String(selector ?? "").trim();
+    if (!sel) throw new Error("Give a CSS selector.");
+    try {
+      return [...document.querySelectorAll(sel)];
+    } catch {
+      throw new Error(`Not a valid CSS selector: ${sel.slice(0, 200)}`);
+    }
+  }
+
+  function query({ selector, attributes, limit, includeText }) {
+    const all = selectAll(selector);
+    const max = Math.min(200, Math.max(1, Number(limit) || 50));
+    const wanted = (Array.isArray(attributes) ? attributes : []).map(String).filter(a => QUERY_ATTR.test(a)).slice(0, 30);
+    const refused = (Array.isArray(attributes) ? attributes : []).map(String).filter(a => !QUERY_ATTR.test(a)).slice(0, 10);
+    const elements = [];
+    let size = 0;
+    let truncated = false;
+    for (const el of all.slice(0, max)) {
+      const item = { tag: el.tagName.toLowerCase() };
+      if (includeText !== false) item.text = capText(isPassword(el) ? "" : el.innerText ?? el.textContent, 300);
+      if (wanted.length) {
+        item.attributes = {};
+        for (const a of wanted) {
+          const v = attrValue(el, a);
+          if (v != null) item.attributes[a] = v;
+        }
+      }
+      item.visible = visible(el);
+      item.rect = rectOf(el);
+      size += JSON.stringify(item).length;
+      if (size > MAX_QUERY_JSON) { truncated = true; break; }
+      elements.push(item);
+    }
+    return { url: location.href, title: document.title, description: String(selector).slice(0, 100), selector: String(selector).slice(0, 300), total: all.length, count: elements.length, truncated: truncated || all.length > elements.length, refusedAttributes: refused, elements };
+  }
+
+  const STYLE_PROPS = ["display", "visibility", "position", "top", "right", "bottom", "left", "width", "height", "min-width", "max-width", "min-height", "max-height", "box-sizing",
+    "margin-top", "margin-right", "margin-bottom", "margin-left", "padding-top", "padding-right", "padding-bottom", "padding-left",
+    "font-family", "font-size", "font-weight", "line-height", "color", "background-color", "background-image", "z-index", "overflow-x", "overflow-y", "opacity",
+    "flex-direction", "justify-content", "align-items", "gap", "grid-template-columns", "transform", "pointer-events", "cursor", "text-overflow", "white-space"];
+
+  function inspect({ ref, selector }) {
+    let el = null;
+    if (ref != null && ref !== "") {
+      el = refs.get(Number(ref));
+      if (!el || !el.isConnected) throw new Error(`No element [${ref}]: call page_read again for fresh refs.`);
+    } else {
+      const all = selectAll(selector);
+      if (!all.length) throw new Error(`Nothing matches ${String(selector).slice(0, 200)}.`);
+      el = all[0];
+    }
+    const cs = getComputedStyle(el);
+    const styles = {};
+    for (const p of STYLE_PROPS) {
+      const v = cs.getPropertyValue(p);
+      if (v !== "") styles[p] = capText(v, 200);
+    }
+    const r = el.getBoundingClientRect();
+    const inView = r.width > 0 && r.height > 0 && r.bottom > 0 && r.right > 0 && r.top < innerHeight && r.left < innerWidth;
+    let coveredBy = null;
+    if (inView) {
+      const cx = Math.min(innerWidth - 1, Math.max(0, r.left + r.width / 2));
+      const cy = Math.min(innerHeight - 1, Math.max(0, r.top + r.height / 2));
+      const top = document.elementFromPoint(cx, cy);
+      if (top && top !== el && !el.contains(top) && !top.contains(el)) coveredBy = `${top.tagName.toLowerCase()}${top.id ? `#${top.id}` : ""}${typeof top.className === "string" && top.className.trim() ? `.${top.className.trim().split(/\s+/).slice(0, 3).join(".")}` : ""} (${describe(top)})`;
+    }
+    return {
+      url: location.href,
+      title: document.title,
+      description: describe(el),
+      tag: el.tagName.toLowerCase(),
+      role: roleOf(el),
+      name: accessibleName(el) || "",
+      matched: selector && (ref == null || ref === "") ? selectAll(selector).length : undefined,
+      rect: rectOf(el),
+      scroll: { scrollWidth: el.scrollWidth, scrollHeight: el.scrollHeight, clientWidth: el.clientWidth, clientHeight: el.clientHeight, scrollTop: Math.round(el.scrollTop), scrollLeft: Math.round(el.scrollLeft) },
+      viewport: { width: innerWidth, height: innerHeight, scrollX: Math.round(scrollX), scrollY: Math.round(scrollY) },
+      visible: visible(el),
+      inView,
+      covered: !!coveredBy,
+      coveredBy,
+      styles,
+    };
   }
 
   const TEXTUAL = /^(text\/|application\/(json|xml|javascript|ld\+json|x-www-form-urlencoded|graphql)|[^;]*\+(json|xml))/i;

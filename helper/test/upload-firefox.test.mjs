@@ -9,7 +9,8 @@
 // what its own handlers received. This checks Firefox's security model: File
 // and DataTransfer built in the page's compartment, input.files assigned and
 // events dispatched so that page code can read the files.
-// Also: page_wait probes and page_eval awaiting a promise with timeoutMs.
+// Also: page_wait probes and page_eval awaiting a promise with timeoutMs, and
+// the same uploads with the page agent of the listed build (page_eval stripped).
 // (With File and DataTransfer built in the content script's own realm instead,
 // the input case still works but the page's drop handler sees no files: Gecko
 // hides DataTransfer items added under the content script's principal.)
@@ -55,7 +56,8 @@ const BACKGROUND = `
 const { createUploadStore } = globalThis.EnsoTransfer;
 const store = createUploadStore();
 const BASE = "__BASE__";
-const report = (kind, body) => fetch(BASE + "/report/" + kind, { method: "POST", body: JSON.stringify(body) });
+const VARIANT = "__VARIANT__";
+const report = (kind, body) => fetch(BASE + "/report/" + kind + "?" + VARIANT, { method: "POST", body: JSON.stringify(body) });
 const b64 = bytes => { let s = ""; for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode(...bytes.subarray(i, i + 0x8000)); return btoa(s); };
 const hex = async bytes => Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", bytes)), b => b.toString(16).padStart(2, "0")).join("");
 async function send(tabId, action, args) {
@@ -94,9 +96,15 @@ async function run(tabId) {
     out.drop = await upload(tabId, ["Résumé.pdf", "report.docx"], { selector: "#zone" });
     out.deaf = await upload(tabId, ["Résumé.pdf"], { selector: "#deaf" });
     out.gone0 = await send(tabId, "probe", { for: "gone", value: "#spinner" });
-    out.evalAwait = await send(tabId, "eval", { expression: "new Promise(r => setTimeout(() => r({ done: 42 }), 1500))", timeoutMs: 5000 });
-    out.evalSlow = await send(tabId, "eval", { expression: "new Promise(r => setTimeout(() => { window.showLater(); r(1); }, 2500))", timeoutMs: 1000 });
-    await new Promise(r => setTimeout(r, 2000));
+    if (VARIANT === "dev") {
+      out.evalAwait = await send(tabId, "eval", { expression: "new Promise(r => setTimeout(() => r({ done: 42 }), 1500))", timeoutMs: 5000 });
+      out.evalSlow = await send(tabId, "eval", { expression: "new Promise(r => setTimeout(() => { window.showLater(); r(1); }, 2500))", timeoutMs: 1000 });
+      await new Promise(r => setTimeout(r, 2000));
+    } else {
+      out.evalRefused = await send(tabId, "eval", { expression: "1" }).then(() => "ran", err => err.message);
+      await report("result", out);
+      return;
+    }
     out.later = await send(tabId, "probe", { for: "selector", value: "#later" });
     out.text = await send(tabId, "probe", { for: "text", value: "Upload complete" });
     out.gone1 = await send(tabId, "probe", { for: "gone", value: "#spinner" });
@@ -108,7 +116,7 @@ async function run(tabId) {
 let started = false;
 browser.tabs.onUpdated.addListener(async (_id, info) => {
   if (started || info.status !== "complete") return;
-  const tab = (await browser.tabs.query({})).find(t => t.id >= 0 && String(t.url).startsWith(BASE + "/form") && t.status === "complete");
+  const tab = (await browser.tabs.query({})).find(t => t.id >= 0 && t.url === BASE + "/form?" + VARIANT && t.status === "complete");
   if (!tab || started) return;
   started = true;
   run(tab.id);
@@ -117,12 +125,11 @@ browser.tabs.onUpdated.addListener(async (_id, info) => {
 
 const dir = mkdtempSync(path.join(tmpdir(), "enso-upload-firefox-"));
 const profile = path.join(dir, "profile");
-const addon = path.join(dir, "addon");
 let proc = null;
 let mn = null;
 let server = null;
 let failed = false;
-const reports = { got: [], result: null };
+const reports = { dev: { got: [], result: null }, listed: { got: [], result: null } };
 let onReport = () => {};
 
 const freePort = () => new Promise((resolve, reject) => {
@@ -143,10 +150,10 @@ try {
   // The fixture, the test files, and where the page and the extension report to.
   const fixture = readFileSync(path.join(here, "fixtures/upload/upload.html"), "utf8").replace(
     "window.got[id] = await describe(e.target.files);",
-    "window.got[id] = await describe(e.target.files); fetch('/report/got', { method: 'POST', body: JSON.stringify({ id, files: window.got[id] }) });",
+    "window.got[id] = await describe(e.target.files); fetch('/report/got' + location.search, { method: 'POST', body: JSON.stringify({ id, files: window.got[id] }) });",
   ).replace(
     "window.got.zone = await describe(e.dataTransfer.files);",
-    "window.got.zone = await describe(e.dataTransfer.files); fetch('/report/got', { method: 'POST', body: JSON.stringify({ id: 'zone', files: window.got.zone }) });",
+    "window.got.zone = await describe(e.dataTransfer.files); fetch('/report/got' + location.search, { method: 'POST', body: JSON.stringify({ id: 'zone', files: window.got.zone }) });",
   );
   server = http.createServer(async (req, res) => {
     const url = decodeURIComponent(req.url);
@@ -154,8 +161,9 @@ try {
       const chunks = [];
       for await (const c of req) chunks.push(c);
       const body = JSON.parse(Buffer.concat(chunks).toString("utf8"));
-      if (url === "/report/got") reports.got.push(body);
-      else reports.result = body;
+      const [kind, variant] = url.slice(8).split("?");
+      if (kind === "got") reports[variant].got.push(body);
+      else reports[variant].result = body;
       res.writeHead(204, { "Access-Control-Allow-Origin": "*" }).end();
       onReport();
       return;
@@ -171,12 +179,19 @@ try {
   await new Promise(r => server.listen(0, "127.0.0.1", r));
   const base = `http://127.0.0.1:${server.address().port}`;
 
-  // The test extension: transfer.js and pageagent.js as shipped, plus the background above.
-  mkdirSync(addon, { recursive: true });
-  copyFileSync(path.join(EXT, "transfer.js"), path.join(addon, "transfer.js"));
-  copyFileSync(path.join(EXT, "pageagent.js"), path.join(addon, "pageagent.js"));
-  writeFileSync(path.join(addon, "test-background.js"), BACKGROUND.replace("__BASE__", base));
-  writeFileSync(path.join(addon, "manifest.json"), JSON.stringify({ manifest_version: 2, name: "Ensō upload test", version: "1.0", browser_specific_settings: { gecko: { id: "enso-upload-test@wicker.life" } }, permissions: ["tabs", "<all_urls>"], background: { scripts: ["transfer.js", "test-background.js"] } }));
+  // Two test extensions: transfer.js and pageagent.js as shipped ("dev"), and the
+  // page agent as the listed (addons.mozilla.org) build ships it, page_eval stripped.
+  const { stripUnlistedOnly } = await import("../../scripts/build-extension.mjs");
+  const agentSource = readFileSync(path.join(EXT, "pageagent.js"), "utf8");
+  const addons = {};
+  for (const variant of ["dev", "listed"]) {
+    const addon = (addons[variant] = path.join(dir, `addon-${variant}`));
+    mkdirSync(addon, { recursive: true });
+    copyFileSync(path.join(EXT, "transfer.js"), path.join(addon, "transfer.js"));
+    writeFileSync(path.join(addon, "pageagent.js"), variant === "listed" ? stripUnlistedOnly(agentSource, "pageagent.js").text : agentSource);
+    writeFileSync(path.join(addon, "test-background.js"), BACKGROUND.replace("__BASE__", base).replace("__VARIANT__", variant));
+    writeFileSync(path.join(addon, "manifest.json"), JSON.stringify({ manifest_version: 2, name: `Ensō upload test (${variant})`, version: "1.0", browser_specific_settings: { gecko: { id: `enso-upload-test-${variant}@wicker.life` } }, permissions: ["tabs", "<all_urls>"], background: { scripts: ["transfer.js", "test-background.js"] } }));
+  }
 
   // A separate headless browser with its own profile.
   mkdirSync(profile);
@@ -196,40 +211,48 @@ try {
   }
   if (!mn) throw new Error("the headless browser didn't open Marionette");
   await mn.send("WebDriver:NewSession", { capabilities: { alwaysMatch: { pageLoadStrategy: "normal" } } }, 30_000);
-  await mn.send("Addon:Install", { path: addon, temporary: true }, 15_000);
-  // A new tab: the first window's tab isn't visible to extensions installed after it opened (Zen, headless).
+  for (const variant of ["dev", "listed"]) await mn.send("Addon:Install", { path: addons[variant], temporary: true }, 15_000);
+  // New tabs: the first window's tab isn't visible to extensions installed after it opened (Zen, headless).
   await new Promise(r => setTimeout(r, 1000));
-  const win = await mn.send("WebDriver:NewWindow", { type: "tab" }, 15_000);
-  await mn.send("WebDriver:SwitchToWindow", { handle: win.handle ?? win.value?.handle, focus: true }, 15_000);
-  await mn.send("WebDriver:Navigate", { url: `${base}/form` }, 30_000);
-  await until(() => reports.result, 60_000, "the test extension's result");
-  const r = reports.result;
-  assert.equal(r.error, undefined, r.error);
-  await until(() => ["single", "multi", "hidden", "shadow", "zone"].every(id => reports.got.some(g => g.id === id)), 10_000, "the page's own reports");
-
   const expect = names => names.map(n => ({ name: n, size: FILES[n].bytes.length, type: FILES[n].type, lastModified: FILES[n].lastModified, sha256: sha(FILES[n].bytes) }));
-  const seen = id => reports.got.find(g => g.id === id).files;
-  assert.equal(r.input.mode, "input");
-  assert.deepEqual(r.input.received.map(f => [f.name, f.size, f.type]), [["report.docx", FILES["report.docx"].bytes.length, FILES["report.docx"].type]]);
-  assert.deepEqual(seen("single"), expect(["report.docx"]));
-  assert.deepEqual(seen("multi"), expect(["Résumé.pdf", "report.docx"]));
-  assert.deepEqual(seen("hidden"), expect(["Résumé.pdf"]));
-  assert.deepEqual(seen("shadow"), expect(["report.docx"]));
-  console.log(`ok - ${path.basename(found.bin)}: files set on file inputs (direct, via a label, hidden, in a shadow root) reach the page's change handlers unchanged`);
-  assert.equal(r.drop.mode, "drop");
-  assert.equal(r.drop.handled, true);
-  assert.deepEqual(seen("zone"), expect(["Résumé.pdf", "report.docx"]));
-  assert.equal(r.deaf.handled, false);
-  console.log(`ok - ${path.basename(found.bin)}: a synthetic drop with a page-compartment DataTransfer reaches the page's drop handler with the files`);
-  assert.equal(r.evalAwait.ok, true, r.evalAwait.error);
-  assert.match(r.evalAwait.json, /"done": 42/);
-  assert.equal(r.evalSlow.ok, false);
-  assert.equal(r.evalSlow.timedOut, true);
-  assert.equal(r.gone0.met, false);
-  assert.equal(r.later.met, true, "the timed-out promise kept running and finished");
-  assert.equal(r.text.met, true);
-  assert.equal(r.gone1.met, true);
-  console.log(`ok - ${path.basename(found.bin)}: page_eval awaits a promise within timeoutMs, reports a timeout while the code keeps running, and page_wait probes see the result`);
+  const name = path.basename(found.bin);
+  for (const variant of ["dev", "listed"]) {
+    const win = await mn.send("WebDriver:NewWindow", { type: "tab" }, 15_000);
+    await mn.send("WebDriver:SwitchToWindow", { handle: win.handle ?? win.value?.handle, focus: true }, 15_000);
+    await mn.send("WebDriver:Navigate", { url: `${base}/form?${variant}` }, 30_000);
+    const rep = reports[variant];
+    await until(() => rep.result, 60_000, `the ${variant} test extension's result`);
+    const r = rep.result;
+    assert.equal(r.error, undefined, r.error);
+    await until(() => ["single", "multi", "hidden", "shadow", "zone"].every(id => rep.got.some(g => g.id === id)), 10_000, "the page's own reports");
+    const seen = id => rep.got.find(g => g.id === id).files;
+    assert.equal(r.input.mode, "input");
+    assert.deepEqual(r.input.received.map(f => [f.name, f.size, f.type]), [["report.docx", FILES["report.docx"].bytes.length, FILES["report.docx"].type]]);
+    assert.deepEqual(seen("single"), expect(["report.docx"]));
+    assert.deepEqual(seen("multi"), expect(["Résumé.pdf", "report.docx"]));
+    assert.deepEqual(seen("hidden"), expect(["Résumé.pdf"]));
+    assert.deepEqual(seen("shadow"), expect(["report.docx"]));
+    console.log(`ok - ${name}, ${variant} page agent: files set on file inputs (direct, via a label, hidden, in a shadow root) reach the page's change handlers unchanged`);
+    assert.equal(r.drop.mode, "drop");
+    assert.equal(r.drop.handled, true);
+    assert.deepEqual(seen("zone"), expect(["Résumé.pdf", "report.docx"]));
+    assert.equal(r.deaf.handled, false);
+    console.log(`ok - ${name}, ${variant} page agent: a synthetic drop with a page-compartment DataTransfer reaches the page's drop handler with the files`);
+    assert.equal(r.gone0.met, false);
+    if (variant === "listed") {
+      assert.match(r.evalRefused, /Unknown page action eval/);
+      console.log(`ok - ${name}, listed page agent: page_upload needs no eval (and page_eval isn't there)`);
+      continue;
+    }
+    assert.equal(r.evalAwait.ok, true, r.evalAwait.error);
+    assert.match(r.evalAwait.json, /"done": 42/);
+    assert.equal(r.evalSlow.ok, false);
+    assert.equal(r.evalSlow.timedOut, true);
+    assert.equal(r.later.met, true, "the timed-out promise kept running and finished");
+    assert.equal(r.text.met, true);
+    assert.equal(r.gone1.met, true);
+    console.log(`ok - ${name}: page_eval awaits a promise within timeoutMs, reports a timeout while the code keeps running, and page_wait probes see the result`);
+  }
 } catch (err) {
   failed = true;
   console.error(err);

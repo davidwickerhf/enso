@@ -266,6 +266,37 @@ fs.writeFileSync(f, JSON.stringify(j));
   assert.ok(existsSync(path.join(data, "mcp-tools-cache.json")), "tool list cached for when Zen is closed");
   console.log("ok - enso mcp bridges stdio to the helper; Codex is named in the activity log and on the page");
 
+  // ---- the Firefox Add-ons build (extension.hello channel "listed") has no page_eval ----
+  const { setExtensionInfo, resetExtensionInfo } = await import("../lib/extinfo.mjs");
+  for (const t of ["page_eval", "page_query", "page_inspect"]) assert.ok(names.includes(t), `lists ${t} before any extension said otherwise`);
+  setExtensionInfo({ type: "extension.hello", version: "0.5.7", channel: "listed", capabilities: { pageEval: false } });
+  res = await codex.request("tools/list", {});
+  const listedNames = res.result.tools.map(t => t.name);
+  assert.ok(!listedNames.includes("page_eval"), "page_eval hidden for the listed build");
+  assert.ok(listedNames.includes("page_query") && listedNames.includes("page_inspect") && listedNames.includes("devtools_console"));
+  res = await codex.request("tools/call", { name: "page_eval", arguments: { expression: "1+1", tabId: 7, requested_by_user: true } });
+  assert.ok(res.result?.isError, JSON.stringify(res));
+  assert.match(textOf(res), /not available in the Firefox Add-ons build/);
+  assert.ok(!browserCalls.some(c => c.action === "eval"), "nothing reached the browser");
+  const rawInit = async () => {
+    const r = await fetch(`http://127.0.0.1:${port}/mcp`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "application/json, text/event-stream", Authorization: `Bearer ${readToken("full")}` },
+      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "initialize", params: initParams("claude-code") }),
+    });
+    return r.text();
+  };
+  assert.match(await rawInit(), /page_eval is not available: the connected Ens\u014d is the Firefox Add-ons build|page_eval is not available: the connected Ensō is the Firefox Add-ons build/);
+  res = await codex.request("tools/call", { name: "session_start", arguments: { task: "Check the layout" } });
+  assert.match(textOf(res), /page_eval is not available/);
+  setExtensionInfo({ type: "extension.hello", version: "0.5.7.1", channel: "unlisted", capabilities: { pageEval: true } });
+  res = await codex.request("tools/list", {});
+  assert.ok(res.result.tools.some(t => t.name === "page_eval"), "the direct download build lists page_eval");
+  assert.match(await rawInit(), /page_eval is available \(the direct download build/);
+  await codex.request("tools/call", { name: "session_end", arguments: {} });
+  resetExtensionInfo();
+  console.log("ok - page_eval is hidden and refused clearly with the Firefox Add-ons build, listed with the direct download build");
+
   // An explicit label (e.g. T3 Code running Claude Code underneath).
   const t3 = launch(["--client", "T3 Code"]);
   await t3.request("initialize", initParams("claude-code"));

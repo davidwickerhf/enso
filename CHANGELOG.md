@@ -31,6 +31,46 @@ Agents can give pages files, wait for slow work, and send large payloads.
   files and never shrink or edit a user's file to fit a limit; use `page_wait`;
   a timeout isn't a failure, so check before retrying.
 
+## 0.5.7 (10 November 2026)
+
+Two builds, clearly labelled; nothing sent automatically on new installs; two
+new page tools that answer questions without running code.
+
+- **Two builds.** The **Firefox Add-ons build** (addons.mozilla.org, three-part
+  versions like 0.5.7) and the **direct download build** (enso.wicker.life,
+  four-part versions like 0.5.7.1). They are the same Ensō, except that only the
+  direct download has `page_eval`, which runs JavaScript an agent writes in the
+  page: addons.mozilla.org doesn't allow add-ons to run code that isn't in their
+  package. `scripts/build-extension.mjs` makes the listed build by removing the
+  code between `// <unlisted-only>` markers, writes `channel.js`, and fails if
+  `eval(` or `new Function` is left; CI builds and lints it. Settings → Setup
+  and Advanced say which build this is ("Firefox Add-ons build", "Direct
+  download build", "Development build"), and the website offers both. To
+  switch, remove one and install the other; settings live in the helper.
+- **The helper knows the build.** The extension sends `extension.hello`
+  (version, channel, capabilities) when it connects. With the Firefox Add-ons
+  build, `page_eval` is left out of MCP `tools/list` and Ensō's own chat, the
+  MCP instructions and `session_start` say it isn't available, and a call
+  returns "not available in the Firefox Add-ons build". Settings → Advanced →
+  Developer tools says so too.
+- **`page_query` and `page_inspect`**, in every build: the elements matching a
+  CSS selector (text, chosen attributes with URLs resolved, visibility, rect),
+  and one element's computed styles, size, scroll size and whether it is in
+  view or covered (and by what). Fixed queries, read-only, no code evaluated;
+  password values never returned.
+- **Nothing sent automatically by default, for new installs.** The Home brief
+  no longer refreshes by itself (`dashboard.autoRefreshMinutes` 60 → 0):
+  onboarding offers **Turn on the daily brief** (once a day, each morning), and
+  Settings → General → Refresh the brief gained "Once a day". New-tab search
+  suggestions from Google or DuckDuckGo are off until **Search suggestions
+  while typing** (Settings → General → New tab & Home) is on. Existing installs
+  keep what they had: the helper writes the old hourly default into their
+  settings.json once where they never chose a value, and an update from an
+  earlier version turns suggestions on once. The privacy policy says both are
+  off by default.
+- `/releases/enso-latest.xpi` on the site always serves the newest direct
+  download build (four-part version).
+
 ## 0.5.6.1 (10 November 2026)
 
 The same code as 0.5.6, signed as a self-distributed build so enso.wicker.life

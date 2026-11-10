@@ -31,7 +31,9 @@ Website and user docs: <https://enso.wicker.life>. Licence: the extension, helpe
 The helper runs on macOS, Linux (x86_64, arm64) and Windows 10 or 11 (x64,
 arm64). Two steps, in Zen or Firefox 139 or newer:
 
-1. **Add the extension** from <https://enso.wicker.life> (signed by Mozilla, updates itself).
+1. **Add the extension** from <https://enso.wicker.life> (signed by Mozilla, updates itself):
+   the Firefox Add-ons build, or the direct download build with `page_eval`
+   ([two builds](#two-builds)).
 2. **Run one command.** Press <kbd>⌘E</kbd> (<kbd>Ctrl+E</kbd> on Linux and
    Windows): Ensō shows the command for your system with a Copy button, and
    moves on by itself once it has run. On macOS and Linux, in a terminal:
@@ -66,6 +68,23 @@ keyring), letting Claude Code, Codex, Cursor or OpenCode use Zen,
 connecting T3 Code and GitHub, and rotating the agent token. The same checks and
 actions stay available as `enso setup`, `enso update`, `enso mcp install`,
 `enso t3 connect` and `enso mcp rotate`.
+
+### Two builds
+
+| | Firefox Add-ons build | Direct download build |
+|---|---|---|
+| From | addons.mozilla.org ("Get it for Firefox", recommended) | `https://enso.wicker.life/releases/enso-latest.xpi` |
+| Versions | three parts (0.5.7) | four parts (0.5.7.1) |
+| Updates from | addons.mozilla.org | enso.wicker.life |
+| `page_eval` | not included | included |
+
+The listed build is made by [`scripts/build-extension.mjs`](scripts/build-extension.mjs),
+which removes the code between `// <unlisted-only>` markers (the page_eval
+path in `extension/pageagent.js`) and fails if `eval(` or `new Function` is
+left. The extension tells the helper which build it is, and the helper hides
+`page_eval` from agents when it can't run. Settings → Setup shows which build
+you have. To switch, remove Ensō in Zen and install the other one: settings,
+conversations and memory live in the helper's data folder, so they are kept.
 
 Step by step, with what each permission is for: [site/content/docs/install.md](site/content/docs/install.md).
 
