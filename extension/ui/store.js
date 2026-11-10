@@ -357,8 +357,10 @@ export function createStore() {
         s.tab = msg.tab ?? null;
         const space = msg.space !== undefined ? msg.space : msg.tab?.space !== undefined && typeof msg.tab.space === "object" ? msg.tab.space : s.space;
         const changed = (space?.id ?? null) !== (s.space?.id ?? null);
+        const prevSpaceId = s.space?.id ?? null;
         s.space = space ?? null;
         emit("tab");
+        if (changed) followSpace(prevSpaceId, s.space?.id ?? null);
         if (changed) {
           s.spaceMemory = { spaceId: s.space?.id ?? null, text: "", loaded: false, saving: false, savedAt: null };
           if (s.history.query.trim() && s.ui.scope === "space") actions.search(s.history.query);
@@ -619,6 +621,28 @@ export function createStore() {
   try { const sc = localStorage.getItem("enso.scope"); if (sc === "all" || sc === "space") s.ui.scope = sc; } catch { /* ignore */ }
 
   /** Conversations for lists: this space by default, all spaces when toggled (or without a current space). */
+  // Chats follow the Zen space: switching spaces puts away the chat open in the
+  // old one and brings back the last chat open in the new one (or a new chat).
+  // Running chats keep running; they're only out of sight.
+  const LAST_CHAT_KEY = "enso.lastChatBySpace";
+  const lastChats = () => { try { return JSON.parse(localStorage.getItem(LAST_CHAT_KEY) || "{}"); } catch { return {}; } };
+  function followSpace(fromId, toId) {
+    const view = s.ui.view;
+    if (view !== "chat" && view !== "home") return; // don't pull people out of Settings, History…
+    const cur = s.ui.currentId;
+    if (cur === "draft" || s.ui.pendingSend) return; // something is being sent right now
+    const spaceOf = id => s.conversations.find(c => c.id === id)?.space?.id ?? null;
+    const last = lastChats();
+    if (fromId) {
+      last[fromId] = view === "chat" && cur ? cur : null;
+      try { localStorage.setItem(LAST_CHAT_KEY, JSON.stringify(last)); } catch { /* private mode */ }
+    }
+    if (view === "chat" && cur && (spaceOf(cur) === toId || spaceOf(cur) === null)) return; // already belongs here (or to no space)
+    const back = toId ? last[toId] : null;
+    if (back && spaceOf(back) === toId) actions.open(back);
+    else if (view === "chat") actions.newChat();
+  }
+
   function visibleConversations() {
     if (s.ui.scope !== "space" || !s.space) return s.conversations;
     return s.conversations.filter(c => c.space?.id === s.space.id);
