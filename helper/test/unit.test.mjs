@@ -91,12 +91,22 @@ try {
   // ---- Claude Code CLI ----
   const bin = path.join(root, "bin");
   mkdirSync(bin);
-  const fake = path.join(bin, "claude");
-  writeFileSync(fake, '#!/bin/sh\necho "9.9.9 (Claude Code)"\n');
-  chmodSync(fake, 0o755);
+  // Windows: npm's claude.cmd shim, run through the cli.js next to it (a .cmd needs a shell).
+  const WIN = process.platform === "win32";
+  const fake = path.join(bin, WIN ? "claude.cmd" : "claude");
+  if (WIN) {
+    writeFileSync(fake, "@echo off\r\nexit /b 1\r\n");
+    const js = path.join(bin, "node_modules", "@anthropic-ai", "claude-code", "cli.js");
+    mkdirSync(path.dirname(js), { recursive: true });
+    writeFileSync(js, 'console.log("9.9.9 (Claude Code)");\n');
+  } else {
+    writeFileSync(fake, '#!/bin/sh\necho "9.9.9 (Claude Code)"\n');
+    chmodSync(fake, 0o755);
+  }
   const hit = findClaude([fake]);
   assert.equal(hit.found, true);
   assert.equal(hit.version, "9.9.9 (Claude Code)");
+  if (WIN) assert.match(hit.path, /cli\.js$/, "the SDK gets cli.js, not the .cmd");
   const savedPath = process.env.PATH;
   process.env.PATH = bin;
   assert.equal(candidates([])[0], fake, "PATH comes before the known locations");

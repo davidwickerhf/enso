@@ -16,7 +16,7 @@ import http from "node:http";
 import net from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { checkPort, manifestPaths, parseRunSh, runDoctor } from "../lib/doctor.mjs";
 import { createLog, logFile, redact, tailLines } from "../lib/logfile.mjs";
 
@@ -57,7 +57,7 @@ try {
     // A crash in the helper process: the stack is in the log before it exits.
     const data = path.join(root, "crash-data");
     const script = path.join(root, "crash.mjs");
-    writeFileSync(script, `import ${JSON.stringify(path.join(here, "..", "lib", "boot-log.mjs"))};\nsetTimeout(() => { throw new Error("kaboom in a timer"); }, 10);\n`);
+    writeFileSync(script, `import ${JSON.stringify(pathToFileURL(path.join(here, "..", "lib", "boot-log.mjs")).href)};\nsetTimeout(() => { throw new Error("kaboom in a timer"); }, 10);\n`);
     const r = spawnSync(process.execPath, [script], { env: { ...(WIN ? process.env : {}), HOME: root, USERPROFILE: root, ENSO_DATA: data, PATH: WIN ? process.env.PATH : "/usr/bin:/bin" }, encoding: "utf8" });
     assert.equal(r.status, 1);
     const crash = readFileSync(logFile({ ENSO_DATA: data }), "utf8");

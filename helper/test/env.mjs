@@ -32,3 +32,14 @@ export function isolatedEnv(home, extra = {}) {
 /** The data / log folder a helper started with isolatedEnv(home) uses. */
 export const dataDirFor = home => dataDir({ home, env: WIN ? { APPDATA: path.join(home, "AppData", "Roaming") } : {} });
 export const logDirFor = home => logDir({ home, env: WIN ? { LOCALAPPDATA: path.join(home, "AppData", "Local") } : {} });
+
+/** Stop a child process and remove its folder (Windows can't remove a running process's cwd: wait for the exit, retry). */
+export async function stopAndRemove(child, dir) {
+  const { rmSync } = await import("node:fs");
+  if (child && child.exitCode === null && child.signalCode === null) {
+    const exited = new Promise(r => child.once("exit", r));
+    child.kill();
+    await Promise.race([exited, new Promise(r => setTimeout(r, 5000))]);
+  }
+  rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
+}

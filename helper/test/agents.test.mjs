@@ -17,7 +17,7 @@ import { mkdtempSync, readFileSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { dataDirFor, isolatedEnv } from "./env.mjs";
+import { dataDirFor, isolatedEnv, stopAndRemove } from "./env.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const { createAgentSessions, maskTyped, clientKey, IDLE_MS, PAUSED_TTL_MS, STOP_TTL_MS, NOTE_PREFIX, PAUSED_TEXT, STOPPED_TEXT, HAND_BACK_TEXT } = await import("../lib/agentsessions.mjs");
@@ -342,6 +342,5 @@ try {
   assert.equal((await fetch(`http://127.0.0.1:${port}/inbox`, { method: "POST", body: "{}" })).status, 401, "the hook route needs the full token");
   console.log("ok - a screenshot sent to a connected agent arrives as image content, via inbox_read, or via the prompt hook");
 } finally {
-  host.kill();
-  rmSync(home, { recursive: true, force: true });
+  await stopAndRemove(host, home);
 }

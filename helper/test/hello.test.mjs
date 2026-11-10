@@ -14,7 +14,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync,
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { dataDirFor, isolatedEnv, MAC } from "./env.mjs";
+import { dataDirFor, isolatedEnv, stopAndRemove, MAC } from "./env.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const home = realpathSync(mkdtempSync(path.join(tmpdir(), "enso-hello-")));
@@ -121,7 +121,6 @@ try {
   console.log("ok - MCP server on the same port accepts the migrated token");
 } finally {
   host.stdin.end();
-  host.kill();
-  rmSync(home, { recursive: true, force: true });
+  await stopAndRemove(host, home);
 }
 console.log("hello checks passed");
