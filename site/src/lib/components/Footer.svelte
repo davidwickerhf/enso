@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { GITHUB_URL } from '$lib/links';
 	import Enso from './Enso.svelte';
 </script>
 
@@ -24,6 +25,7 @@
 				<li><a href="/account">Account</a></li>
 			</ul>
 			<ul>
+				<li><a href={GITHUB_URL}>Source on GitHub</a></li>
 				<li><a href="mailto:hello@enso.wicker.life">hello@enso.wicker.life</a></li>
 			</ul>
 		</nav>
