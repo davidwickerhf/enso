@@ -178,7 +178,8 @@ Since 0.5.3 the helper keeps a live **session** per agent per tab
 [records/006](records/006-agent-presence-and-steering.md)). An agent is one
 launcher process (the launcher sends a random `X-Enso-Session` id); clients
 calling over plain http are told apart by label and clientInfo name. A session
-starts with the agent's first call on a tab, or with `session_start`, and ends
+starts with `session_start` or with the agent's first action on a tab (reads
+alone, such as `page_read` or `tab_read`, don't start one), and ends
 after two minutes without calls or on `session_end`. Tab-less calls
 (`tabs_list`, GitHub) count towards the agent's latest tab session.
 

@@ -290,6 +290,15 @@ try {
   assert.equal(r.isError, false, "another agent session isn't affected");
   console.log("ok - stop refuses every further call of that session");
 
+  // A lone read from an agent with no session doesn't open one (no pill, no ✦)
+  const before = latestAgents().length;
+  r = await call("page_read", {}, { session: "launcher-3" });
+  assert.equal(r.isError, false);
+  r = await call("tabs_list", {}, { session: "launcher-3" });
+  await new Promise(res => setTimeout(res, 150));
+  assert.equal(latestAgents().length, before, "reading alone doesn't start a session");
+  console.log("ok - a lone read doesn't open a session");
+
   // Old http + bearer clients (no session header, no client header) still work
   r = await call("tabs_list", {}, { session: null, client: null });
   assert.equal(r.isError, false);

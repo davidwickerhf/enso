@@ -140,6 +140,17 @@ export function buildServer({ browserRequest, onReports, onAction, sessions = ag
           if (sessions.peek(client, tabId)) sessions.finish(sessions.begin(client, { tool: t.name, title: t.title, tabId }), { ok: false, refused: true, target: describeArgs(t, args), error: gate.refuse.split(".")[0] });
           return withMessages(gate.messages, { isError: true, content: [text(gate.refuse)] });
         }
+        // A lone read (tabs_list, tab_read, page_read…) doesn't open a session: an
+        // agent glancing at a tab shouldn't put the pill and the ✦ on it for two
+        // minutes. Reads inside a session (started, or opened by an action) still show.
+        if (t.kind === "read" && !sessions.peek(client, tabId)) {
+          try {
+            const runArgs = tabTool && tabId != null && "tabId" in t.shape ? { ...args, tabId } : args;
+            return withMessages(gate.messages, await t.run(runArgs, ctxFor(tabId, {})));
+          } catch (err) {
+            return withMessages(gate.messages, { isError: true, content: [text(String(err.message ?? err))] });
+          }
+        }
         const call = {};
         const handle = sessions.begin(client, { tool: t.name, title: t.title, tabId });
         const done = (ok, error) =>
