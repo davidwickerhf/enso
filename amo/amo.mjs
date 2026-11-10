@@ -48,7 +48,21 @@ function jwt() {
   return `${head}.${body}.${sig}`;
 }
 
-async function api(method, pathname, { json, form, auth = true, raw = false } = {}) {
+/** AMO throttles writes ("Expected available in 57 seconds"); wait and retry a few times. */
+async function api(method, pathname, opts = {}) {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await request(method, pathname, opts);
+    } catch (err) {
+      if (err.status !== 429 || attempt >= 6) throw err;
+      const wait = Number(/(\d+) seconds?/.exec(JSON.stringify(err.data))?.[1] ?? 30) + 2;
+      console.log(`AMO throttled ${method} ${pathname}; retrying in ${wait} s.`);
+      await new Promise(r => setTimeout(r, wait * 1000));
+    }
+  }
+}
+
+async function request(method, pathname, { json, form, auth = true, raw = false } = {}) {
   const url = /^https?:/.test(pathname) ? pathname : BASE + pathname;
   const headers = {};
   if (auth) headers.Authorization = `JWT ${jwt()}`;
