@@ -18,7 +18,7 @@ With the shortcut, the page dims and a hint appears at the top:
 - <kbd>F</kbd> takes the **full page**, top to bottom (very long pages are scaled down).
 - <kbd>Esc</kbd> cancels.
 
-The sidebar opens with the send sheet. macOS keeps <kbd>⌘</kbd><kbd>⇧</kbd><kbd>3</kbd>, <kbd>4</kbd> and <kbd>5</kbd> for its own screenshots; to use another key, open `about:addons`, click the gear, and choose **Manage Extension Shortcuts**. Screenshots are off on banking, health and other private sites.
+The sidebar opens with the send sheet. macOS keeps <kbd>⌘</kbd><kbd>⇧</kbd><kbd>3</kbd>, <kbd>4</kbd> and <kbd>5</kbd> for its own screenshots; to use another key, open `about:addons`, click the gear, and choose **Manage Extension Shortcuts**. Screenshots are off on banking, health, tax and other private sites.
 
 ## Send it
 

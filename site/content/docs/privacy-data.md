@@ -20,6 +20,7 @@ In `~/Library/Application Support/Enso/` unless noted:
 | Profile and memory, global and per space | `profile.md`, `memory.md`, `memory/` |
 | Settings, your skills, your configuration | `settings.json`, `skills.json`, `config.local.json` |
 | Reports | `reports/` |
+| Screenshots you saved or sent to T3 Code or an agent (deleted after 14 days) | `screenshots/` |
 | Home brief (the last one) | `dashboard.json` |
 | Tool status and sign-in details without secrets | `servers.json`, `connections.json` |
 | Access tokens for [other agents](/docs/other-agents) | `mcp-token`, `mcp-token-read` (readable only by you) |
@@ -27,7 +28,8 @@ In `~/Library/Application Support/Enso/` unless noted:
 | Claude Code's own record of subscription-engine conversations | `~/.claude/projects/` (kept by Claude Code) |
 | API key (if you use one) | macOS Keychain, item `enso-anthropic` |
 | GitHub token (if you saved one) | macOS Keychain, item `enso-github` |
-| Sign-ins to tools you connected with the Connect button | macOS Keychain, items `enso-mcp-<name>` |
+| Sign-ins to tools you connected with the Connect button (monday.com, Commonfold, …) | macOS Keychain, items `enso-mcp-<name>` |
+| T3 Code access token (if you connected T3) | macOS Keychain, item `enso-t3` |
 | Tokens for servers in `config.local.json` | macOS Keychain, items you name |
 | Widget layout, quick links, note | Your settings and the extension's own storage |
 
@@ -37,29 +39,52 @@ These are ordinary files in your home folder, readable by your user account, and
 
 **To Anthropic, when you send a message.** Your message, your profile and memory, the time and your Zen space with your note about it, the conversation so far, and whatever context you included: the current page's text, mentioned tabs, attachments, screenshots, and the results of tools Ensō used to answer. With the subscription engine this goes through Claude Code; with an API key, directly to the Anthropic API. Anthropic handles it under the terms you agreed with them.
 
-**To Anthropic, for the brief.** About once an hour (Settings → Home), Ensō makes the Home brief: your profile and memory, plus what read-only tools return (calendar, mail, tasks, a GitHub summary), go to Anthropic through Claude Code.
+**To Anthropic, for the brief, without a message.** About once an hour while Ensō runs, and when it first connects in the morning, Ensō makes the Home brief: your profile and memory, plus what read-only tools return (calendar, mail, tasks, a GitHub summary), go to Anthropic through Claude Code. To stop it, set **Settings → Home → Refresh the briefing** to **Off**; the brief then only updates when you press its refresh button.
 
-**To the services you connected, when a tool runs.** A Gmail search goes to Google, a calendar event is created in your calendar, a GitHub comment goes to GitHub, and so on. Read-only tools run without asking; anything that changes something asks first. The Tasks widget asks your task apps for open tasks every few minutes.
+**To the services you connected, when a tool runs.** A Gmail search goes to Google, a calendar event is created in your calendar, a GitHub comment goes to GitHub, and so on. Read-only tools run without asking; anything that changes something asks first. The Tasks and monday.com widgets ask those services for your open items every few minutes. Tools you connect with the Connect button sign in with OAuth, and the helper talks to them directly.
+
+**To your search engine, as you type in the new tab's search box.** Google or DuckDuckGo (whichever is your default) gets what you type, for suggestions, without cookies.
 
 **To the web, when Ensō searches or opens a page** on your behalf, like any browser request, and requests with your session on sites you [allowed](/docs/session-access).
 
-**To other agents' providers, when you use Zen from them.** What Claude Code, Codex or Cursor reads through Ensō goes to that agent's AI provider.
+**To other agents' providers, when you use Zen from them.** What Claude Code, Codex, Cursor or another agent reads through Ensō (`enso mcp`) goes to that agent's AI provider: Anthropic for Claude Code, OpenAI for Codex, and so on.
+
+**Screenshots you send** stay on your Mac: they go to your own T3 Code server on this computer, to a connected agent, or to the clipboard. Whatever that agent does with them next is up to the agent.
+
+**To addons.mozilla.org**, if you installed Ensō from there: Zen gets updates from Mozilla, like any listed add-on.
 
 **To enso.wicker.life**, only:
 
-- the extension's update check (Zen fetches `updates.json` and the new version, which puts your IP address in the server's request log);
+- the update check of copies installed from our site (Zen fetches `updates.json` and the new version, which puts your IP address in the server's request log), until their next update moves them to the addons.mozilla.org version;
 - the helper download when you run the install script.
 
 ## What never leaves your Mac
 
-- Anything from banking, payment, password-manager and health sites. Ensō doesn't read or act on them at all.
+- Anything from [private sites](#private-sites): banking, payment, password-manager, health, tax and government sites. Ensō doesn't read or act on them at all.
 - Your browsing history, except search results Ensō looks up when you ask it to, which become part of that conversation.
 - Pages you didn't include. Ensō sends the current page only when the page chip is on (it is on by default; turn the default off in Settings), and other tabs only when you mention them.
 - Cookie values, passwords and tokens. Claude never sees them.
 
+## Private sites
+
+Ensō never reads, screenshots or acts on these sites, never makes requests with your session there, and won't copy that session to the headless Zen:
+
+- **Banks and payment:** any address containing `bank`, and PayPal, Wise, Revolut, bunq, N26, Monzo, Chase, American Express.
+- **Password managers:** 1Password, Bitwarden, LastPass, Dashlane.
+- **Health:** any address containing `health` or `patient`.
+- **Tax and government:** Belastingdienst, Toeslagen, MijnOverheid and DigiD (Netherlands); IRS, Social Security and Login.gov (US); HMRC, GOV.UK tax services and GOV.UK One Login (UK); ELSTER (Germany); impots.gouv.fr (France); Agenzia delle Entrate (Italy); Agencia Tributaria (Spain); MyMinfin (Belgium); the Australian Taxation Office and myGov; Inland Revenue (New Zealand).
+
+The exact patterns are `sensitiveHosts` in [helper/config.json](https://github.com/davidwickerhf/enso/blob/main/helper/config.json). They match the site's address, so a bank or office whose address isn't listed isn't covered. Add your own in `~/Library/Application Support/Enso/config.local.json`, then restart Zen:
+
+```json
+{ "sensitiveHosts": ["*.mybank.example", "portal.example.gov"] }
+```
+
+`*.example.com` covers example.com and every subdomain. You can add sites to the list but not remove the shipped ones.
+
 ## Sync
 
-The website runs an end-to-end encrypted [sync](/docs/sync) server, but the extension and helper can't use it yet, so nothing of yours is uploaded to it.
+**Sync isn't available in Ensō yet.** The website runs an end-to-end encrypted [sync](/docs/sync) server, but the extension and helper have no way to turn it on, so nothing of yours is uploaded to it.
 
 ## No tracking
 

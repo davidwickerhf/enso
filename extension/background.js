@@ -8,7 +8,47 @@ const MAX_PAGE_CHARS = 150_000;
 
 let native = null;
 const uis = new Set();
-let sensitivePatterns = ["*bank*", "*health*", "*patient*"];
+// Private sites (banking, payment, password managers, health, tax and
+// government): a copy of sensitiveHosts in helper/config.json, used until the
+// helper sends its list (which can add the user's own). A helper test keeps
+// the two equal.
+const DEFAULT_SENSITIVE = [
+  "*.paypal.com",
+  "*.wise.com",
+  "*.revolut.com",
+  "*.bunq.com",
+  "*.n26.com",
+  "*.monzo.com",
+  "*.chase.com",
+  "*.americanexpress.com",
+  "*.1password.com",
+  "*.bitwarden.com",
+  "*.lastpass.com",
+  "*.dashlane.com",
+  "*bank*",
+  "*health*",
+  "*patient*",
+  "*.belastingdienst.nl",
+  "*.toeslagen.nl",
+  "mijn.overheid.nl",
+  "*.mijnoverheid.nl",
+  "*.digid.nl",
+  "*.irs.gov",
+  "*.ssa.gov",
+  "*.login.gov",
+  "*.tax.service.gov.uk",
+  "*.hmrc.gov.uk",
+  "*.account.gov.uk",
+  "*.elster.de",
+  "*.impots.gouv.fr",
+  "*.agenziaentrate.gov.it",
+  "*.agenciatributaria.gob.es",
+  "*.myminfin.be",
+  "*.ato.gov.au",
+  "my.gov.au",
+  "*.ird.govt.nz",
+];
+let sensitivePatterns = DEFAULT_SENSITIVE;
 let spaces = []; // Zen spaces from the helper: [{ id, name, icon, containerId, urls }]
 
 // ---------- Zen spaces ----------
@@ -44,10 +84,12 @@ async function inCurrentSpace(tabs) {
 // ---------- helpers ----------
 
 const globToRegExp = g => new RegExp(`^${g.replace(/[.+^${}()|[\]\\]/g, "\\$&").replace(/\*/g, ".*")}$`, "i");
+// `*.example.com` also covers example.com itself.
+const sensitiveRegExp = p => (p.startsWith("*.") ? new RegExp(`^(.*\\.)?${globToRegExp(p.slice(2)).source.slice(1)}`, "i") : globToRegExp(p));
 function isSensitive(url) {
   try {
     const host = new URL(url).hostname;
-    return sensitivePatterns.some(p => globToRegExp(p).test(host));
+    return sensitivePatterns.some(p => sensitiveRegExp(p).test(host));
   } catch {
     return false;
   }
@@ -83,7 +125,7 @@ async function ensureAgent(tabId) {
 async function agent(tabId, action, args, who) {
   const tab = await browser.tabs.get(tabId);
   if (!isWeb(tab.url)) throw new Error("This tab isn't a web page, so it can't be read or operated.");
-  if (isSensitive(tab.url)) throw new Error("This is a private page (banking, health or similar); page tools are off here.");
+  if (isSensitive(tab.url)) throw new Error("This is a private page (banking, health, tax or similar); page tools are off here.");
   if (tab.discarded) throw new Error("This tab is unloaded (Zen unloads tabs it hasn't shown for a while), so it can't be read or operated until it is opened or reloaded.");
   try {
     await ensureAgent(tabId);
@@ -208,7 +250,7 @@ browser.webNavigation.onCommitted.addListener(async ({ tabId, frameId, url }) =>
 async function consoleRead(tabId, args) {
   const tab = await browser.tabs.get(tabId);
   if (!isWeb(tab.url)) throw new Error("This tab isn't a web page.");
-  if (isSensitive(tab.url)) throw new Error("This is a private page (banking, health or similar); developer tools are off here.");
+  if (isSensitive(tab.url)) throw new Error("This is a private page (banking, health, tax or similar); developer tools are off here.");
   let started = false;
   if (!consoleTabs.has(tabId)) {
     consoleTabs.set(tabId, { entries: [], dropped: 0 });
@@ -274,7 +316,7 @@ async function networkLog(args) {
   const tabId = args.tabId ?? (await activeTab())?.id;
   if (tabId == null) throw new Error("No tab; open a web page first.");
   const tab = await browser.tabs.get(tabId);
-  if (isSensitive(tab.url)) throw new Error("This is a private page (banking, health or similar); developer tools are off here.");
+  if (isSensitive(tab.url)) throw new Error("This is a private page (banking, health, tax or similar); developer tools are off here.");
   let match = () => true;
   if (args.filter) {
     const re = /^\/(.+)\/([a-z]*)$/.exec(args.filter);
@@ -316,7 +358,7 @@ async function storageRead(tabId, args) {
 /** A request inside a tab of the target origin, so it carries the user's session there. */
 async function sessionFetch(args) {
   if (!isWeb(args.url)) throw new Error("Only http(s) URLs.");
-  if (isSensitive(args.url)) throw new Error("This is a private site (banking, health or similar); session requests are off here.");
+  if (isSensitive(args.url)) throw new Error("This is a private site (banking, health, tax or similar); session requests are off here.");
   const origin = new URL(args.url).origin;
   const active = await activeTab();
   const sameOrigin = (await browser.tabs.query({})).filter(t => {
@@ -567,7 +609,7 @@ function consoleErrorsOf(tabId) {
 async function captureScreenshot(mode = "region") {
   const tab = await activeTab();
   if (!tab || !isWeb(tab.url)) throw new Error("Open a web page to take a screenshot of it.");
-  if (isSensitive(tab.url)) throw new Error("This is a private page (banking, health or similar); screenshots are off here.");
+  if (isSensitive(tab.url)) throw new Error("This is a private page (banking, health, tax or similar); screenshots are off here.");
   if (tab.discarded) throw new Error("This tab is unloaded; open it first.");
   let rect = null;
   let scale = 1;

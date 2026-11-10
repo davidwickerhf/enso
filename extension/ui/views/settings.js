@@ -134,7 +134,7 @@ export function createSettings(store, ctx) {
       block("Always allowed", always.length ? "These tools run without asking. Remove one to be asked again." : "Tools you “Always allow” appear here.",
         always.length ? h("ul", { class: "tool-list" }, always.map(name => h("li", null, h("code", null, name), iconButton("x", `Stop always allowing ${name}`, () => actions.updateSettings({ alwaysAllowedTools: always.filter(t => t !== name) }), { class: "small" })))) : null),
       block("Home", null,
-        h("div", { class: "setting" }, h("div", { class: "setting-text" }, h("label", null, "Refresh the briefing"), h("p", null, s.dashboard.data?.generatedAt ? `Last updated ${relTime(s.dashboard.data.generatedAt)}.` : "Not updated yet.")), refreshSelect)));
+        h("div", { class: "setting" }, h("div", { class: "setting-text" }, h("label", null, "Refresh the briefing"), h("p", null, `${s.dashboard.data?.generatedAt ? `Last updated ${relTime(s.dashboard.data.generatedAt)}.` : "Not updated yet."} Each refresh sends your profile, memory and what your read-only tools return to Anthropic. Off: only when you press refresh.`)), refreshSelect)));
   }
 
   function normalizeOrigin(raw) {
@@ -157,7 +157,7 @@ export function createSettings(store, ctx) {
     const add = () => {
       const origin = normalizeOrigin(input.value);
       if (!origin) { err.textContent = "Enter a site like github.com or https://app.example.com."; err.hidden = false; return; }
-      if ((s.sensitiveHosts ?? []).some(p => new RegExp(`^${p.replace(/[.+^${}()|[\]\\]/g, "\\$&").replace(/\*/g, ".*")}$`, "i").test(new URL(origin).hostname))) { err.textContent = "Private sites (banking, health) can't be allowed."; err.hidden = false; return; }
+      if ((s.sensitiveHosts ?? []).some(p => { const g = q => q.replace(/[.+^${}()|[\]\\]/g, "\\$&").replace(/\*/g, ".*"); return new RegExp(p.startsWith("*.") ? `^(.*\\.)?${g(p.slice(2))}$` : `^${g(p)}$`, "i").test(new URL(origin).hostname); })) { err.textContent = "Private sites (banking, health, tax and similar) can't be allowed."; err.hidden = false; return; }
       setAccess({ ...access, [origin]: "allow" });
     };
     clear(developer, block("Developer", "Tools for debugging web pages, using your signed-in sessions, and a headless Zen. Claude in Ensō and Claude Code (zen-browser) share them; every action appears in Activity. Private sites are always off-limits; cookie values and auth headers are never shown to Claude.",

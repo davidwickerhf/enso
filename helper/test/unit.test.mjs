@@ -72,6 +72,22 @@ try {
   assert.deepEqual(store.migrateLegacyData(path.join(root, "missing"), path.join(root, "x")), []);
   console.log("ok - the zen-chat folder is copied once, without overwriting");
 
+  // ---- private sites ----
+  {
+    const { isSensitiveHost, sensitivePatternRegExp } = await import("../lib/safety.mjs");
+    for (const h of ["www.paypal.com", "paypal.com", "mijn.belastingdienst.nl", "belastingdienst.nl", "mijn.overheid.nl", "www.digid.nl", "sa.www4.irs.gov", "www.tax.service.gov.uk", "www.elster.de", "my.ing-bank.example", "myhealth.example"])
+      assert.ok(isSensitiveHost(h), `${h} is private`);
+    for (const h of ["overheid.nl", "github.com", "notpaypal.com", "gov.uk", "irs.gov.example.com"])
+      assert.ok(!isSensitiveHost(h), `${h} is not private`);
+    assert.ok(sensitivePatternRegExp("*.example.com").test("example.com") && !sensitivePatternRegExp("*.example.com").test("badexample.com"));
+    // The extension's built-in copy (used before the helper connects) matches the shipped list.
+    const shipped = JSON.parse(readFileSync(new URL("../config.json", import.meta.url), "utf8")).sensitiveHosts;
+    const bg = readFileSync(new URL("../../extension/background.js", import.meta.url), "utf8");
+    const builtIn = JSON.parse(/const DEFAULT_SENSITIVE = (\[[\s\S]*?\]);/.exec(bg)[1].replace(/,\s*\]$/, "]"));
+    assert.deepEqual(builtIn, shipped, "extension/background.js DEFAULT_SENSITIVE equals helper/config.json sensitiveHosts");
+    console.log("ok - private sites: tax and government hosts, bare domains, the extension's copy");
+  }
+
   // ---- Claude Code CLI ----
   const bin = path.join(root, "bin");
   mkdirSync(bin);

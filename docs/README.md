@@ -58,6 +58,7 @@ works now. Plans (in `plans/`, when there are any) describe work that isn't buil
 | [001: Local MCP server](records/001-local-mcp-server.md) | Why `zen-browser` runs inside the helper on loopback instead of a hosted server. |
 | [002: Stdio launcher](records/002-stdio-launcher.md) | Why clients start `enso mcp` instead of calling HTTP with a token. |
 | [003: Subscription engine](records/003-subscription-engine-agent-sdk.md) | Why the default engine runs the Agent SDK on the user's own `claude`. |
-| [004: Unlisted AMO signing](records/004-unlisted-amo-signing.md) | Why the extension is signed unlisted and updated from enso.wicker.life. |
+| [004: Unlisted AMO signing](records/004-unlisted-amo-signing.md) | Why the extension was signed unlisted and updated from enso.wicker.life (0.5.0–0.5.4; the site still serves that update feed). |
+| [007: Listed on AMO](records/007-listed-amo-channel.md) | Why releases are listed on addons.mozilla.org from 0.5.5, and how self-hosted copies move over. |
 | [005: MIT licence](records/005-mit-licence.md) | Why MIT. |
 | [006: Agent presence and steering](records/006-agent-presence-and-steering.md) | Why external agents get sessions, why steering rides on tool results, what Pause holds, and how Zen's tab list shows an acting agent. |

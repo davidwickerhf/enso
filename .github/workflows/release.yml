@@ -1,22 +1,38 @@
-# Release: signs the extension and publishes it and the helper to enso.wicker.life.
+# Release: submits the extension to addons.mozilla.org (AMO) and publishes it
+# and the helper to enso.wicker.life.
 #
-# On a version tag (v0.5.0), or run by hand for an existing tag, it:
+# On a version tag (v0.5.5) it:
 #   1. checks that the tag matches extension/manifest.json and helper/package.json,
 #      syntax-checks and tests the helper, lints the extension with web-ext;
-#   2. signs the extension through addons.mozilla.org as an *unlisted*
-#      (self-distributed) add-on, with update_url pointing at enso.wicker.life;
-#   3. builds the helper tarball (scripts/pack-helper.sh: production dependencies,
-#      no optional packages, so no bundled Claude Code binary);
-#   4. publishes both to the site (PUT /api/releases/:kind/:version), which
-#      updates /updates.json, /api/latest and the installer's download, and
-#      attaches them to a GitHub release.
+#   2. submits the extension to AMO as a *listed* version (no update_url: listed
+#      copies update from AMO), with the licence, reviewer notes
+#      (amo/approval-notes.md) and release notes (CHANGELOG.md);
+#   3. waits up to APPROVAL_MINUTES for AMO to sign it:
+#        signed  -> builds the helper tarball (scripts/pack-helper.sh) and
+#                   publishes both to the site (PUT /api/releases/:kind/:version,
+#                   which updates /updates.json, /api/latest and the installer's
+#                   download), and attaches them to a GitHub release;
+#        pending -> ends green with "submitted, awaiting review". Once AMO has
+#                   approved it, run this workflow by hand with
+#                   mode "publish-approved" and the tag;
+#        rejected -> fails.
+#
+# By hand (workflow_dispatch), for an existing tag:
+#   submit-listed     the same as a tag push
+#   publish-approved  fetch the signed listed .xpi from AMO and publish it and
+#                     the helper (no new submission)
+#   submit-unlisted   emergency: sign as unlisted (self-distributed) with
+#                     update_url pointing at enso.wicker.life, and publish.
+#                     AMO version numbers are unique across channels, so the
+#                     version can't also be listed later; bump it first.
+#
+# Self-hosted copies (installed from enso.wicker.life before the AMO listing)
+# keep checking /updates.json; their next update is the listed .xpi, which has
+# no update_url, so from then on Firefox updates them from AMO.
 #
 # Repository secrets:
 #   AMO_JWT_ISSUER, AMO_JWT_SECRET  addons.mozilla.org API credentials
 #   ENSO_RELEASE_TOKEN              same value as RELEASE_TOKEN on the site
-#
-# The add-on id (enso@wicker.life) must be listed in the site's EXTENSION_IDS
-# so /updates.json offers updates for it.
 
 name: Release
 
@@ -26,8 +42,13 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: Existing tag to (re)publish, e.g. v0.5.0
+        description: Existing tag, e.g. v0.5.5
         required: true
+      mode:
+        description: What to do
+        type: choice
+        default: submit-listed
+        options: [submit-listed, publish-approved, submit-unlisted]
 
 permissions:
   contents: write
@@ -43,6 +64,8 @@ env:
   UPDATE_URL: https://enso.wicker.life/updates.json
   EXTENSION_ID: enso@wicker.life
   STRICT_MIN_VERSION: '139.0'
+  APPROVAL_MINUTES: '12'
+  MODE: ${{ github.event.inputs.mode || 'submit-listed' }}
 
 jobs:
   release:
@@ -70,6 +93,7 @@ jobs:
           [ "$VERSION" = "$HELPER_VERSION" ] || { echo "::error::Tag $TAG does not match helper/package.json version $HELPER_VERSION"; exit 1; }
           [ "$MANIFEST_ID" = "$EXTENSION_ID" ] || { echo "::error::Add-on id $MANIFEST_ID, expected $EXTENSION_ID"; exit 1; }
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Ensō $VERSION, mode $MODE"
 
       - name: Check the helper
         working-directory: ${{ env.HELPER_DIR }}
@@ -78,30 +102,78 @@ jobs:
           for f in host.mjs lib/*.mjs test/*.mjs; do node --input-type=module --check < "$f"; done
           npm test
 
-      - name: Prepare the extension (inject update_url)
+      - name: Prepare the extension
+        if: env.MODE != 'publish-approved'
         run: |
           rm -rf build/extension && mkdir -p build && cp -R "$EXTENSION_DIR" build/extension
-          node -e '
-            const fs = require("fs");
-            const file = "build/extension/manifest.json";
-            const m = JSON.parse(fs.readFileSync(file, "utf8"));
-            m.browser_specific_settings ??= {};
-            m.browser_specific_settings.gecko ??= {};
-            m.browser_specific_settings.gecko.update_url = process.env.UPDATE_URL;
-            fs.writeFileSync(file, JSON.stringify(m, null, 2) + "\n");
-            console.log("add-on id:", m.browser_specific_settings.gecko.id, "update_url:", process.env.UPDATE_URL);
-          '
+          if [ "$MODE" = submit-unlisted ]; then
+            node -e '
+              const fs = require("fs");
+              const file = "build/extension/manifest.json";
+              const m = JSON.parse(fs.readFileSync(file, "utf8"));
+              m.browser_specific_settings.gecko.update_url = process.env.UPDATE_URL;
+              fs.writeFileSync(file, JSON.stringify(m, null, 2) + "\n");
+              console.log("unlisted: update_url", process.env.UPDATE_URL);
+            '
+          else
+            node -e 'const m = require("./build/extension/manifest.json"); if (m.browser_specific_settings?.gecko?.update_url) { console.error("::error::listed versions must not have update_url"); process.exit(1); }'
+            echo "listed: no update_url"
+          fi
 
       - name: Check the site serves updates for this add-on id
         run: |
           ids="$(curl -fsS "$SITE/api/latest" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>console.log((JSON.parse(s).extensionIds||[]).join(",")))')"
           echo "Site EXTENSION_IDS: $ids"
-          case ",$ids," in *",$EXTENSION_ID,"*) ;; *) echo "::error::$SITE does not list $EXTENSION_ID in EXTENSION_IDS; installed copies would never update"; exit 1 ;; esac
+          case ",$ids," in *",$EXTENSION_ID,"*) ;; *) echo "::error::$SITE does not list $EXTENSION_ID in EXTENSION_IDS; self-hosted copies would never update"; exit 1 ;; esac
 
       - name: Lint the extension
-        run: npx --yes web-ext@8 lint --source-dir build/extension --self-hosted
+        if: env.MODE != 'publish-approved'
+        run: |
+          if [ "$MODE" = submit-unlisted ]; then
+            npx --yes web-ext@8 lint --source-dir build/extension --self-hosted
+          else
+            npx --yes web-ext@8 lint --source-dir build/extension
+          fi
+
+      - name: Submit to AMO (listed)
+        if: env.MODE == 'submit-listed'
+        env:
+          WEB_EXT_API_KEY: ${{ secrets.AMO_JWT_ISSUER }}
+          WEB_EXT_API_SECRET: ${{ secrets.AMO_JWT_SECRET }}
+          AMO_JWT_ISSUER: ${{ secrets.AMO_JWT_ISSUER }}
+          AMO_JWT_SECRET: ${{ secrets.AMO_JWT_SECRET }}
+        run: |
+          V="${{ steps.version.outputs.version }}"
+          if node amo/amo.mjs status "$V" >/dev/null 2>&1; then
+            echo "Version $V is already on AMO; not submitting again."
+          else
+            node amo/amo.mjs metadata "$V" build/amo-metadata.json
+            # --approval-timeout 0: submit and return; the next step waits for
+            # the signature itself, so a long review isn't a failure.
+            npx --yes web-ext@8 sign \
+              --channel listed \
+              --source-dir build/extension \
+              --artifacts-dir dist \
+              --amo-metadata build/amo-metadata.json \
+              --approval-timeout 0 \
+              --timeout 600000
+          fi
+
+      - name: Wait for AMO's signature
+        id: amo
+        if: env.MODE != 'submit-unlisted'
+        env:
+          AMO_JWT_ISSUER: ${{ secrets.AMO_JWT_ISSUER }}
+          AMO_JWT_SECRET: ${{ secrets.AMO_JWT_SECRET }}
+        run: |
+          V="${{ steps.version.outputs.version }}"
+          mkdir -p dist
+          MINUTES="$APPROVAL_MINUTES"
+          [ "$MODE" = publish-approved ] && MINUTES=0
+          node amo/amo.mjs wait "$V" --minutes "$MINUTES" --out "dist/enso-$V.xpi"
 
       - name: Sign the extension (unlisted, self-distributed)
+        if: env.MODE == 'submit-unlisted'
         env:
           WEB_EXT_API_KEY: ${{ secrets.AMO_JWT_ISSUER }}
           WEB_EXT_API_SECRET: ${{ secrets.AMO_JWT_SECRET }}
@@ -115,12 +187,43 @@ jobs:
           test -n "$XPI"
           mv "$XPI" "dist/enso-${{ steps.version.outputs.version }}.xpi"
 
+      - name: Awaiting review
+        if: steps.amo.outputs.status == 'pending'
+        run: |
+          V="${{ steps.version.outputs.version }}"
+          {
+            echo "## Ensō $V: submitted, awaiting review"
+            echo
+            echo "AMO hasn't signed the listed version yet (it is in the review queue). Nothing was published to enso.wicker.life."
+            echo
+            echo "When AMO approves it, run **Release** by hand with tag \`v$V\` and mode **publish-approved**."
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "::notice::Ensō $V submitted to AMO, awaiting review. Run Release with mode publish-approved after approval."
+
+      - name: Check the signed file
+        if: env.MODE == 'submit-unlisted' || steps.amo.outputs.status == 'signed'
+        id: signed
+        run: |
+          V="${{ steps.version.outputs.version }}"
+          XPI="dist/enso-$V.xpi"
+          test -s "$XPI"
+          unzip -p "$XPI" manifest.json | node -e '
+            let s = ""; process.stdin.on("data", d => s += d).on("end", () => {
+              const m = JSON.parse(s), g = m.browser_specific_settings?.gecko ?? {};
+              if (m.version !== process.argv[1]) { console.error(`::error::signed file is ${m.version}`); process.exit(1); }
+              console.log(`signed ${m.version}, id ${g.id}, update_url ${g.update_url ?? "(none: updates from AMO)"}`);
+            });' "$V"
+          unzip -l "$XPI" | grep -q "META-INF/mozilla.rsa" || unzip -l "$XPI" | grep -q "META-INF/cose.sig" || { echo "::error::$XPI is not signed"; exit 1; }
+          echo "publish=true" >> "$GITHUB_OUTPUT"
+
       - name: Build the helper tarball
+        if: steps.signed.outputs.publish == 'true'
         run: |
           scripts/pack-helper.sh "${{ steps.version.outputs.version }}" dist
           shasum -a 256 dist/*
 
       - name: Publish to enso.wicker.life
+        if: steps.signed.outputs.publish == 'true'
         env:
           ENSO_RELEASE_TOKEN: ${{ secrets.ENSO_RELEASE_TOKEN }}
         run: |
@@ -136,8 +239,12 @@ jobs:
           publish extension "dist/enso-$V.xpi" "?strict_min_version=$STRICT_MIN_VERSION"
           publish helper "dist/enso-helper-$V-darwin.tar.gz"
           curl -fsS "$SITE/api/latest"
+          echo
+          curl -fsS "$SITE/updates.json" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const u=Object.values(JSON.parse(s).addons)[0].updates; console.log("updates.json newest:", u[0]?.version); if (u[0]?.version !== process.argv[1]) process.exit(1);})' "$V"
+          echo "## Ensō $V published (${MODE})" >> "$GITHUB_STEP_SUMMARY"
 
       - name: GitHub release
+        if: steps.signed.outputs.publish == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |

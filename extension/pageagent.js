@@ -644,20 +644,17 @@
     showRibbon();
     const base = { url: location.href, title: document.title, description: `JavaScript: ${expression.replace(/\s+/g, " ").slice(0, 100)}` };
     let value;
-    let world = "page";
+    const world = "page";
+    // Runs in the page's own world, like a script of the page (and only there:
+    // there is no fallback that runs it with the extension's privileges). A page
+    // whose Content Security Policy forbids eval can't be evaluated.
     try {
       value = pw.eval(expression);
     } catch (err) {
       const e = err?.wrappedJSObject ?? err;
       const msg = String(e?.message ?? e);
-      if (!/CSP|Content Security Policy|blocked/i.test(msg)) return { ...base, ok: false, error: `${e?.name ?? "Error"}: ${msg}`, stack: String(e?.stack ?? "").slice(0, 2000) };
-      world = "isolated";
-      try {
-        const page = pw; // eslint-disable-line no-unused-vars -- visible to the evaluated code
-        value = eval(expression); // eslint-disable-line no-eval
-      } catch (err2) {
-        return { ...base, ok: false, world, error: `${err2?.name ?? "Error"}: ${err2?.message ?? err2}`, stack: String(err2?.stack ?? "").slice(0, 2000) };
-      }
+      if (/CSP|Content Security Policy|blocked/i.test(msg)) return { ...base, ok: false, world, error: "This page's Content Security Policy blocks evaluating JavaScript. Use page_read, devtools_console or devtools_network instead." };
+      return { ...base, ok: false, error: `${e?.name ?? "Error"}: ${msg}`, stack: String(e?.stack ?? "").slice(0, 2000) };
     }
     try {
       const w = value?.wrappedJSObject ?? value;

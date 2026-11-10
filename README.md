@@ -80,7 +80,7 @@ Step by step, with what each permission is for: [site/content/docs/install.md](s
 | Developer tools | Console, network log, JavaScript and storage keys of a tab; requests with your signed-in session on sites you allow; a separate headless Zen for testing. | [help](site/content/docs/session-access.md) |
 | Other agents | A local MCP server, `zen-browser`, that Claude Code, Codex, Cursor and others reach through the `enso mcp` launcher. 44 tools; a read-only scope. | [docs/mcp.md](docs/mcp.md) |
 | Memory and history | `profile.md` and `memory.md` you can edit, per-space memory, every conversation with its tool calls, a per-site activity log, reports with charts. | [data model](docs/data-model.md) |
-| Safety | Banking, payment, password-manager and health sites are never read or acted on; cookie values and tokens are never returned to Claude; every action is logged. | [security](docs/security.md) |
+| Safety | Banking, payment, password-manager, health, tax and government sites are never read or acted on; cookie values and tokens are never returned to Claude; every action is logged. | [security](docs/security.md) |
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="https://enso.wicker.life/screenshots/sidebar-tools-dark.webp">

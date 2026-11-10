@@ -380,7 +380,7 @@ In short:
 | "Ensō only lets … read Zen right now" | External control is Read, or the connection is `--read-only`. |
 | "This connection to Zen is read-only" | Registered with `--read-only`. Run `enso mcp install` without it for full access. |
 | "The user hasn't allowed session access for …" | Add the site in Settings → Developer → Session access. |
-| "This is a private page (banking, health or similar)" | Deliberate; see [security.md](security.md#private-sites). |
+| "This is a private page (banking, health, tax or similar)" | Deliberate; see [security.md](security.md#private-sites). |
 | "This tab is unloaded …" | Zen unloads tabs it hasn't shown for a while. Open or reload the tab. |
 | New tools don't show up after an update | The client cached the list. Restart the client; the launcher refreshes `mcp-tools-cache.json` on the next `tools/list` with Zen open. |
 | Two Zen windows or helpers | Only the first helper gets port 47823; the other logs "MCP server not started". Quit Zen fully and reopen. |

@@ -45,7 +45,7 @@ jobs:
           '
 
       - name: Lint the extension
-        run: npx --yes web-ext@8 lint --source-dir extension --self-hosted
+        run: npx --yes web-ext@8 lint --source-dir extension
 
       - name: Install helper dependencies
         working-directory: helper

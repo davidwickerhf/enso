@@ -23,7 +23,7 @@ Nothing else has to be installed first. If your Mac has no Node.js 18 or newer, 
 
 [Download the extension](/releases/enso-latest.xpi) in Zen. Zen asks whether to add Ensō and lists the permissions it needs ([what each one is for](#why-it-asks-for-these-permissions)); click **Add**.
 
-The extension is signed by Mozilla for self-distribution, so it installs with signature checks on. It updates itself from this site.
+The extension is signed by Mozilla, so it installs with signature checks on, and it updates itself (from addons.mozilla.org since 0.5.5).
 
 ## 2. Run one command
 

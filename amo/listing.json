@@ -1,0 +1,20 @@
+{
+  "guid": "enso@wicker.life",
+  "default_locale": "en-US",
+  "slug": "enso",
+  "name": "Ensō",
+  "summary": "An assistant in your Zen browser: chat with Claude about the page you're on, a calm new-tab home with your calendar, tasks and mail, and your signed-in browser as a tool for Claude Code, Codex and other agents. Needs a small helper app (macOS).",
+  "categories": { "firefox": ["search-tools", "web-development"] },
+  "license": "MIT",
+  "homepage": "https://enso.wicker.life",
+  "support_url": "https://enso.wicker.life/docs",
+  "support_email": "hello@enso.wicker.life",
+  "requires_payment": false,
+  "is_experimental": false,
+  "tags": [],
+  "description_file": "description.md",
+  "approval_notes_file": "approval-notes.md",
+  "privacy_policy_source": "../site/content/privacy.md",
+  "icon": "icon-128.png",
+  "previews": ["previews/1-new-tab.png", "previews/2-sidebar-chat.png", "previews/3-setup.png"]
+}

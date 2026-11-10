@@ -1,6 +1,6 @@
 # 004: Unlisted signing on addons.mozilla.org, updates served by enso.wicker.life
 
-Status: accepted in 0.5.0 (9 November 2026).
+Status: accepted in 0.5.0 (9 November 2026); signing superseded by [007](007-listed-amo-channel.md) in 0.5.5. The site still serves the update feed for self-hosted copies.
 
 ## Context
 

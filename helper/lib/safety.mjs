@@ -8,9 +8,11 @@ import { getSettings, updateSettings } from "./store.mjs";
 import { send } from "./native.mjs";
 
 const globToRegExp = g => new RegExp(`^${g.replace(/[.+^${}()|[\]\\]/g, "\\$&").replace(/\*/g, ".*")}$`, "i");
-const SENSITIVE = (config.sensitiveHosts ?? []).map(globToRegExp);
+/** A private-site pattern: `*` is a wildcard, and `*.example.com` also covers example.com itself. */
+export const sensitivePatternRegExp = p => (String(p).startsWith("*.") ? new RegExp(`^(.*\\.)?${globToRegExp(String(p).slice(2)).source.slice(1)}`, "i") : globToRegExp(String(p)));
+const SENSITIVE = (config.sensitiveHosts ?? []).map(sensitivePatternRegExp);
 
-/** Banking, health and similar sites (config.sensitiveHosts, plus config.local.json additions): never read, acted on, fetched or copied. */
+/** Banking, payment, password-manager, health, tax and government sites (config.sensitiveHosts, plus config.local.json additions): never read, acted on, fetched or copied. */
 export function isSensitiveHost(hostOrUrl) {
   let host = String(hostOrUrl ?? "");
   try {

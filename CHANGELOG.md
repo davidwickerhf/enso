@@ -26,6 +26,28 @@ Setup from inside Ensō: one command, then buttons.
   own Node.js 24 with a pinned SHA-256 when the Mac has no Node 18+; doesn't
   reopen the extension when Zen already has it; writes `install.json`; ends with
   a short summary.
+- **Tax and government sites are private.** The private-site list now covers
+  tax authorities and government sign-in portals (Belastingdienst, Toeslagen,
+  MijnOverheid, DigiD, IRS, Social Security, Login.gov, HMRC and GOV.UK tax
+  services, GOV.UK One Login, ELSTER, impots.gouv.fr, Agenzia delle Entrate,
+  Agencia Tributaria, MyMinfin, ATO, myGov, Inland Revenue NZ). A pattern like
+  `*.paypal.com` now also covers `paypal.com` itself, and the extension knows
+  the whole list before the helper connects.
+- **"Off" really stops the Home brief.** Settings → Home → Refresh the briefing
+  → Off used to still refresh when Ensō connected; now the brief only runs from
+  its refresh button. The setting says what each refresh sends.
+- **`page_eval` runs only in the page.** On pages whose Content Security Policy
+  blocks eval it now returns an error instead of running in Ensō's content
+  script.
+- **Privacy policy.** Now also describes the Home brief, Claude Code's own
+  transcripts, what other agents read, screenshots, OAuth-connected tools
+  (monday.com, Commonfold), search suggestions, the addons.mozilla.org listing,
+  and the full private-site list; sync is marked as not available yet.
+- **On addons.mozilla.org.** Releases are submitted as a listed add-on, with
+  the listing kept in `amo/`. Copies installed from enso.wicker.life move to
+  AMO updates with this release. The manifest declares its data collection
+  (website content, browsing activity, search terms) for Firefox's consent
+  prompt.
 
 ## 0.5.4 (10 November 2026)
 

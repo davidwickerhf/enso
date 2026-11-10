@@ -434,7 +434,7 @@ async function pageInfo(s) {
 async function guardHost(s) {
   const info = await pageInfo(s);
   try {
-    if (isSensitiveHost(new URL(info.url).hostname)) throw new Error("The headless browser is on a private site (banking, health or similar); reading and acting are off there.");
+    if (isSensitiveHost(new URL(info.url).hostname)) throw new Error("The headless browser is on a private site (banking, health, tax or similar); reading and acting are off there.");
   } catch (err) {
     if (err.message.startsWith("The headless")) throw err;
   }

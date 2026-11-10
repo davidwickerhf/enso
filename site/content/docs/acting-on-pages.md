@@ -38,9 +38,9 @@ Approvals look the same as for other tools: **Allow**, **Always allow** or **Den
 
 ## Private sites
 
-Banking, payment, password-manager and health sites are **never read or acted on**. When one is open, the page chip in the composer shows a lock, the page and screenshots are not sent with your message, and page tools refuse to run on it.
+Banking, payment, password-manager, health, tax and government sites are **never read or acted on**. When one is open, the page chip in the composer shows a lock, the page and screenshots are not sent with your message, and page tools refuse to run on it.
 
-The list ships with PayPal, Wise, Revolut, bunq, N26, Monzo, Chase, American Express, 1Password, Bitwarden, LastPass and Dashlane, and any site whose address contains `bank`, `health` or `patient`. It is short, so if your bank's address doesn't contain "bank", add it under `sensitiveHosts` in `~/Library/Application Support/Enso/config.local.json` (patterns use `*` as a wildcard, for example `"*.mybank.example"`) and restart Zen. You can add to the list but not remove from it.
+The full list (banks and payment services, password managers, health sites, tax authorities and government sign-in portals) and how to add your own sites is in [Privacy & data](/docs/privacy-data#private-sites).
 
 ## Where it acts
 
