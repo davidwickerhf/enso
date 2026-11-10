@@ -115,7 +115,7 @@ const tabInfo = t => (t ? { tabId: t.id, title: t.title ?? "", url: t.url ?? "",
 
 async function ensureAgent(tabId) {
   try {
-    const pong = await browser.tabs.sendMessage(tabId, { enso: true, action: "text", args: {} });
+    const pong = await browser.tabs.sendMessage(tabId, { enso: true, action: "ping", args: {} });
     if (pong?.ok) return;
   } catch {}
   await browser.tabs.executeScript(tabId, { file: "/pageagent.js", runAt: "document_idle" });
@@ -139,13 +139,13 @@ async function agent(tabId, action, args, who) {
 
 function waitForLoad(tabId, timeoutMs = 30_000) {
   return new Promise(resolve => {
-    const done = () => {
+    const done = timedOut => {
       browser.tabs.onUpdated.removeListener(listener);
       clearTimeout(timer);
-      browser.tabs.get(tabId).then(t => resolve({ url: t.url, title: t.title }), () => resolve({}));
+      browser.tabs.get(tabId).then(t => resolve({ url: t.url, title: t.title, ...(timedOut && t.status !== "complete" ? { timedOut: true, waitedMs: timeoutMs } : {}) }), () => resolve({}));
     };
-    const listener = (id, info) => id === tabId && info.status === "complete" && done();
-    const timer = setTimeout(done, timeoutMs);
+    const listener = (id, info) => id === tabId && info.status === "complete" && done(false);
+    const timer = setTimeout(() => done(true), timeoutMs);
     browser.tabs.onUpdated.addListener(listener);
   });
 }
@@ -331,6 +331,54 @@ async function networkLog(args) {
   return { tabId, url: tab.url, now: Date.now(), total: all.length, requests, recording: netTabs.has(tabId) };
 }
 
+// ---------- page_wait and page_upload ----------
+
+const { createReassembler, createUploadStore } = globalThis.EnsoTransfer; // transfer.js, loaded first
+const chunks = createReassembler();
+const uploads = createUploadStore();
+const clampMs = globalThis.EnsoWaits.clampMs;
+
+// page_wait's loop and conditions live in waits.js (tested under Node); this wires it to the tab, the page agent and the request log.
+const waitFor = globalThis.EnsoWaits.createWaiter({
+  getTab: tabId => browser.tabs.get(tabId),
+  isSensitive: url => isSensitive(url),
+  probe: (tabId, args) => agent(tabId, "probe", args),
+  requests: tabId => netTabs.get(tabId) ?? [],
+});
+
+const UPLOAD_PART_BYTES = 8 * 1024 * 1024; // bytes per message to the page agent
+
+/** page_upload, after the helper staged the files: hand them to the page agent, which attaches or drops them. */
+async function uploadToPage(tabId, args, who) {
+  const files = await uploads.take(args.uploadId, args.sha256);
+  for (let index = 0; index < files.length; index++) {
+    const f = files[index];
+    const meta = { name: f.name, type: f.type, lastModified: f.lastModified, size: f.size };
+    // Group the 512 KiB parts into messages of up to 8 MB (one empty part for an empty file).
+    let group = [];
+    let groupBytes = 0;
+    const flush = async last => {
+      const bytes = new Uint8Array(groupBytes);
+      let at = 0;
+      for (const p of group) {
+        bytes.set(p, at);
+        at += p.byteLength;
+      }
+      await agent(tabId, "upload_part", { uploadId: args.uploadId, index, count: files.length, meta, bytes, last });
+      group = [];
+      groupBytes = 0;
+    };
+    for (const p of f.parts) {
+      if (groupBytes && groupBytes + p.byteLength > UPLOAD_PART_BYTES) await flush(false);
+      group.push(p);
+      groupBytes += p.byteLength;
+    }
+    await flush(true);
+  }
+  const r = await agent(tabId, "upload", { uploadId: args.uploadId, ref: args.ref ?? null, selector: args.selector ?? "", mode: args.mode ?? null }, who);
+  return { ...r, target: `${files.map(f => f.name).join(", ")} → ${r.description}`.slice(0, 300) }; // for the activity log
+}
+
 async function containerName(cookieStoreId) {
   if (!cookieStoreId || cookieStoreId === "firefox-default") return null;
   try {
@@ -435,12 +483,14 @@ async function pageAction(tabId, action, args, who) {
   if (action === "navigate") {
     if (!isWeb(args.url)) throw new Error("Only http(s) URLs can be opened.");
     await browser.tabs.update(tabId, { url: args.url });
-    return waitForLoad(tabId);
+    return waitForLoad(tabId, clampMs(args.timeoutMs, 40_000));
   }
   if (action === "back") {
     await browser.tabs.goBack(tabId);
-    return waitForLoad(tabId, 15_000);
+    return waitForLoad(tabId, clampMs(args.timeoutMs, 25_000));
   }
+  if (action === "wait") return waitFor(tabId, args);
+  if (action === "upload") return uploadToPage(tabId, args, who);
   if (action === "screenshot") {
     const tab = await browser.tabs.get(tabId);
     if (isSensitive(tab.url)) throw new Error("This is a private page; screenshots are off here.");
@@ -501,6 +551,12 @@ async function browserAction(action, args) {
     case "open_report":
       await browser.tabs.create({ url: browser.runtime.getURL(`report.html?id=${encodeURIComponent(args.id)}`) });
       return {};
+    case "upload_begin":
+      return uploads.begin(args);
+    case "upload_chunk":
+      return uploads.chunk(args);
+    case "upload_discard":
+      return { discarded: uploads.discard(args.uploadId) };
     case "network_log":
       return networkLog(args);
     case "session_fetch":
@@ -737,7 +793,18 @@ function connectNative() {
     scheduleHelperRetry();
     return null;
   }
-  native.onMessage.addListener(async msg => {
+  native.onMessage.addListener(async frame => {
+    let msg = frame;
+    if (frame?.type === "chunk") {
+      // A message over native messaging's 1 MB limit, in parts (transfer.js).
+      try {
+        msg = chunks.accept(frame);
+      } catch (err) {
+        console.error("Ensō: dropped a chunked message from the helper:", err.message);
+        return;
+      }
+      if (!msg) return; // more parts to come
+    }
     if (!helperGotMessage) {
       helperGotMessage = true;
       helperConnectedAt = Date.now();

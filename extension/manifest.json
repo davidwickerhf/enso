@@ -34,6 +34,8 @@
   ],
   "background": {
     "scripts": [
+      "transfer.js",
+      "waits.js",
       "ui/route.js",
       "background.js"
     ]

@@ -517,6 +517,28 @@ pages the assistant acted on (`actions.list`).
 `{ type: "page.request", reqId, tabId, action, args, agent? }` →
 `{ type: "page.response", reqId, ok, result?, error? }`
 
+### Chunked messages
+
+Native messaging caps a message from the helper to the extension at 1 MB (the
+other direction allows 4 GB). The helper (`lib/native.mjs`) sends any message
+whose JSON is over 900,000 bytes as frames
+`{ type: "chunk", id, seq, total, data }`: `data` is a slice of up to 700,000
+characters of the base64 of the message's UTF-8 JSON. background.js puts them
+back together with `extension/transfer.js` (any order, repeats ignored,
+abandoned after 60 s) and handles the result as if it had arrived whole. A
+message over 64 MB is not sent: a request gets the error "This request is too
+large to send to the browser … Nothing was sent.", other messages a short
+"message too large" notice. Files for `page_upload` don't use this: they
+stream as `upload_chunk` requests (below).
+
+### Timeouts
+
+The helper waits 20 s for most answers; `navigate` 45 s, `back` 30 s, `wait`,
+`eval` 30 s, `upload` 60 s and `session_fetch` 75 s, each plus 5 s. A request
+carrying `args.timeoutMs` (1,000 to 120,000) waits that long plus 5 s
+(`lib/timeouts.mjs`). When time runs out the tool error says the action may
+still be running and how to check before retrying.
+
 `agent` (also on `browser.request`) names the MCP client acting ("Codex",
 "Cursor", …) when the request comes from the zen-browser server; background.js
 passes it to the page agent with the action, and the pill and outline flash name
@@ -532,13 +554,17 @@ whole session.
 | `select` | `ref`, `value` | `{ description }` |
 | `press` | `key` | |
 | `scroll` | `direction` (`up`/`down`), `ref?` | |
-| `navigate` | `url` | `{ url, title }` |
-| `back` | | `{ url, title }` |
+| `navigate` | `url`, `timeoutMs?` | `{ url, title, timedOut?, waitedMs? }`; `timedOut` when the tab was still loading after `timeoutMs` (default 40 s) |
+| `back` | `timeoutMs?` | `{ url, title, timedOut?, waitedMs? }` (default 25 s) |
+| `wait` | `for` (`selector`, `gone`, `text`, `url`, `network_idle`, `load`), `value?`, `visible?`, `idleMs?`, `timeoutMs?` | `{ met, timedOut?, ms, detail, url, title }`. Polls every 200 ms (`extension/waits.js`) until the condition holds or `timeoutMs` (default 30 s, max 120 s) passes; selector, gone and text are `probe`s to the page agent, re-injected after a navigation; `network_idle` uses the request log (websockets, beacons and requests open over 15 s don't count) |
+| `upload` | `uploadId`, `sha256` (one hex digest per file), `files` (labels for the approval), `ref?` or `selector?`, `mode?` (`input`, `drop`), `timeoutMs?` | `{ mode, description, received: [{ name, size, type, lastModified }], url, title }`, plus `accept`, `notAccepted`, `multiple` (input) or `handled`, `overAccepted` (drop: whether the page called `preventDefault`). background.js takes the files staged by `upload_begin`/`upload_chunk`, checks each file's size and SHA-256, and sends them to the page agent as `upload_part` messages (raw bytes, up to 8 MB each), then `upload`. |
 | `screenshot` | | `{ dataUrl }` (PNG) |
 | `console` | `since?` (ms), `level?`, `limit?` | `{ tabId, url, now, started, dropped, entries: [{ t, level, text, source?, stack? }] }`; the first call for a tab starts capture (`started: true`); `level: "nav"` entries mark navigations |
-| `eval` | `expression` | `{ ok, world: "page", type?, json?, error?, stack?, url, title, description }` (page world only; a page whose CSP blocks eval returns an error, since 0.5.5) |
+| `eval` | `expression`, `awaitPromise?` (default true), `timeoutMs?` (default 30 s, max 120 s) | `{ ok, world: "page", type?, json?, error?, stack?, timedOut?, waitedMs?, url, title, description }` (page world only; a page whose CSP blocks eval returns an error, since 0.5.5). `timedOut`: a returned promise didn't settle in time; the code keeps running in the page. |
 | `presence` | `{ label, task, running, paused, stopped, titlePrefix }`, or `{ off: true }` | `{ shown, title }`. Sent by background.js itself (not the host) from `agents`: shows or updates the session pill and the "✦ " title prefix, or removes both (the page's latest own title restored exactly). |
 | `pill_ready` / `pill_hint` | — / `{ text }` | background.js → page agent: the pill's frame loaded (clicks go to it now) / a short hint on the pill ("Press ⌘E for Ensō", or Ctrl+E off macOS) |
+| `ping` / `probe` | — / `{ for, value, visible? }` | background.js → page agent: is it injected (cheap, unlike `text`) / one check for `wait`: `{ met, detail }` |
+| `upload_part` / `upload` | `{ uploadId, index, count, meta: { name, type, lastModified, size }, bytes: Uint8Array }` / `{ uploadId, ref?, selector?, mode? }` | background.js → page agent. The page agent builds `File` objects (in Firefox in the page's compartment: `new window.wrappedJSObject.File(cloneInto(parts, …))`, a page `DataTransfer`, page events, so the page can read them) and sets them on the input (`input.files = dataTransfer.files`, then `input` and `change`) or fires `dragenter`, `dragover`, `drop` on the element. `selector` also searches open shadow roots; a `<label>` leads to its input. |
 | `storage` | `includeValues?` | `{ url, local: [{ key, length, value? }], session: [...], cookies: [{ name, domain, path, secure, httpOnly, sameSite, session, expires, partitioned }], container }`; cookie values are never included, credential-looking storage values are redacted |
 
 The envelope's `tabId` can be any tab, not only the active one: developer tools
@@ -560,6 +586,9 @@ Browser-level actions use the same envelope (`browser.request` / `browser.respon
 | `open_report` | `id` | opens `report.html?id=…` in a new tab |
 | `network_log` | `tabId?`, `filter?` (substring or `/regex/`), `type?`, `failedOnly?`, `since?`, `includeHeaders?`, `limit?` | `{ tabId, url, now, total, requests: [{ id, t, method, url, type, status, ms, fromCache, ip, reqSize, resSize, initiator, error?, requestHeaders?, responseHeaders? }] }` (ring buffer of 500 per tab, recorded for all web tabs; secret query values and cookie/auth/token header values redacted; never bodies) |
 | `session_fetch` | `url`, `method`, `headers`, `body?`, `maxChars` | `{ status, statusText, url, redirected, headers, contentType, body, bodyLength, truncated, tabOrigin, tabTitle, tabId, openedTab, container }`: made with `content.fetch` inside a tab of that origin (an open one in the current space's container, else a background tab in the site's container, closed afterwards) |
+| `upload_begin` | `uploadId`, `files: [{ name, type, lastModified, size }]` | `{ uploadId, files, bytes }`: starts staging files for `upload` (dropped after 5 minutes unused) |
+| `upload_chunk` | `uploadId`, `index`, `offset`, `data` (base64 of up to 512 KiB of the file, in order) | `{ received }` |
+| `upload_discard` | `uploadId` | `{ discarded }`: after an error or a refusal |
 | `site_cookies` | `hosts` | `{ "<host>": { container, containerName, cookies: [...] } }` with values, for the helper to build the headless profile; the helper never passes them to Claude |
 
 The pill's click target, `pill.html` (web-accessible, laid transparently over

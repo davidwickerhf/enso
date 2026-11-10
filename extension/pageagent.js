@@ -408,8 +408,164 @@
     return selecting;
   }
 
+  // ---------- page_upload and page_wait ----------
+  // Files arrive from background.js in upload_part messages (raw bytes, up to
+  // 8 MB each, never altered) and become File objects with the name, type and
+  // lastModified of the file on disk. In Firefox they are built in the page's
+  // own compartment (window.wrappedJSObject, cloneInto): DataTransfer hides
+  // items added under the content script's principal from the page, and the
+  // page can't use objects owned by the content script. Then either
+  //   input  input.files = DataTransfer.files, then input + change events, or
+  //   drop   dragenter / dragover / drop with that DataTransfer on a drop zone.
+  // No code is evaluated; this works in the listed build.
+
+  const incoming = new Map(); // uploadId -> { files: [{ meta, parts: Uint8Array[] }], at }
+  function uploadPart({ uploadId, index, count, meta, bytes }) {
+    for (const [id, u] of incoming) if (Date.now() - u.at > 5 * 60_000) incoming.delete(id);
+    let u = incoming.get(uploadId);
+    if (!u) incoming.set(uploadId, (u = { files: new Array(count).fill(null).map(() => ({ meta: null, parts: [] })), at: Date.now() }));
+    const f = u.files[index];
+    if (!f) throw new Error(`No file ${index} in this upload.`);
+    f.meta = meta;
+    if (bytes && bytes.byteLength) f.parts.push(bytes);
+    u.at = Date.now();
+    return { received: f.parts.reduce((n, p) => n + p.byteLength, 0) };
+  }
+
+  const pageWin = window.wrappedJSObject ?? null; // Firefox: the page's own window, waived
+  const inPage = typeof cloneInto === "function" && pageWin;
+  function makeFile({ meta, parts }) {
+    const got = parts.reduce((n, p) => n + p.byteLength, 0);
+    if (got !== meta.size) throw new Error(`${meta.name} arrived incomplete in the page (${got} of ${meta.size} bytes); nothing was attached.`);
+    const opts = { type: meta.type ?? "", lastModified: meta.lastModified || Date.now() };
+    if (inPage) return new pageWin.File(cloneInto(parts, pageWin), meta.name, cloneInto(opts, pageWin));
+    return new File(parts, meta.name, opts);
+  }
+  const newDataTransfer = () => (inPage ? new pageWin.DataTransfer() : new DataTransfer());
+  function pageEvent(ctor, type, init) {
+    if (!inPage) return new window[ctor](type, init);
+    const i = new pageWin.Object();
+    for (const [k, v] of Object.entries(init)) i[k] = v;
+    return new pageWin[ctor](type, i);
+  }
+  const unwrap = el => (inPage ? el.wrappedJSObject ?? el : el);
+
+  /** querySelector, then into open shadow roots (many upload widgets live in one). */
+  function deepQuery(selector, all = false) {
+    const found = [];
+    const visit = root => {
+      if (all) found.push(...root.querySelectorAll(selector));
+      else if (!found.length) {
+        const el = root.querySelector(selector);
+        if (el) found.push(el);
+      }
+      if (!all && found.length) return;
+      for (const host of root.querySelectorAll("*")) if (host.shadowRoot) visit(host.shadowRoot);
+    };
+    try {
+      visit(document);
+    } catch (err) {
+      throw new Error(`Invalid CSS selector ${JSON.stringify(selector)}: ${err.message}`);
+    }
+    return all ? found : found[0] ?? null;
+  }
+
+  const isFileInput = el => el?.tagName === "INPUT" && String(el.type).toLowerCase() === "file";
+  function fileInputFor(el) {
+    if (isFileInput(el)) return el;
+    if (el?.tagName === "LABEL" && isFileInput(el.control)) return el.control;
+    const inside = el?.querySelectorAll?.('input[type="file" i]') ?? [];
+    return inside.length === 1 ? inside[0] : null;
+  }
+
+  function accepts(input, file) {
+    const accept = String(input.getAttribute("accept") ?? "").trim();
+    if (!accept) return true;
+    const name = file.name.toLowerCase();
+    const type = String(file.type ?? "").toLowerCase();
+    return accept.split(",").map(a => a.trim().toLowerCase()).filter(Boolean).some(a => (a.startsWith(".") ? name.endsWith(a) : a.endsWith("/*") ? type.startsWith(a.slice(0, -1)) : type === a));
+  }
+
+  const listFiles = list => Array.from(list ?? [], f => ({ name: f.name, size: f.size, type: f.type, lastModified: f.lastModified }));
+
+  function upload({ uploadId, ref, selector, mode }) {
+    const u = incoming.get(uploadId);
+    incoming.delete(uploadId);
+    if (!u || u.files.some(f => !f.meta)) throw new Error("The files didn't reach the page; call page_upload again.");
+    let el = null;
+    if (ref != null) {
+      el = refs.get(Number(ref));
+      if (!el || !el.isConnected) throw new Error(`Element [${ref}] is gone; call page_read again.`);
+    } else if (selector) {
+      el = deepQuery(selector);
+      if (!el) throw new Error(`No element matches ${JSON.stringify(selector)}.`);
+    } else throw new Error("Give the ref (from page_read) or a CSS selector of the file input or drop zone.");
+    const input = fileInputFor(el);
+    const how = mode ?? (input ? "input" : "drop");
+    const files = u.files.map(makeFile);
+    const metas = u.files.map(f => f.meta);
+    const shown = input && visible(input) ? input : visible(el) ? el : null;
+    showRibbon();
+    if (shown) {
+      shown.scrollIntoView({ block: "center", inline: "nearest" });
+      highlight(shown, how === "drop" ? "dropping files" : "attaching files");
+    }
+    const dt = newDataTransfer();
+    for (const f of files) dt.items.add(f);
+    const base = { url: location.href, title: document.title };
+    if (how === "input") {
+      if (!input) {
+        const n = deepQuery('input[type="file" i]', true).length;
+        throw new Error(`${describe(el)} is not a file input${n ? `; this page has ${n} file input${n === 1 ? "" : "s"}: pass selector "input[type=file]" (or a more specific one)` : ""}. For a drop zone use mode "drop".`);
+      }
+      if (input.disabled) throw new Error(`${describe(input)} is disabled.`);
+      if (files.length > 1 && !input.multiple) throw new Error(`${describe(input)} takes one file (no multiple attribute); you gave ${files.length}.`);
+      unwrap(input).files = dt.files;
+      for (const type of ["input", "change"]) unwrap(input).dispatchEvent(pageEvent("Event", type, { bubbles: true, composed: true }));
+      const received = listFiles(input.files);
+      const notAccepted = metas.filter(m => !accepts(input, m)).map(m => m.name);
+      return { ...base, mode: "input", description: describe(input), received, accept: input.getAttribute("accept") || null, notAccepted, multiple: !!input.multiple };
+    }
+    if (how !== "drop") throw new Error(`Unknown mode ${how}; use "input" or "drop".`);
+    const r = el.getBoundingClientRect();
+    const point = { clientX: Math.round(r.left + r.width / 2), clientY: Math.round(r.top + r.height / 2) };
+    try {
+      dt.dropEffect = "copy";
+      dt.effectAllowed = "all";
+    } catch {}
+    const fire = type => {
+      const ev = pageEvent("DragEvent", type, { bubbles: true, cancelable: true, composed: true, dataTransfer: dt, ...point });
+      unwrap(el).dispatchEvent(ev);
+      return ev.defaultPrevented;
+    };
+    fire("dragenter");
+    const overAccepted = fire("dragover");
+    const handled = fire("drop");
+    return { ...base, mode: "drop", description: describe(el), received: listFiles(dt.files), handled, overAccepted };
+  }
+
+  /** One check for page_wait (background.js polls it). */
+  function probe({ for: kind, value, visible: needVisible = true }) {
+    if (kind === "text") {
+      const text = document.body?.innerText ?? "";
+      const re = /^\/(.+)\/([a-z]*)$/.exec(String(value ?? ""));
+      const met = re ? new RegExp(re[1], re[2]).test(text) : text.includes(String(value ?? ""));
+      return { met, detail: met ? `text ${JSON.stringify(String(value).slice(0, 80))} is on the page` : `text not on the page yet` };
+    }
+    const els = deepQuery(String(value ?? ""), true);
+    const shown = els.filter(visible);
+    const present = needVisible ? shown.length : els.length;
+    if (kind === "selector") return { met: present > 0, detail: present ? `${present} matching element${present === 1 ? "" : "s"}${needVisible ? " visible" : ""}` : els.length ? `${els.length} match${els.length === 1 ? "es" : ""} but hidden` : "no element matches yet" };
+    if (kind === "gone") return { met: present === 0, detail: present ? `${present} matching element${present === 1 ? "" : "s"} still ${needVisible ? "visible" : "present"}` : "no matching element" + (needVisible ? " is visible" : "") };
+    throw new Error(`Unknown probe ${kind}.`);
+  }
+
   const actions = {
     snapshot,
+    ping: () => ({ url: location.href }),
+    probe,
+    upload_part: uploadPart,
+    upload,
     click({ ref }) {
       const el = target(ref, "clicking");
       const description = describe(el);
@@ -640,7 +796,7 @@
   }
 
   const MAX_JSON = 20_000;
-  async function evaluate({ expression }) {
+  async function evaluate({ expression, awaitPromise = true, timeoutMs = 30_000 }) {
     showRibbon();
     const base = { url: location.href, title: document.title, description: `JavaScript: ${expression.replace(/\s+/g, " ").slice(0, 100)}` };
     let value;
@@ -658,15 +814,17 @@
     }
     try {
       const w = value?.wrappedJSObject ?? value;
-      if (w && typeof w.then === "function") {
+      if (w && typeof w.then === "function" && awaitPromise !== false) {
+        const wait = Math.min(120_000, Math.max(1_000, Number(timeoutMs) || 30_000));
         value = await new Promise((resolve, reject) => {
-          const timer = setTimeout(() => reject(new Error("The promise did not settle within 10 s.")), 10_000);
+          const timer = setTimeout(() => reject(Object.assign(new Error(`The promise did not settle within ${Math.round(wait / 1000)} s.`), { timedOut: wait })), wait);
           const ok = exportFunction(x => (clearTimeout(timer), resolve(x)), pw);
           const fail = exportFunction(x => (clearTimeout(timer), reject(x)), pw);
           w.then(ok, fail);
         });
       }
     } catch (err) {
+      if (err?.timedOut) return { ...base, ok: false, world, timedOut: true, waitedMs: err.timedOut, error: err.message };
       const e = err?.wrappedJSObject ?? err;
       return { ...base, ok: false, world, error: `Rejected: ${e?.name ? `${e.name}: ${e.message}` : fmtArg(err)}`, stack: String(e?.stack ?? "").slice(0, 2000) };
     }
@@ -725,7 +883,7 @@
     return { status: res.status, statusText: res.statusText, url: res.url, redirected: res.redirected, headers: hdrs, contentType: type, body: text.length > cap ? text.slice(0, cap) : text, bodyLength: length, truncated: text.length > cap, tabOrigin: location.origin, tabTitle: document.title };
   }
 
-  const PASSIVE = new Set(["presence", "pill_ready", "pill_hint", "text", "console_flush", "region_select", "region_key", "page_size"]); // not an action by anyone
+  const PASSIVE = new Set(["presence", "pill_ready", "pill_hint", "text", "ping", "probe", "upload_part", "console_flush", "region_select", "region_key", "page_size"]); // not an action by anyone
   browser.runtime.onMessage.addListener(msg => {
     if (!msg?.enso) return undefined;
     return (async () => {

@@ -24,6 +24,7 @@ Why it is local and why there is a launcher: [records/001-local-mcp-server.md](r
 - [Controls in Ensō](#controls-in-ensō)
 - [Sessions and steering](#sessions-and-steering)
 - [Tool reference](#tool-reference)
+- [Files, waiting, timeouts and limits](#files-waiting-timeouts-and-limits)
 - [Etiquette for agents](#etiquette-for-agents)
 - [Troubleshooting](#troubleshooting)
 
@@ -261,7 +262,7 @@ unchanged.
 
 ## Tool reference
 
-47 tools, from the definitions in `helper/lib/pagetools.mjs`,
+49 tools, from the definitions in `helper/lib/pagetools.mjs`,
 `browsertools.mjs`, `devtools.mjs`, `headless.mjs` and `github.mjs`, plus the
 three session tools above from `mcpserver.mjs` (Ensō 0.5.3).
 **Kind** is the tool's `kind` in the code: `read` tools never ask in Ensō, `act`
@@ -282,8 +283,10 @@ tool also takes `tabId?` (from `tabs_list`; default: the active tab).
 | `page_type` | Type into an input, textarea or editable element, replacing its content; `submit` presses Enter afterwards. Without `ref`, types into the focused field. On Google Docs, without `ref` (or with the page/canvas's ref) it inserts at Docs' cursor through its hidden input frame; newlines start paragraphs. | act | no | `ref?`, `text`, `submit?`, `tabId?`; `requested_by_user`, `irreversible` |
 | `page_select` | Choose an option in a `<select>` by visible text or value. | act | no | `ref`, `value`, `tabId?`; `requested_by_user`, `irreversible` |
 | `page_press` | Press a key on the focused element (Enter, Escape, Tab, ArrowDown, …). | act | no | `key`, `tabId?`; `requested_by_user`, `irreversible` |
-| `page_navigate` | Open an http(s) URL in the tab. | act | no | `url`, `tabId?`; `requested_by_user`, `irreversible` |
-| `page_back` | Go back in the tab. | act | no | `tabId?`; `requested_by_user`, `irreversible` |
+| `page_navigate` | Open an http(s) URL in the tab and wait for it to load (40 s by default; still loading after that is reported, not an error). | act | no | `url`, `timeoutMs?`, `tabId?`; `requested_by_user`, `irreversible` |
+| `page_back` | Go back in the tab. | act | no | `timeoutMs?`, `tabId?`; `requested_by_user`, `irreversible` |
+| `page_wait` | Wait until a condition holds: `selector` (a matching element is visible; `visible: false` accepts hidden ones), `gone` (none visible any more), `text` (in the page text; `/regex/` allowed), `url` (contains, or `/regex/`), `network_idle` (no request open for `idleMs`, default 500), `load`. Returns as soon as it holds, or at `timeoutMs` with what it last saw. Survives navigations. | read | yes | `for`, `value?`, `visible?`, `idleMs?`, `timeoutMs?` (default 30 s, max 120 s), `tabId?` |
+| `page_upload` | Attach files from this computer, unchanged: set them on an `<input type=file>` (mode `input`) or drop them on a drop zone (mode `drop`). Target by `ref` or CSS `selector` (`input[type=file]` finds hidden inputs and ones in open shadow roots). Returns what the page received; doesn't wait for the site's own upload. | act | no | `paths` (absolute or `~/…`, files only, up to 20), `ref?` or `selector?`, `mode?`, `timeoutMs?`, `tabId?`; `requested_by_user`, `irreversible` |
 
 ### Tabs, history and reports
 
@@ -309,9 +312,9 @@ Off when Settings → Advanced → Developer tools is off. Refused on private si
 |---|---|---|---|---|
 | `devtools_console` | Console messages and uncaught errors of a tab, with time and source. Capture starts on the first call for a tab and survives reloads; pass the previous `now` as `since` for new entries. | read | yes | `tabId?`, `since?`, `level?` (`all`, `error`, `warn`, `info`, `log`, `debug`), `limit?` (≤ 500) |
 | `devtools_network` | Requests made by a tab (last 500): method, URL, status, type, timing, sizes, initiator. Secret header values redacted; bodies never captured. | read | yes | `tabId?`, `filter?` (substring or `/regex/`), `type?`, `failedOnly?`, `since?`, `includeHeaders?`, `limit?` |
-| `page_eval` | Run JavaScript in the page's own world and return a JSON-safe result (promises awaited 10 s). Logged. `document.cookie` is refused. | act | no | `tabId?`, `expression`; `requested_by_user`, `irreversible?` |
+| `page_eval` | Run JavaScript in the page's own world and return a JSON-safe result. A returned promise is awaited for up to `timeoutMs` (default 30 s, max 120 s; `awaitPromise: false` returns at once); on a timeout the code keeps running and the result says so. Logged. `document.cookie` is refused. | act | no | `tabId?`, `expression` (up to 8 MB), `awaitPromise?`, `timeoutMs?`; `requested_by_user`, `irreversible?` |
 | `page_storage` | localStorage and sessionStorage keys with value lengths, cookie names and flags (never values). `includeValues` adds storage values (credential-looking ones redacted) and counts as an action. | read | yes | `tabId?`, `includeValues?`; `requested_by_user?` |
-| `session_fetch` | An HTTP request made inside a tab of the site, with your signed-in session and the right container. Body capped at 100k characters. Needs the site in Session access; MCP callers also need Full, and non-GET methods need `requested_by_user`. | act | no | `url`, `method?`, `headers?`, `body?`; `requested_by_user` |
+| `session_fetch` | An HTTP request made inside a tab of the site, with your signed-in session and the right container. Body capped at 100k characters. Needs the site in Session access; MCP callers also need Full, and non-GET methods need `requested_by_user`. | act | no | `url`, `method?`, `headers?`, `body?`, `timeoutMs?` (default 75 s, max 120 s); `requested_by_user` |
 
 ### Headless Zen
 
@@ -360,6 +363,82 @@ cd helper && ENSO_DATA="$(mktemp -d)" node --input-type=module -e '
   for (const t of ALL_BROWSER_TOOLS) console.log(t.kind.padEnd(5), t.name, Object.keys(t.shape).join(","));'
 ```
 
+## Files, waiting, timeouts and limits
+
+### Giving a page a file: `page_upload`
+
+`page_upload` reads files from this computer's disk (absolute paths or `~/…`;
+no folders, no URLs) and attaches them to the page exactly as they are:
+
+1. The helper checks the paths and the total size, then streams each file to
+   the extension in 512 KiB `upload_chunk` requests (each one native message,
+   well under the 1 MB limit), computing its SHA-256 as it reads. A file that
+   changes while it is read is refused.
+2. The extension checks every file's size and SHA-256 against what was read,
+   then hands the bytes to the page agent in parts of up to 8 MB.
+3. The page agent builds `File` objects with the file's name, MIME type (from
+   the extension, like a file picker) and modification time, and either sets
+   them on the input (`input.files`, then `input` and `change` events) or fires
+   `dragenter`, `dragover` and `drop` with them on the drop zone. In Firefox and
+   Zen they are built in the page's own compartment, so the page's handlers can
+   read them; no code is evaluated, so it works in every build of Ensō.
+4. The result lists what was sent (size, type, SHA-256) and what the page
+   received; for a drop, whether the page handled it.
+
+It does not wait for the site's own upload: follow it with `page_wait` (for
+`gone` on the progress bar, `text` "Uploaded", or `network_idle`) and check
+with `page_read`. Attaching is an action like `page_type`; set `irreversible`
+when the page uploads or submits as soon as a file is attached.
+
+Target hidden inputs (the usual "Upload" button opens one) with
+`selector: "input[type=file]"`; it also searches open shadow roots, and a
+`<label>` leads to its input. A one-file input refuses several files; an
+`accept` mismatch is reported but not enforced.
+
+**Never change a user's file to get around a limit.** No shrinking, stripping,
+recompressing or re-encoding. If a file is over the limit, stop and tell the
+user. There is no way to fetch a URL into a page with `page_upload`, and none is
+needed: serving files from `localhost` doesn't reach Zen anyway.
+
+### Waiting: `page_wait`
+
+Use `page_wait` instead of polling with `page_eval` or sleeping: it checks every
+200 ms, follows navigations, and returns as soon as the condition holds or at
+`timeoutMs` with what it last saw (a timeout here is an ordinary result, not an
+error). `network_idle` uses the request log of `devtools_network`; websockets,
+beacons and requests open for over 15 s don't count, so a page with a long poll
+can still go idle.
+
+### Timeouts
+
+| Tool | Default | `timeoutMs` up to |
+|---|---|---|
+| `page_wait` | 30 s | 120 s |
+| `page_eval` (awaiting a promise) | 30 s | 120 s |
+| `page_navigate` / `page_back` (loading) | 40 s / 25 s | 120 s |
+| `page_upload` (attaching only) | 60 s, plus 0.3 s per MB | 120 s |
+| `session_fetch` | 75 s | 120 s |
+| everything else (read, click, type, select…) | 20 s | — |
+
+The helper allows 5 s on top for the answer to arrive. **A timeout doesn't mean
+the action failed**: a click, an upload or a script may still be running in Zen
+and may already have taken effect. The result says so; check the page
+(`page_read`, `page_wait`, `devtools_network`) before trying again, so nothing
+is done twice.
+
+### Size limits
+
+| What | Limit | When exceeded |
+|---|---|---|
+| One message from the helper to the extension | 1 MB (native messaging) | Messages over 900 KB go in chunks automatically |
+| One chunked message (`page_type` text, `page_eval` expression…) | 64 MB | "This request is too large to send to the browser … Nothing was sent." |
+| One MCP request to the server | 16 MB | HTTP 413 with a message pointing to `page_upload` for files |
+| `page_eval` expression | 8 MB | Validation error |
+| `page_eval` result | 20,000 characters | Cut, with a note |
+| `page_upload` | 100 MB in all, 20 files per call (`ENSO_MAX_UPLOAD_MB` in the helper's environment sets 1–500 MB) | "These files are … together; page_upload takes up to …. Nothing was sent." |
+| `session_fetch` response body | 100,000 characters | Cut, with a note |
+| `page_read` page text | 20,000 characters | Cut, with a note |
+
 ## Etiquette for agents
 
 The server's instructions (sent at `initialize`) tell clients the essentials.
@@ -383,6 +462,10 @@ In short:
 - Never try to obtain cookie values, tokens or passwords, and never enter
   passwords, payment details or one-time codes.
 - GitHub writes only when the user asked for exactly that.
+- Give pages files with `page_upload`. Never modify or shrink a user's file to
+  fit a limit; if a limit blocks you, stop and tell the user.
+- Wait with `page_wait`, not polling loops. A timeout doesn't mean failure:
+  check the page's state before retrying, so nothing is done twice.
 
 ## Troubleshooting
 
