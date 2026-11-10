@@ -9,6 +9,8 @@
 //   enso mcp install --hooks                     also add Claude Code's UserPromptSubmit hook (below)
 //   enso inbox --session-env                     the hook: prints what the user sent this agent
 //   enso t3 connect | status | disconnect        Ensō's scoped token for T3 Code (Keychain)
+//   enso setup [--json]                          the Setup checklist (what Settings → Setup shows)
+//   enso update                                  run the installer again (Setup → Update helper)
 //
 // Nothing here prints a token or a config value.
 
@@ -27,7 +29,9 @@ const USAGE = `Usage:
   enso inbox --session-env                     (run by that hook) print what the user sent this agent
   enso t3 connect                              give Ensō a T3 Code token (orchestration read + operate, 30 days)
   enso t3 status                               is T3 Code reachable, and does Ensō's token work
-  enso t3 disconnect                           revoke the token and delete it from the Keychain`;
+  enso t3 disconnect                           revoke the token and delete it from the Keychain
+  enso setup [--json]                          what's set up and what isn't (the same checks as Ensō → Settings → Setup)
+  enso update                                  download and run the installer again (updates the helper; quit and reopen Zen after)`;
 
 function parseFlags(argv) {
   const flags = { readOnly: false, client: undefined, help: false, hooks: false };
@@ -122,9 +126,67 @@ async function inboxCommand() {
   return 0;
 }
 
+/** The setup lib with the CLI's own dependencies (no helper state, nothing printed that is secret). */
+async function cliSetup() {
+  const { createSetup, keychainApiKeyStore } = await import("../lib/setup.mjs");
+  const { findClaude } = await import("../lib/claude-cli.mjs");
+  const { createT3 } = await import("../lib/t3.mjs");
+  const { dataDir } = await import("../lib/mcpauth.mjs");
+  const { readFileSync } = await import("node:fs");
+  const path = await import("node:path");
+  const read = f => {
+    try {
+      return JSON.parse(readFileSync(f, "utf8"));
+    } catch {
+      return {};
+    }
+  };
+  const settings = read(path.join(dataDir(), "settings.json"));
+  const local = read(path.join(dataDir(), "config.local.json"));
+  return createSetup({
+    claude: () => findClaude([process.env.ENSO_CLAUDE_PATH, settings.claudePath, local.claudePath]),
+    apiKeys: keychainApiKeyStore({ service: local.keychainService || "enso-anthropic", legacy: ["zen-chat-anthropic"] }),
+    t3: createT3(),
+    getSettings: () => settings,
+  });
+}
+
+async function setupCommand(flags) {
+  const st = await (await cliSetup()).status({ fresh: true });
+  if (flags.includes("--json")) {
+    console.log(JSON.stringify(st, null, 2));
+    return 0;
+  }
+  const mark = v => (v === true ? "✓" : v === false ? "·" : "!");
+  const h = st.helper;
+  console.log(`${mark(!h.updateAvailable)} Helper       ${h.version ?? "unknown"}${h.dev ? " (checkout)" : h.updateAvailable ? ` → ${h.latest} available: enso update` : h.latest ? " (up to date)" : ""}, Node ${h.node.version}${h.node.source === "private" ? " (Ensō's own)" : ""}`);
+  const sub = st.engine.subscription;
+  const engineOk = st.engine.selected === "api" ? st.engine.api.stored : sub.found && sub.loggedIn !== false;
+  const engineText = st.engine.selected === "api"
+    ? st.engine.api.stored ? "API key in the Keychain" : "API key: none stored (Settings → Setup, or security add-generic-password -s enso-anthropic -a enso -w)"
+    : !sub.found ? `Claude Code not found: ${sub.installCommand}` : sub.loggedIn === false ? "Claude Code found, not signed in: claude auth login" : `Claude Code ${sub.version ?? ""}${sub.subscriptionType ? ` (${sub.subscriptionType})` : ""}`;
+  console.log(`${mark(engineOk)} Engine       ${engineText}`);
+  for (const c of st.agents.clients) {
+    if (!c.detected && !c.registration) continue;
+    console.log(`${mark(!!c.registration)} ${c.name.padEnd(12)} ${c.registration ? `uses Zen (${c.registration === "launcher-read" ? "read only" : c.registration === "http" ? "old http entry: enso mcp install" : "full"})` : `not registered: enso mcp install --client ${c.id}`}`);
+  }
+  if (st.agents.clients.some(c => c.id === "claude" && c.registration)) console.log(`${mark(st.agents.hook)} Prompt hook  ${st.agents.hook ? "on" : "off (enso mcp install --hooks)"}`);
+  if (st.t3.installed || st.t3.connected) console.log(`${mark(st.t3.connected && st.t3.tokenValid !== false)} T3 Code      ${st.t3.connected ? (st.t3.tokenValid === false ? "token rejected: enso t3 connect" : "connected") : "not connected: enso t3 connect"}`);
+  console.log(`${mark(st.github.connected)} GitHub       ${st.github.connected ? `${st.github.login} (${st.github.via})` : st.github.ghInstalled ? "not signed in: gh auth login" : "not connected (install gh, or paste a token in Ensō)"}`);
+  return 0;
+}
+
+async function updateCommand() {
+  const r = await (await cliSetup()).run("helper.update");
+  console.log(r.ok ? `${r.message.replace(" Restarting the helper…", "")} Quit and reopen Zen (or press Reconnect in Ensō) to use it.` : r.error);
+  return r.ok ? 0 : 1;
+}
+
 async function main(argv) {
   const [cmd, sub, ...rest] = argv;
   if (cmd === "t3") return t3Command(sub);
+  if (cmd === "setup") return setupCommand([sub, ...rest].filter(Boolean));
+  if (cmd === "update") return updateCommand();
   if (cmd === "inbox") return inboxCommand();
   if (cmd !== "mcp") {
     console.log(USAGE);

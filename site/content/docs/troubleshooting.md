@@ -7,12 +7,12 @@ group: Reference
 
 # Troubleshooting
 
-## "Ensō's helper isn't running" or "The chat helper stopped"
+## "One step in Terminal", "The helper didn't start" or "Lost Ensō's helper"
 
-Zen couldn't start the local helper, or it stopped.
+Zen couldn't find or start the local helper, or it stopped. Ensō keeps trying by itself (every 2 seconds while it's open), so once the problem is fixed it reconnects without a restart.
 
-1. Quit Zen completely (<kbd>⌘Q</kbd>) and open it again. Zen reads the helper's registration when it starts.
-2. Run the installer again: `curl -fsSL https://enso.wicker.life/install.sh | bash`. It rewrites the helper and its registration.
+1. Run the install command again: `curl -fsSL https://enso.wicker.life/install.sh | bash`. It rewrites the helper and its registration, and fetches Ensō's own Node.js if yours is gone.
+2. If Ensō still waits, press **Check now**, or quit Zen completely (<kbd>⌘Q</kbd>) and open it again.
 3. Check that the registration exists:
    `cat ~/Library/Application\ Support/zen/NativeMessagingHosts/enso.json`
    The `path` in it must point at `~/Library/Application Support/Enso/helper/run.sh`, and `allowed_extensions` must contain `enso@wicker.life`.
@@ -23,8 +23,8 @@ Zen couldn't start the local helper, or it stopped.
 
 The subscription engine needs the `claude` command.
 
-- Run `claude --version` in Terminal. If it isn't found, install Claude Code ([setup guide](https://docs.anthropic.com/en/docs/claude-code/setup)).
-- Run `claude` once and sign in; quit with `/exit`.
+- Open **Settings → Setup → Claude**: **Install Claude Code** or **Sign in** open Terminal with the right command, and the item turns green when it worked.
+- By hand: `claude --version`; if it isn't found, install Claude Code ([setup guide](https://docs.anthropic.com/en/docs/claude-code/setup)), then `claude auth login`.
 - Zen starts the helper with a minimal `PATH`. Ensō looks in your `PATH`, `~/.local/bin`, `~/.claude/local`, `/opt/homebrew/bin` and `/usr/local/bin`. If `claude` lives somewhere else, set **Settings → Engine → Claude Code location**.
 
 Or switch to the API-key engine in Settings.

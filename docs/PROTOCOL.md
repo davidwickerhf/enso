@@ -74,6 +74,8 @@ All messages are objects with a `type`. Times are ISO strings. Ids are strings.
 | `t3.connect` | | `t3` `{ status, done: { action: "connect", ok, error? } }` (runs `t3 auth session issue`, token into the Keychain) |
 | `t3.disconnect` | | `t3` `{ status, done }` (revokes the session, deletes the item) |
 | `t3.open` | `threadId` | none: opens `t3code://threads/<environment>/<thread>` in the T3 Code app the `t3` CLI belongs to |
+| `setup.status` | `fresh?` (bool: re-check for a helper update now instead of using the 30-minute cache) | `setup` `{ status: SetupStatus }` (see [Setup](#setup)) |
+| `setup.run` | `step` (one of the [setup steps](#setup)), `options?` (per step) | `setup` `{ status, done: { step, ok, message?, error?, restart? } }`; also `engines` after `engine.*`, `servers` after `github.*`, `t3` after `t3.*`, and `helper.restarting` then an exit after a successful `helper.update` |
 
 `chat.send`: background always adds `page: { tabId, url, title }` for the active
 tab (so page tools act on the tab the user was looking at), plus `text` when
@@ -90,6 +92,7 @@ the active tab. On a private site no `text` or `screenshot` is added.
 | `page.current` | | `page.current`: `{ type, tab: { tabId, title, url, favIconUrl, sensitive } \| null }`, also pushed whenever the active tab changes. `sensitive: true` on banking/health sites: the page chip shows a lock and the page is not sent or acted on. |
 | `agents.switch` | `tabId` | none: activates that tab and focuses its window (the Agents list) |
 | `screenshot.capture` | `mode`: `"region"` (drag; Enter = visible area, F = full page, Esc = cancel) \| `"visible"` \| `"full"` | `screenshot.captured` (to that port) |
+| `helper.retry` | | `helper.status` (tries `connectNative` again now; the first-run guide's **Check now**) |
 
 background.js accepts `ui` ports only from Ensō's own pages (`port.sender.url`
 under the extension's origin), so notes, Pause and Stop can't come from page
@@ -106,11 +109,25 @@ background.js also sends messages of its own to every UI:
   only, which the command opens; if the sidebar isn't connected yet it is kept
   for up to a minute and sent when it connects. `consoleErrors` is null when
   console capture never ran on that tab. Private sites are refused.
+- `helper.status`: `{ type, state, reason, at }`, sent to each UI when it connects
+  and whenever the helper's state changes. `state`: `"connecting"`, `"connected"`
+  (the helper sent its first message), `"missing"` (Zen says "No such native
+  application": install.sh hasn't run), `"failed"` (the manifest is there but the
+  helper exited before saying anything, e.g. its Node is gone), `"stopped"` (it ran,
+  then went away) or `"restarting"` (it sent `helper.restarting` first). `reason` is
+  the browser's error text, if any. While it isn't connected, background.js retries
+  `connectNative`: every 2 s while an Ensō page is open and the manifest is missing,
+  with backoff (up to 30 s) when it fails or keeps crashing, and every minute
+  (missing) or 5 minutes (failed) with no page open. Zen reads the manifest on each
+  attempt, so a fresh install is picked up without restarting Zen. The UI shows the
+  first-run guide (`ui/views/setup.js`) for `missing` and `failed`, and sends `hello`
+  again when the state comes back to `connected`.
 - an `event` with `conversationId: null` and `code: "host_disconnected"` when the
-  native port closes (the UI shows "The chat helper stopped" with Reconnect).
+  native port closes after the helper was running (the UI shows a banner with
+  Reconnect; background.js reconnects by itself as well). Not sent for `restarting`.
 
-Error `code`s the UI handles specially: `host_disconnected` (the helper isn't
-running; `host_missing` is handled the same way but nothing sends it today),
+Error `code`s the UI handles specially: `host_disconnected` (the helper stopped;
+a missing helper is `helper.status` `missing`, not an error event),
 `no_claude_code` (subscription engine without Claude Code), `no_api_key` (API
 engine without a key).
 
@@ -406,6 +423,59 @@ Streaming-only kinds (not persisted, folded into `assistant` / `thinking` at the
   with a due date in the Tasks widget (source "monday.com"; ticking hides them
   locally).
 - `connections.probed`: `{ type, server, ok, status, error? }` — the answer to `connections.probe`.
+
+### Setup
+
+Settings → Setup and `enso setup` (`helper/lib/setup.mjs`). Every check and
+action is the same code the `enso` command runs. `SetupStatus` never contains a
+secret:
+
+```
+{
+  checkedAt,
+  helper:  { version, dev (running from a checkout: no VERSION file), latest (from <site>/api/latest, cached 30 min),
+             updateAvailable, error (couldn't check), node: { path, version, source: "system" | "private" }, installedAt },
+  engine:  { selected: "subscription" | "api",
+             subscription: { found, path?, version?, loggedIn (from `claude auth status --json`; null if unknown),
+                             authMethod?, subscriptionType?, email?, reason?, installCommand? },
+             api: { stored, source: "keychain" | "environment" | null } },
+  agents:  { launcher, clients: [{ id: "claude" | "codex" | "cursor" | "opencode", name, detected,
+             registration: "launcher" | "launcher-read" | "http" | "other" | null }], readOnly (every registered one is), hook },
+  t3:      { installed (its CLI or /Applications/T3 Code*.app), connected, reachable, tokenValid, serverVersion?, error },
+  github:  { ghInstalled, connected, login, via: "GitHub CLI" | "environment" | "Keychain" | null, error },
+  tools:   { total, on, needsAuth },
+  mcp:     { port, listening }
+}
+```
+
+Steps for `setup.run` (anything else is refused):
+
+| step | options | does |
+|---|---|---|
+| `helper.update` | | downloads `<site>/install.sh` and runs it with `bash -s` (`ENSO_NO_OPEN=1`, `ENSO_REGISTER_MCP=0`), output in `<data>/logs/update.log`; on success `done.restart` is true and the helper exits so background.js starts the new one. Refused in a checkout. |
+| `engine.login` | | opens Terminal with `<claude> auth login` |
+| `engine.install` | | opens Terminal with `curl -fsSL https://claude.ai/install.sh \| bash && ~/.local/bin/claude auth login` |
+| `engine.apiKey` | `key` | checks the format (`sk-ant-…`) and asks `GET api.anthropic.com/v1/models` (401/403 refuse it; no network stores it anyway), then stores it in the Keychain (service `keychainService`, account `enso`) through `security -i` on stdin |
+| `engine.forgetApiKey` | | deletes that Keychain item |
+| `agents.register` | `client`, `readOnly?` (default: the current read-only state) | `enso mcp install --client <client> [--read-only]` |
+| `agents.unregister` | `client` | `enso mcp uninstall --client <client>` (for Claude Code also removes the hook) |
+| `agents.readOnly` | `readOnly` | registers every registered client again, read only or full |
+| `agents.hook` | `on` | adds or removes Claude Code's UserPromptSubmit hook (`enso mcp install --hooks`) |
+| `t3.connect`, `t3.disconnect` | | as `t3.connect` / `t3.disconnect` |
+| `github.login` | | opens Terminal with `gh auth login --hostname github.com --git-protocol https --web` (needs gh) |
+| `github.token` | `token` | as `github.token` |
+| `github.forget` | | as `github.forget` |
+| `mcp.rotate` | | `enso mcp rotate` |
+
+Terminal steps write `<data>/run/<name>.command` (0700) with that fixed command
+and open it with `open -a Terminal`; no Automation permission is needed and the
+UI can't choose the command. `options.key` and `options.token` are never logged,
+echoed in `done`, or kept by the UI after sending; error texts have anything that
+looks like a key or token replaced by `[hidden]`.
+
+`helper.restarting`: `{ type }`, sent right before the helper exits after an
+update. background.js then reports `restarting` instead of an error and
+reconnects after 0.5 s.
 
 ### `Dashboard`
 ```js

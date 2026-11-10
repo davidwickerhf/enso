@@ -27,40 +27,45 @@ Website and user docs: <https://enso.wicker.life>. Licence: MIT, see [LICENSE](L
 
 ## Install
 
-```sh
-curl -fsSL https://enso.wicker.life/install.sh | bash
-```
+Two steps, macOS only for now (Zen, or Firefox 139 or newer):
 
-macOS only for now. You need:
+1. **Add the extension** from <https://enso.wicker.life> (signed by Mozilla, updates itself).
+2. **Run one command.** Press <kbd>⌘E</kbd>: Ensō shows it with a Copy button, and
+   moves on by itself once it has run.
 
-- Zen (or Firefox 139 or newer);
-- [Node.js](https://nodejs.org) 18 or newer;
-- for the default engine, [Claude Code](https://docs.anthropic.com/en/docs/claude-code/setup)
-  installed and signed in once (`claude`). Without it you can use an Anthropic API key.
+   ```sh
+   curl -fsSL https://enso.wicker.life/install.sh | bash
+   ```
 
 The installer ([`scripts/install.sh`](scripts/install.sh)) downloads the helper
 listed at `https://enso.wicker.life/api/latest`, checks its SHA-256, installs it
 in `~/Library/Application Support/Enso/helper`, registers it with Zen and
-Firefox, writes the `enso` command, offers to let Claude Code use Zen, and opens
-the signed extension in Zen. It needs no `sudo` and never touches your data.
-Run it again to update the helper; the extension updates itself.
+Firefox and writes the `enso` command. If the Mac has no Node.js 18+, it fetches
+Ensō's own Node (pinned SHA-256) into `Enso/runtime`, so nothing has to be
+installed first. It asks no questions, needs no `sudo` and never touches your data.
 
-Step by step, with what each permission is for: [docs/help/getting-started.md](site/content/docs/install.md).
+A WebExtension can't install or start a native program (native messaging needs
+the host's manifest on disk first), so that one command is the only manual step.
+Everything after it is a button in **Settings → Setup**, run by the helper:
+updating the helper, installing and signing in to Claude Code or storing an API
+key in the Keychain, letting Claude Code, Codex, Cursor or OpenCode use Zen,
+connecting T3 Code and GitHub, and rotating the agent token. The same checks and
+actions stay available as `enso setup`, `enso update`, `enso mcp install`,
+`enso t3 connect` and `enso mcp rotate`.
+
+Step by step, with what each permission is for: [site/content/docs/install.md](site/content/docs/install.md).
 
 ## Quick start
 
 1. Press <kbd>⌘E</kbd> in Zen to open the sidebar. The first time, Ensō asks
-   your name, a few lines about you and, optionally, what each Zen space is for.
+   your name, a few lines about you and, optionally, what each Zen space is for,
+   then opens Setup.
 2. Ask something about the page you are on: "summarise this", "fill in this
    form with my address". The page is attached by default (the page chip).
 3. Open a new tab. Type a site, a search or a question in the box; choose
    **Add widgets** for your calendar, tasks, mail or GitHub at a glance.
-4. Optional: let other agents use Zen.
-
-   ```sh
-   enso mcp install        # registers zen-browser with Claude Code, Codex and Cursor (those installed)
-   enso mcp status
-   ```
+4. Optional: let other agents use Zen, in **Settings → Setup → Use Zen from
+   your agents** (or `enso mcp install`).
 
 ## Features
 

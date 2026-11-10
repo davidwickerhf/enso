@@ -20,6 +20,7 @@ import { createToolsPage } from "./views/tools.js";
 import { createOnboarding } from "./views/onboarding.js";
 import { createAgentsPanel } from "./views/agents.js";
 import { createSendSheet, SCREENSHOT_SHORTCUT } from "./views/send.js";
+import { createHelperGuide, createSetupPage } from "./views/setup.js";
 
 const root = document.documentElement;
 const MODES = ["sidebar", "newtab", "full", "report"];
@@ -82,6 +83,7 @@ function bootApp() {
         activity: () => createActivity(store),
         settings: () => createSettings(store, ctx),
         tools: () => createToolsPage(store, ctx),
+        setup: () => createSetupPage(store, ctx),
       }[name]();
     }
     return views[name];
@@ -107,12 +109,37 @@ function bootApp() {
 
   let shown = null;
 
+  // No helper yet (or it can't start): the one-step install guide covers the app
+  // and moves on by itself once background.js reaches the helper.
+  const guide = createHelperGuide(store);
+  let firstRun = false; // the guide or onboarding was shown in this page: end on Setup
+  function renderGuide() {
+    const due = s.helper.state === "missing" || s.helper.state === "failed";
+    if (due && !guide.el.isConnected) {
+      firstRun = true;
+      onboarding.el.remove();
+      document.body.append(guide.el);
+      app.inert = true;
+      guide.show();
+    } else if (!due && guide.el.isConnected && !guide.closing && s.helper.state === "connected") {
+      guide.closing = true;
+      guide.connected(() => { guide.el.remove(); guide.closing = false; app.inert = false; renderOnboarding(); });
+    }
+  }
+
   // First run: the onboarding card covers the app until a profile is saved or skipped.
   const onboarding = createOnboarding(store);
   function renderOnboarding() {
+    if (guide.el.isConnected) return;
     const due = !!s.profile?.onboarding;
-    if (due && !onboarding.el.isConnected) { document.body.append(onboarding.el); app.inert = true; onboarding.show(); }
-    else if (!due && onboarding.el.isConnected) { onboarding.el.remove(); app.inert = false; if (mode !== "full") focusComposer(); }
+    if (due && !onboarding.el.isConnected) { firstRun = true; document.body.append(onboarding.el); app.inert = true; onboarding.show(); }
+    else if (!due && onboarding.el.isConnected) {
+      onboarding.el.remove();
+      app.inert = false;
+      // A new install ends on Setup (Claude, agents, T3…); otherwise back to chat.
+      if (firstRun) { firstRun = false; actions.go("setup"); }
+      else if (mode !== "full") focusComposer();
+    }
   }
 
   function newChat() {
@@ -145,6 +172,7 @@ function bootApp() {
     const v = s.ui.view;
     const instance = view(v);
     if (shown !== v || !viewHost.contains(instance.el)) {
+      if (shown && shown !== v) views[shown]?.hide?.();
       clear(viewHost, instance.el);
       viewHost.dataset.view = v;
       app.dataset.view = v;
@@ -163,8 +191,8 @@ function bootApp() {
   function renderTopbar() {
     const v = s.ui.view;
     const sum = v === "chat" && s.ui.currentId ? store.summary(s.ui.currentId) : null;
-    const title = { history: "History", activity: "Activity", settings: "Settings", tools: "Tools" }[v] ?? (v === "chat" ? sum?.title || "New conversation" : null);
-    const back = (mode !== "full" && v !== "home") ? iconButton("arrowLeft", "Back to home", () => actions.go("home"), { class: "back" }) : null;
+    const title = { history: "History", activity: "Activity", settings: "Settings", tools: "Tools", setup: "Setup" }[v] ?? (v === "chat" ? sum?.title || "New conversation" : null);
+    const back = (mode !== "full" && v !== "home") ? (v === "setup" ? iconButton("arrowLeft", "Back to Settings", () => actions.go("settings"), { class: "back" }) : iconButton("arrowLeft", "Back to home", () => actions.go("home"), { class: "back" })) : null;
     const attn = pendingApprovals();
     const pill = attn.length ? h("button", { type: "button", class: "attn-pill", onclick: () => jumpToApproval(attn[0]) },
       h("span", { class: "attn-pulse", aria: { hidden: "true" } }), icon("shield"),
@@ -230,7 +258,8 @@ function bootApp() {
   function renderBanner() {
     const items = [];
     if (s.connection === "reconnecting") items.push(h("div", { class: "banner warn" }, h("span", { class: "spinner" }), h("span", null, "Reconnecting to Ensō…")));
-    const g = s.globalError;
+    if (s.helper.state === "restarting") items.push(h("div", { class: "banner info", role: "status" }, h("span", { class: "spinner" }), h("span", null, "Restarting the helper after the update…")));
+    const g = s.helper.state === "restarting" ? null : s.globalError;
     if (g) {
       const disconnected = g.code === "host_disconnected";
       items.push(h("div", { class: `banner ${g.kind === "error" ? "bad" : "info"}`, role: "alert" },
@@ -238,7 +267,7 @@ function bootApp() {
         h("div", { class: "banner-text" },
           h("strong", null, disconnected ? "The chat helper stopped" : g.kind === "error" ? "Something went wrong" : "Note"),
           h("span", null, g.text)),
-        disconnected ? h("button", { type: "button", class: "btn small", onclick: () => { actions.dismissBanner(); actions.hello(); } }, "Reconnect") : null,
+        disconnected ? h("button", { type: "button", class: "btn small", onclick: () => { actions.dismissBanner(); actions.helperRetry(); actions.hello(); } }, "Reconnect") : null,
         iconButton("x", "Dismiss", () => actions.dismissBanner(), { class: "small" })));
     }
     clear(banner, items);
@@ -250,7 +279,7 @@ function bootApp() {
     const inField = e.target.closest?.("input, textarea, select, [contenteditable]");
     if (mod && !e.shiftKey && !e.altKey && e.key.toLowerCase() === "k") { e.preventDefault(); focusComposer(); return; }
     if (mod && !e.shiftKey && !e.altKey && e.key.toLowerCase() === "n") { e.preventDefault(); newChat(); return; }
-    if (e.key === "Escape" && !inField && ["history", "activity", "settings", "tools"].includes(s.ui.view) && mode !== "full") { actions.go(s.ui.view === "tools" ? "settings" : "home"); return; }
+    if (e.key === "Escape" && !inField && ["history", "activity", "settings", "tools", "setup"].includes(s.ui.view) && mode !== "full") { actions.go(s.ui.view === "tools" || s.ui.view === "setup" ? "settings" : "home"); return; }
     // New tab: ↓ in the empty box opens the day's brief.
     if (e.key === "Escape" && !inField && s.ui.view === "chat" && s.ui.currentId && s.running.has(s.ui.currentId)) { actions.stop(); return; }
     // Type anywhere on Home to start writing.
@@ -299,9 +328,11 @@ function bootApp() {
     sendSheet?.update(topics);
     if (["ui", "approvals", "conversations", "settings", "state", "space", "tab"].some(t => topics.has(t)) || [...topics].some(t => t.startsWith("conv:"))) renderTopbar();
     if (topics.has("ui") || [...topics].some(t => t.startsWith("conv:"))) placeComposer();
-    if (topics.has("banner") || topics.has("connection")) renderBanner();
+    if (topics.has("banner") || topics.has("connection") || topics.has("helper")) renderBanner();
+    if (topics.has("helper")) renderGuide();
     if (topics.has("profile") || topics.has("state")) renderOnboarding();
     if (onboarding.el.isConnected) onboarding.update(topics);
+    if (guide.el.isConnected) guide.update(topics);
   });
 
   window.addEventListener("hashchange", () => actions.restoreFromHash());

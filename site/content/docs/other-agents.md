@@ -11,13 +11,15 @@ While Zen is open, other AI agents on your Mac can use it through Ensō: Claude 
 
 ## Set it up
 
-The installer offers to set up Claude Code. For all of them:
+Open **Settings → Setup → Use Zen from your agents**. Ensō lists Claude Code, Codex, Cursor and OpenCode and shows which are on your Mac; turn on the ones that may use Zen. Two more switches: **Read only** (below) and the **Claude Code hook**, which delivers your [screenshots](/docs/screenshots) to an idle Claude Code with your next message. Start a new session in that agent and ask "what tabs do I have open?".
+
+Each switch runs the same code as the `enso` command, so you can also do it in a terminal:
 
 ```sh
 enso mcp install
 ```
 
-It registers Ensō as `zen-browser` with Claude Code, Codex, Cursor and OpenCode, whichever you have. Restart them, or start a new session, and ask "what tabs do I have open?".
+That registers Ensō as `zen-browser` with every client it finds.
 
 | Command | Does |
 |---|---|
@@ -26,7 +28,8 @@ It registers Ensō as `zen-browser` with Claude Code, Codex, Cursor and OpenCode
 | `enso mcp install --read-only` | Read-only access (below) |
 | `enso mcp status` | Whether Zen's helper is reachable, and which clients are registered |
 | `enso mcp uninstall` | Removes the registrations |
-| `enso mcp rotate` | New access tokens; registered clients keep working |
+| `enso mcp rotate` | New access tokens; registered clients keep working (Setup: **Agent access token → Rotate**) |
+| `enso setup` | The whole Setup checklist in the terminal |
 
 No password or token ends up in the agents' settings: they start the `enso` command, which reads the token on your Mac and connects to Zen. `install` backs up the files it changes and prints what changed, never values.
 

@@ -17,11 +17,11 @@ The helper runs each turn through **Claude Code**, using the Claude Agent SDK, w
 - your **claude.ai connectors** (Gmail, Google Calendar, Drive, Docs and others you connected on claude.ai) and the MCP servers you set up in Claude Code are available to it;
 - there is no separate bill.
 
-To set it up, install Claude Code by following [Anthropic's setup guide](https://docs.anthropic.com/en/docs/claude-code/setup), then sign in once:
+To set it up, open **Settings → Setup** in Ensō. **Install Claude Code** opens Terminal with Anthropic's installer and then the sign-in; if Claude Code is already installed, **Sign in** opens `claude auth login`. Setup notices when you are signed in and shows your plan. By hand, the same thing is:
 
 ```sh
-claude          # follow the sign-in prompt, then quit with /exit
-claude --version
+curl -fsSL https://claude.ai/install.sh | bash   # Anthropic's installer (or their setup guide)
+claude auth login                                # sign in to your Claude account
 ```
 
 Ensō uses the `claude` you installed; it doesn't ship its own copy. It looks in your `PATH`, `~/.local/bin`, `~/.claude/local` and Homebrew's folders. If yours is elsewhere, set **Settings → Engine → Claude Code location**.
@@ -34,13 +34,13 @@ Claude Code keeps its own record of these conversations in `~/.claude/projects/`
 
 If you don't have a Claude plan, or want pay-as-you-go billing, use an API key from the [Anthropic Console](https://console.anthropic.com/). Anthropic bills you per token.
 
-The key is stored in the **macOS Keychain**, never in a file. Add it in Terminal; it asks for the key and nothing is echoed:
+The key is stored in the **macOS Keychain**, never in a file. Add it in Terminal (it asks for the key and nothing is echoed):
 
 ```sh
 security add-generic-password -s enso-anthropic -a "$USER" -w
 ```
 
-Then choose **API key** in Settings. To replace the key, delete the old one first with `security delete-generic-password -s enso-anthropic` and add it again.
+That is what **Settings → Setup → Claude → API key** does for you: paste the key in its password field and choose **Save to Keychain**. It goes straight to the helper, which checks it with Anthropic and stores it in your macOS Keychain; it isn't shown again or written to any file. **Replace key** and **Remove key** are there too. Then the engine is **API key**.
 
 With an API key, Ensō connects to your MCP servers itself. claude.ai connectors are only available through the subscription engine, because they belong to your claude.ai account. The Home brief always runs through Claude Code, so it needs Claude Code even on this engine.
 

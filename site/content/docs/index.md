@@ -19,7 +19,7 @@ All three show the same conversations, so you can start in one and continue in a
 
 ## Two parts
 
-You install both with one command:
+You add the extension, then run one command for the helper; everything after that is buttons in **Settings → Setup**:
 
 1. **The browser extension**: the sidebar, new tab and full page. It also carries out page actions in your tabs.
 2. **The local helper**: a small Node.js program that Zen starts whenever the extension needs it. It runs Claude (through Claude Code or an API key), talks to your tools, and stores your conversations, memory and settings on your Mac.
@@ -28,8 +28,8 @@ Your questions go from the helper to Anthropic, and to the tools you connected. 
 
 ## Start here
 
-1. [Install](/docs/install) the helper and the extension.
-2. Choose an [engine](/docs/engines): your Claude subscription, or an API key.
+1. [Install](/docs/install) the extension and the helper, then finish in **Settings → Setup**.
+2. Choose an [engine](/docs/engines) there: your Claude subscription, or an API key.
 3. Learn [when Ensō asks first](/docs/acting-on-pages) before acting on a page.
 4. [Connect your tools](/docs/tools): mail, calendar, task apps, GitHub.
 

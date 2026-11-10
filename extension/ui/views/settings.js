@@ -8,6 +8,7 @@ import { relTime } from "../format.js";
 import { sortTools, labelOf, statusOf, toolGlyph, openToolPopover } from "./tools.js";
 import { profileFields, spaceHintFields } from "./onboarding.js";
 import { SCREENSHOT_SHORTCUT } from "./send.js";
+import { setupSummary } from "./setup.js";
 
 const MODELS = [
   ["claude-opus-5-5", "Claude Opus 5.5"],
@@ -31,6 +32,7 @@ function segmented(name, options, value, onChange) {
 
 export function createSettings(store, ctx) {
   const { state: s, actions } = store;
+  const setupBlock = h("div", { id: "settings-setup" });
   const profile = h("div");
   const prof = { dirty: false, draft: null, error: null };
   const general = h("div");
@@ -44,10 +46,22 @@ export function createSettings(store, ctx) {
 
   const el = h("section", { class: "page-view settings-view", aria: { label: "Settings" } },
     h("header", { class: "page-head" }, h("h2", null, "Settings"), h("p", { class: "muted" }, "Saved to the Ensō helper on this Mac.")),
-    profile, general, sendBlock, developer, servers, skills, memory);
+    setupBlock, profile, general, sendBlock, developer, servers, skills, memory);
 
   function block(title, desc, ...content) {
     return h("section", { class: "settings-block" }, h("h3", null, title), desc ? h("p", { class: "block-desc" }, desc) : null, ...content);
+  }
+
+  // Setup: one line on what's left, and the way to the checklist.
+  function renderSetup() {
+    const sum = setupSummary(s.setup.status, s.settings);
+    const text = !sum ? "Claude, your agents, T3 Code and GitHub: what's connected, with a button for each."
+      : sum.essentialsReady ? `Ensō is ready · ${sum.optionalOn} optional connection${sum.optionalOn === 1 ? "" : "s"} on.`
+      : `Next: ${sum.todo[0]}.`;
+    clear(setupBlock, block("Setup", null,
+      h("div", { class: "setting" },
+        h("div", { class: "setting-text" }, h("p", { class: ["setup-line", sum && !sum.essentialsReady && "warn"] }, sum ? icon(sum.essentialsReady ? "check" : "alert") : null, text)),
+        h("button", { type: "button", class: ["btn", sum && !sum.essentialsReady && "primary"], onclick: () => actions.go("setup") }, "Open Setup", icon("chevronRight")))));
   }
 
   function renderProfile() {
@@ -105,7 +119,7 @@ export function createSettings(store, ctx) {
           h("div", { class: "setting-text" }, h("label", { for: "set-claude-path" }, "Claude Code location"),
             h("p", null, eng.subscription?.path ? `Using ${eng.subscription.path}${eng.subscription.version ? ` (${eng.subscription.version})` : ""}.` : "Found automatically on your PATH, in ~/.local/bin or Homebrew. Set a path only if yours lives elsewhere.")),
           h("input", { type: "text", class: "input mono", id: "set-claude-path", value: st.claudePath ?? "", placeholder: "/path/to/claude", spellcheck: "false", onchange: e => actions.updateSettings({ claudePath: e.target.value.trim() }) })),
-        eng.api?.available === false ? h("p", { class: "hint" }, "To use an API key, store it in the Keychain: ", h("code", null, 'security add-generic-password -s enso-anthropic -a "$USER" -w')) : null),
+        eng.api?.available === false || eng.subscription?.available === false ? h("p", { class: "hint" }, eng.subscription?.available === false ? "Install and sign in to Claude Code, or add an API key, in " : "Add an API key (kept in your Keychain) in ", h("button", { type: "button", class: "link-btn", onclick: () => actions.go("setup") }, "Setup"), ".") : null),
       block("Model", null,
         h("div", { class: "setting" }, h("div", { class: "setting-text" }, h("label", null, "Model")), modelSelect),
         h("div", { class: "setting" }, h("div", { class: "setting-text" }, h("label", null, "Effort"), h("p", null, "Higher effort thinks longer before answering.")),
@@ -113,7 +127,7 @@ export function createSettings(store, ctx) {
       block("Behaviour", null,
         toggle("Include the current page by default", "The page chip is attached to new messages. Private pages are never shared.", st.includePageByDefault, v => { actions.updateSettings({ includePageByDefault: v }); actions.setIncludePage(v); }),
         toggle("Auto-approve read-only tools", "Searching and reading run without asking. Anything that changes something still asks.", st.autoApproveReadOnly, v => actions.updateSettings({ autoApproveReadOnly: v }))),
-      block("Claude Code can use Zen", "Other Claude sessions on this Mac (Claude Code, T3 Code) reach Zen through the zen-browser tool. Every action shows up in Activity. Private sites are always off-limits.",
+      block("Agents can use Zen", "Claude Code, Codex, Cursor and OpenCode reach Zen through the zen-browser tool once they're connected in Setup. Every action shows up in Activity. Private sites are always off-limits.",
         h("div", { class: "setting" }, h("div", { class: "setting-text" }, h("label", null, "External control"), h("p", null, "Read lets them see tabs and pages; Full also lets them click, type, open and close.")),
           segmented("External control", [["full", "Full"], ["read", "Read only"], ["off", "Off"]], st.externalControl ?? "full", v => actions.updateSettings({ externalControl: v }))),
         toggle("Mark the tab while an agent works", "Puts ✦ in front of the page title, so Zen's tab list shows which tabs an agent is using. The title is restored when it stops.", st.agentTitlePrefix !== false, v => actions.updateSettings({ agentTitlePrefix: v }))),
@@ -189,7 +203,7 @@ export function createSettings(store, ctx) {
       h("div", { class: "setting stacked" },
         h("div", { class: "setting-text" }, h("label", null, "Agents"),
           h("p", null, agents.length ? `${agents.length} connected now: ${agents.map(a => a.client).join(", ")}. A screenshot reaches them with their next step in Zen, or when they call inbox_read.` : "None connected right now. Agents appear here once they start with zen-browser (enso mcp install)."),
-          h("p", null, "So an idle Claude Code gets screenshots with your next message, run ", h("code", null, "enso mcp install --hooks"), "."))),
+          h("p", null, "Connect agents, and let an idle Claude Code get screenshots with your next message, in ", h("button", { type: "button", class: "link-btn", onclick: () => actions.go("setup") }, "Setup"), "."))),
       h("div", { class: "setting stacked" },
         h("div", { class: "setting-text" }, h("label", null, "Linked threads"),
           h("p", null, "Where a tab's screenshots go without asking. Tab links end when the tab closes; a site linked to a T3 project stays until you remove it.")),
@@ -279,12 +293,13 @@ export function createSettings(store, ctx) {
       h("div", { class: "form-actions" }, saveBtn, revert, status)));
   }
 
-  function renderAll() { renderProfile(); renderGeneral(); renderSend(); renderDeveloper(); renderServers(); renderSkills(); renderMemory(); }
+  function renderAll() { renderSetup(); renderProfile(); renderGeneral(); renderSend(); renderDeveloper(); renderServers(); renderSkills(); renderMemory(); }
   renderAll();
 
   return {
     el,
     update(topics) {
+      if (topics.has("setup") || topics.has("settings") || topics.has("state")) renderSetup();
       if (topics.has("profile") || topics.has("state") || (topics.has("space") && !prof.dirty)) renderProfile();
       if (topics.has("settings") || topics.has("state") || topics.has("dashboard")) renderGeneral();
       if (topics.has("settings") || topics.has("state")) renderDeveloper();
@@ -293,7 +308,7 @@ export function createSettings(store, ctx) {
       if (topics.has("skills")) renderSkills();
       if (topics.has("memory") || topics.has("space")) renderMemory();
     },
-    show() { if (!s.memory.loaded) actions.loadMemory(); actions.t3Status(); renderAll(); },
+    show() { if (!s.memory.loaded) actions.loadMemory(); actions.t3Status(); actions.setupStatus(); renderAll(); },
     focusMemory() { memory.scrollIntoView({ block: "start" }); memory.querySelector("textarea")?.focus({ preventScroll: true }); },
   };
 }

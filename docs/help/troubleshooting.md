@@ -1,16 +1,19 @@
 # Troubleshooting
 
-## "Ensō's helper isn't running" or "The chat helper stopped"
+## "One step in Terminal", "The helper didn't start" or "Lost Ensō's helper"
 
-Zen couldn't start the helper on your Mac, or it stopped.
+Zen couldn't find or start the helper on your Mac, or it stopped. Ensō keeps
+trying by itself, so once it's fixed it reconnects without a restart.
 
-1. Quit Zen completely (<kbd>⌘Q</kbd>, not just the window) and open it again.
-   Zen reads the helper's registration when it starts.
-2. Run the installer again; it rewrites the helper and its registration:
+1. Run the install command again; it rewrites the helper and its registration
+   (and fetches Ensō's own Node.js if the one it used is gone):
 
    ```sh
    curl -fsSL https://enso.wicker.life/install.sh | bash
    ```
+
+2. Still waiting? Press **Check now**, or quit Zen completely (<kbd>⌘Q</kbd>)
+   and open it again.
 
 3. Check the registration:
 

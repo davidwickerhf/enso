@@ -7,8 +7,8 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import path from "node:path";
 import { refreshDashboard, dashboardStale } from "./lib/dashboard.mjs";
-import { apiKey, connectMcp, keychain, runApiTurn } from "./lib/engine-api.mjs";
-import { prewarm, runSubscriptionTurn, subscriptionAvailable, subscriptionStatus } from "./lib/engine-sub.mjs";
+import { apiKey, clearApiKeyCache, connectMcp, keychain, runApiTurn } from "./lib/engine-api.mjs";
+import { claudeCli, prewarm, runSubscriptionTurn, subscriptionAvailable, subscriptionStatus } from "./lib/engine-sub.mjs";
 import { log, onMessage, send } from "./lib/native.mjs";
 import { pageActionNeedsApproval } from "./lib/pagetools.mjs";
 import { turnContext } from "./lib/prompt.mjs";
@@ -16,7 +16,7 @@ import { deleteSkill, expandSkill, listSkills, saveSkill } from "./lib/skills.mj
 import { convertAttachment } from "./lib/attachments.mjs";
 import { cleanupStale } from "./lib/headless.mjs";
 import { createConnections, friendly } from "./lib/connections.mjs";
-import { forgetGithubToken, githubServerEntry, githubWidgetData, saveGithubToken } from "./lib/github.mjs";
+import { forgetGithubToken, githubServerEntry, githubStatus, githubWidgetData, saveGithubToken } from "./lib/github.mjs";
 import { agentSessions, MCP_PORT, mcpListening, setOAuthRoute, startMcpServer } from "./lib/mcpserver.mjs";
 import * as store from "./lib/store.mjs";
 import { config, configError, LOCAL_CONFIG } from "./lib/config.mjs";
@@ -25,6 +25,7 @@ import { createTaskSources, refreshTargets } from "./lib/tasks.mjs";
 import { createMondaySource } from "./lib/monday.mjs";
 import { appBundle, createT3 } from "./lib/t3.mjs";
 import { addLink, createSender, normalizeLinks, removeLink } from "./lib/screenshots.mjs";
+import { createSetup, keychainApiKeyStore } from "./lib/setup.mjs";
 import { spawn } from "node:child_process";
 
 store.setDefaults(config.defaults);
@@ -570,6 +571,36 @@ function openT3Thread(threadId) {
   child.unref();
 }
 
+// ---------- Setup (Settings → Setup, `enso setup`): lib/setup.mjs ----------
+
+const setup = createSetup({
+  dataDir: store.DATA,
+  claude: () => claudeCli(),
+  apiKeys: keychainApiKeyStore({ service: config.keychainService, legacy: config.legacyKeychainServices ?? [] }),
+  onApiKeyChange: clearApiKeyCache,
+  github: { status: githubStatus, saveToken: saveGithubToken, forget: forgetGithubToken },
+  t3,
+  getSettings: () => store.getSettings(),
+  servers: () => serverStatus,
+  mcpListening: () => mcpListening(),
+  mcpPort: MCP_PORT,
+});
+
+async function setupRun(msg) {
+  const step = String(msg.step ?? "");
+  const done = await setup.run(step, msg.options ?? {});
+  send({ type: "setup", status: await setup.status(), done });
+  // Keep the other views in step with what changed.
+  if (step.startsWith("engine.")) send({ type: "engines", engines: await enginesState() });
+  if (step.startsWith("github.")) await refreshGithub(true);
+  if (step.startsWith("t3.")) send({ type: "t3", status: await t3Status().catch(err => ({ error: err.message })) });
+  if (done.restart) {
+    // The installer replaced the helper folder: exit so the extension starts the new one.
+    send({ type: "helper.restarting" });
+    setTimeout(() => process.exit(0), 300);
+  }
+}
+
 // ---------- messages from the extension ----------
 
 async function handle(msg) {
@@ -798,6 +829,12 @@ async function handle(msg) {
     }
     case "t3.status":
       send({ type: "t3", status: await t3Status().catch(err => ({ error: err.message })) });
+      break;
+    case "setup.status":
+      send({ type: "setup", status: await setup.status({ fresh: !!msg.fresh }) });
+      break;
+    case "setup.run":
+      await setupRun(msg);
       break;
     case "t3.connect":
     case "t3.disconnect": {

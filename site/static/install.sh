@@ -5,19 +5,28 @@
 #
 # Installs the local helper (the Node.js program Zen starts through native
 # messaging) into ~/Library/Application Support/Enso/helper, registers it with
-# Zen and Firefox, writes the `enso` command (Enso/bin/enso), optionally lets
-# Claude Code use Zen (the zen-browser MCP server, through `enso mcp`), then opens the signed extension in Zen. Safe to run again: that is
-# also how you update. Nothing is installed outside your home folder and
-# nothing needs sudo. Your data and config.local.json in the Enso folder are
-# never touched.
+# Zen and Firefox, and writes the `enso` command (Enso/bin/enso). When this Mac
+# has no Node.js 18+, it downloads Ensō's own copy of Node (checksum pinned
+# below) into Enso/runtime, so nothing has to be installed first. Everything
+# else (Claude Code, letting your agents use Zen, T3 Code, GitHub) is set up
+# afterwards with buttons in Ensō → Settings → Setup.
+#
+# Safe to run again: that is also how you update (Setup → Update helper runs it
+# for you). Nothing is installed outside your home folder and nothing needs
+# sudo. Your data and config.local.json in the Enso folder are never touched.
+# It never asks questions, so `curl | bash` works in any terminal.
+#
+# At the end it writes Enso/install.json (versions and paths, no secrets),
+# which the helper reports in Setup.
 #
 # Environment overrides (optional):
 #   ENSO_SITE            site to download from (default https://enso.wicker.life)
 #   ENSO_HELPER_URL      helper tarball to install instead of the latest release
 #   ENSO_EXTENSION_ID    add-on id allowed to talk to the helper (default enso@wicker.life)
 #   ENSO_SKIP_CHECKSUM   1 = don't require the SHA-256 from /api/latest (not recommended)
-#   ENSO_REGISTER_MCP    1 = register zen-browser with Claude Code without asking, 0 = never
+#   ENSO_REGISTER_MCP    1 = also register zen-browser with Claude Code (otherwise: Setup in Ensō)
 #   ENSO_NO_OPEN         1 = don't open the extension in Zen at the end
+#   ENSO_NODE            private = always use Ensō's own Node; system = never download one
 
 # Everything runs inside main(), so a download cut off halfway runs nothing.
 main() {
@@ -28,13 +37,18 @@ main() {
 	local XPI_URL="$SITE/releases/enso-latest.xpi"
 	local EXTENSION_ID="${ENSO_EXTENSION_ID:-enso@wicker.life}"
 	local HOST_NAME="enso"
-	local MCP_NAME="zen-browser"
-	local MCP_PORT=47823
 	local MIN_NODE=18
+	# Ensō's own Node, used only when this Mac has no Node 18+. SHA-256 from
+	# https://nodejs.org/dist/v24.22.2/SHASUMS256.txt, whose signature was checked
+	# against the Node.js release key 5BE8A3F6C8A5C01D106C0AD820B1A390B168D356.
+	local NODE_VERSION="24.22.2"
+	local NODE_SHA_ARM64="1f5ac075be50bed4780ea3be19a007fda95ea4d527d28d76d0b91de47d915115"
+	local NODE_SHA_X64="6965578fd823e72c1b5387f5ab84cb25368f886e02eb8779e6f0fce6b91c27b7"
 
 	local SUPPORT="$HOME/Library/Application Support"
 	local APP_DIR="$SUPPORT/Enso"
 	local HELPER_DIR="$APP_DIR/helper"
+	local RUNTIME_DIR="$APP_DIR/runtime"
 	local LEGACY_DIR="$SUPPORT/zen-chat"
 	local MANIFEST_DIRS=(
 		"$SUPPORT/Mozilla/NativeMessagingHosts"
@@ -52,14 +66,6 @@ main() {
 		printf '\n%sError:%s %s\n' "$red" "$reset" "$*" >&2
 		exit 1
 	}
-	# Interactive when a terminal is attached (also under `curl | bash`, through /dev/tty).
-	interactive() { [ -t 1 ] && { : </dev/tty; } 2>/dev/null; }
-	ask() { # ask "Question?" → 0 for yes
-		local answer=""
-		printf '    %s [y/N] ' "$1"
-		read -r answer </dev/tty || answer=""
-		[[ "$answer" =~ ^[Yy] ]]
-	}
 
 	printf '%sEnsō installer%s\n' "$bold" "$reset"
 
@@ -68,32 +74,67 @@ main() {
 	[ "$(uname -s)" = "Darwin" ] || die "Ensō currently runs on macOS only."
 	info "macOS $(sw_vers -productVersion 2>/dev/null || echo '') on $(uname -m)"
 
-	# 2. Node.js 18+
+	local tmp
+	tmp="$(mktemp -d "${TMPDIR:-/tmp}/enso-install.XXXXXX")"
+	# shellcheck disable=SC2064
+	trap "rm -rf '$tmp'" EXIT
+
+	# 2. Node.js 18+: this Mac's own, or Ensō's private copy.
 	step "Checking Node.js"
+	node_major_of() { "$1" --version 2>/dev/null | sed 's/^v//; s/\..*//'; }
 	# Prefer a real binary over a version-manager shim: Zen starts the helper
 	# with a minimal environment, so run.sh must point at something that runs.
-	local node_bin="" candidate
+	local node_bin="" node_source="" candidate major
 	local candidates=()
-	if command -v volta >/dev/null 2>&1; then candidates+=("$(volta which node 2>/dev/null || true)"); fi
-	candidates+=("$(command -v node 2>/dev/null || true)" /opt/homebrew/bin/node /usr/local/bin/node)
-	for candidate in "${candidates[@]}"; do
-		if [ -n "$candidate" ] && [ -x "$candidate" ] && "$candidate" --version >/dev/null 2>&1; then
-			node_bin="$candidate"
+	if [ "${ENSO_NODE:-}" != "private" ]; then
+		if command -v volta >/dev/null 2>&1; then candidates+=("$(volta which node 2>/dev/null || true)"); fi
+		candidates+=("$(command -v node 2>/dev/null || true)" /opt/homebrew/bin/node /usr/local/bin/node)
+	fi
+	for candidate in ${candidates[@]+"${candidates[@]}"}; do
+		[ -n "$candidate" ] && [ -x "$candidate" ] || continue
+		major="$(node_major_of "$candidate")"
+		if [ -n "$major" ] && [ "$major" -ge "$MIN_NODE" ] 2>/dev/null; then
+			node_bin="$candidate" node_source="system"
 			break
 		fi
 	done
-	[ -n "$node_bin" ] || die "Node.js $MIN_NODE or newer is required. Install it from https://nodejs.org (or with 'brew install node'), then run this again."
-	local node_version node_major
-	node_version="$("$node_bin" --version 2>/dev/null | sed 's/^v//')"
-	node_major="${node_version%%.*}"
-	if ! [ "$node_major" -ge "$MIN_NODE" ] 2>/dev/null; then
-		die "Node.js $MIN_NODE or newer is required; found $node_version at $node_bin."
+	if [ -z "$node_bin" ]; then
+		[ "${ENSO_NODE:-}" = "system" ] && die "Node.js $MIN_NODE or newer is required (ENSO_NODE=system). Install it from https://nodejs.org, or run this again without ENSO_NODE."
+		local arch node_sha
+		case "$(uname -m)" in
+			arm64) arch="arm64" node_sha="$NODE_SHA_ARM64" ;;
+			x86_64) arch="x64" node_sha="$NODE_SHA_X64" ;;
+			*) die "Unsupported processor: $(uname -m)." ;;
+		esac
+		local node_name="node-v$NODE_VERSION-darwin-$arch"
+		local private_node="$RUNTIME_DIR/$node_name/bin/node"
+		if [ -x "$private_node" ] && [ "$("$private_node" --version 2>/dev/null)" = "v$NODE_VERSION" ]; then
+			info "Ensō's own Node $NODE_VERSION is already here."
+		else
+			info "No Node.js $MIN_NODE+ on this Mac: downloading Ensō's own copy (Node $NODE_VERSION, about 27 MB)."
+			curl -fsSL --retry 2 -o "$tmp/node.tar.xz" "https://nodejs.org/dist/v$NODE_VERSION/$node_name.tar.xz" || die "Could not download Node.js. Check your connection and try again."
+			local got_sha
+			got_sha="$(shasum -a 256 "$tmp/node.tar.xz" | awk '{print $1}')"
+			[ "$got_sha" = "$node_sha" ] || die "Node.js checksum mismatch: expected $node_sha, got $got_sha. Nothing was installed."
+			mkdir -p "$tmp/node" "$RUNTIME_DIR"
+			tar -xJf "$tmp/node.tar.xz" -C "$tmp/node" "$node_name/bin/node" "$node_name/LICENSE" || die "The Node.js download is not a valid archive."
+			rm -rf "${RUNTIME_DIR:?}/$node_name"
+			mv "$tmp/node/$node_name" "$RUNTIME_DIR/$node_name"
+			[ "$("$private_node" --version 2>/dev/null)" = "v$NODE_VERSION" ] || die "The downloaded Node.js doesn't run on this Mac."
+			info "Node $NODE_VERSION verified (SHA-256) and put in $RUNTIME_DIR"
+		fi
+		# A stable path for run.sh; older private versions are removed.
+		ln -sfn "$node_name" "$RUNTIME_DIR/node"
+		find "$RUNTIME_DIR" -maxdepth 1 -name 'node-v*' ! -name "$node_name" -exec rm -rf {} + 2>/dev/null || true
+		node_bin="$RUNTIME_DIR/node/bin/node" node_source="private"
 	fi
+	local node_version
+	node_version="$("$node_bin" --version 2>/dev/null | sed 's/^v//')"
 	info "Node $node_version at $node_bin"
 
-	# 3. Claude Code (the subscription engine runs on it; optional with an API key)
+	# 3. Claude Code (the subscription engine runs on it; optional, set up later in Ensō)
 	step "Checking Claude Code"
-	local claude_bin=""
+	local claude_bin="" claude_version=""
 	for candidate in "$(command -v claude 2>/dev/null || true)" "$HOME/.local/bin/claude" "$HOME/.claude/local/claude" /opt/homebrew/bin/claude /usr/local/bin/claude; do
 		if [ -n "$candidate" ] && [ -x "$candidate" ] && "$candidate" --version >/dev/null 2>&1; then
 			claude_bin="$candidate"
@@ -101,22 +142,15 @@ main() {
 		fi
 	done
 	if [ -n "$claude_bin" ]; then
-		info "$("$claude_bin" --version 2>/dev/null | head -1) at $claude_bin"
-		info "${dim}If you haven't signed in yet, run 'claude' once and follow the prompt.${reset}"
+		claude_version="$("$claude_bin" --version 2>/dev/null | head -1)"
+		info "$claude_version at $claude_bin"
 	else
-		warn "Claude Code was not found. Ensō uses it to run on your Claude subscription."
-		info "Install it:  curl -fsSL https://claude.ai/install.sh | bash"
-		info "Then sign in once by running: claude"
-		info "Or use an Anthropic API key instead (see $SITE/docs/engines)."
+		info "Not found. That's fine: Ensō → Settings → Setup installs it with one click,"
+		info "or you can use an Anthropic API key instead."
 	fi
 
 	# 4. Download and verify
 	step "Downloading the helper"
-	local tmp
-	tmp="$(mktemp -d "${TMPDIR:-/tmp}/enso-install.XXXXXX")"
-	# shellcheck disable=SC2064
-	trap "rm -rf '$tmp'" EXIT
-
 	local helper_url="${ENSO_HELPER_URL:-}" expected_sha="" release_version="" xpi_version=""
 	if [ -z "$helper_url" ]; then
 		curl -fsSL --retry 2 -o "$tmp/latest.json" "$LATEST_URL" || die "Could not reach $LATEST_URL. Check your connection and try again."
@@ -172,7 +206,7 @@ EOF
 	mkdir -p "$APP_DIR/bin"
 	cat >"$ENSO_BIN" <<EOF
 #!/bin/bash
-# The enso command (enso mcp, enso mcp install…). Written by install.sh.
+# The enso command (enso mcp, enso setup, enso update…). Written by install.sh.
 exec "$node_bin" "$HELPER_DIR/bin/enso.mjs" "\$@"
 EOF
 	chmod +x "$ENSO_BIN"
@@ -185,8 +219,13 @@ EOF
 	if [ -f "$APP_DIR/config.local.json" ]; then
 		info "Your config.local.json is kept as it is."
 	fi
+	# Keep the MCP token of an install from before the rename.
+	if [ ! -f "$APP_DIR/mcp-token" ] && [ -f "$LEGACY_DIR/mcp-token" ]; then
+		cp -p "$LEGACY_DIR/mcp-token" "$APP_DIR/mcp-token"
+	fi
 
-	# 6. Register with Zen and Firefox
+	# 6. Register with Zen and Firefox. The browser reads this file each time the
+	#    extension connects, so an open Zen picks the helper up without a restart.
 	step "Registering with Zen and Firefox"
 	local manifest dir
 	manifest="$("$node_bin" -e '
@@ -199,56 +238,58 @@ EOF
 		info "Wrote $dir/$HOST_NAME.json"
 	done
 
-	# 7. Let Claude Code use Zen (optional). Registered through the stdio
-	#    launcher (`enso mcp`), which reads the token itself: no token in any config.
-	if [ -n "$claude_bin" ]; then
+	# 7. Letting Claude Code, Codex, Cursor or OpenCode use Zen is a switch per
+	#    client in Ensō → Settings → Setup (or `enso mcp install`).
+	#    ENSO_REGISTER_MCP=1 registers Claude Code here, for scripted installs.
+	if [ "${ENSO_REGISTER_MCP:-}" = "1" ] && [ -n "$claude_bin" ]; then
 		step "Claude Code and Zen"
-		if "$claude_bin" mcp get "$MCP_NAME" >/dev/null 2>&1; then
-			info "Claude Code already has the $MCP_NAME server."
-			info "${dim}To switch an older registration (token in the config) to the launcher, or to add Codex and Cursor:${reset}"
-			info "${dim}  \"$ENSO_BIN\" mcp install${reset}"
+		if "$ENSO_BIN" mcp install --client claude >/dev/null 2>&1; then
+			info "Added zen-browser to Claude Code."
 		else
-			local register="${ENSO_REGISTER_MCP:-}"
-			if [ -z "$register" ]; then
-				if interactive; then
-					info "Ensō can let Claude Code (in a terminal or editor) read and use your Zen tabs,"
-					info "through a local MCP server on 127.0.0.1:$MCP_PORT. Change or turn it off any time in Ensō's settings."
-					if ask "Register it with Claude Code as \"$MCP_NAME\"?"; then register=1; else register=0; fi
-				else
-					register=0
-					info "Skipped (not interactive). Run again in a terminal, or with ENSO_REGISTER_MCP=1, to add it."
-				fi
-			fi
-			if [ "$register" = "1" ]; then
-				local token_file="$APP_DIR/mcp-token"
-				if [ ! -f "$token_file" ] && [ -f "$LEGACY_DIR/mcp-token" ]; then
-					cp -p "$LEGACY_DIR/mcp-token" "$token_file" # keep the token of an install from before the rename
-				fi
-				if "$ENSO_BIN" mcp install --client claude >/dev/null 2>&1; then
-					info "Added. Claude Code can use Zen while Zen is open."
-					info "${dim}Codex or Cursor too: \"$ENSO_BIN\" mcp install --client codex (or cursor, or all)${reset}"
-				else
-					warn "Claude Code did not accept the server; try \"$ENSO_BIN\" mcp install later."
-				fi
-			fi
+			warn "Claude Code did not accept the server; turn it on later in Ensō → Settings → Setup."
 		fi
 	fi
 
-	# 8. The extension
-	step "Adding the extension to Zen"
-	if [ "${ENSO_NO_OPEN:-}" = "1" ]; then
-		info "Open $XPI_URL in Zen to add the extension."
+	# Versions and paths for Setup (no secrets).
+	"$node_bin" -e '
+		const [file, version, nodePath, nodeVersion, nodeSource, claudePath, claudeVersion, site] = process.argv.slice(1);
+		const out = { version: version || null, installedAt: new Date().toISOString(), site,
+			node: { path: nodePath, version: nodeVersion, source: nodeSource },
+			claude: claudePath ? { path: claudePath, version: claudeVersion || null } : null };
+		require("fs").writeFileSync(file, JSON.stringify(out, null, 2) + "\n", { mode: 0o644 });
+	' "$APP_DIR/install.json" "$(cat "$HELPER_DIR/VERSION" 2>/dev/null || true)" "$node_bin" "$node_version" "$node_source" "$claude_bin" "$claude_version" "$SITE"
+
+	# 8. The extension: open it in Zen, unless a Zen profile already has it.
+	local ext_state
+	if grep -qs "\"$EXTENSION_ID\"" "$SUPPORT"/zen/Profiles/*/extensions.json; then
+		ext_state="installed"
+	elif [ "${ENSO_NO_OPEN:-}" = "1" ]; then
+		ext_state="skipped"
 	elif open -Ra Zen >/dev/null 2>&1; then
 		open -a Zen "$XPI_URL"
-		info "Zen is asking to add Ensō${xpi_version:+ $xpi_version}: click Add."
+		ext_state="opened"
 	else
-		warn "Zen was not found. Install it from https://zen-browser.app, then open $XPI_URL in it."
+		ext_state="no-zen"
 	fi
 
-	step "Done"
-	info "Press Cmd+E in Zen to open Ensō. If Zen was already open and Ensō says its helper"
-	info "isn't running, quit Zen fully (Cmd+Q) and reopen it once."
-	info "Docs: $SITE/docs"
+	local version_now private_note=""
+	version_now="$(cat "$HELPER_DIR/VERSION" 2>/dev/null || true)"
+	[ "$node_source" = "private" ] && private_note=" (Ensō's own copy)"
+	printf '\n%sDone. Ensō%s is installed.%s\n' "$bold" "${version_now:+ $version_now}" "$reset"
+	info "Helper   $HELPER_DIR"
+	info "Node     $node_version$private_note"
+	if [ -n "$claude_bin" ]; then
+		info "Claude   ${claude_version:-found}"
+	else
+		info "Claude   not installed yet (optional: Settings → Setup in Ensō)"
+	fi
+	case "$ext_state" in
+		installed) info "Next     Go back to Zen: Ensō connects by itself within a few seconds." ;;
+		opened) info "Next     Zen is asking to add Ensō${xpi_version:+ $xpi_version}: click Add, then press Cmd+E." ;;
+		skipped) info "Next     Add the extension from $SITE if you haven't, then press Cmd+E in Zen." ;;
+		no-zen) warn "Zen was not found. Install it from https://zen-browser.app, then add Ensō from $SITE." ;;
+	esac
+	info "${dim}Then finish in Ensō → Settings → Setup. Docs: $SITE/docs/install${reset}"
 }
 
 main "$@"

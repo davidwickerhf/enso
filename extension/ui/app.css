@@ -1312,3 +1312,85 @@ html[data-mode="full"] .shot-layer { align-items: center; }
 .t3-state.warn i { background: var(--warn); }
 .t3-state.bad i { background: var(--bad); }
 .link-list .link-main { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12.5px; }
+
+/* ---------- first run without the helper (views/setup.js createHelperGuide) ---------- */
+.hg-card { width: min(560px, 100%); }
+.hg-steps { list-style: none; margin: 0 0 16px; padding: 0; display: grid; gap: 14px; }
+.hg-steps > li { display: grid; grid-template-columns: 26px 1fr; gap: 12px; align-items: start; }
+.hg-num { width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center; font-size: 12.5px; font-weight: 600; background: var(--surface-2); color: var(--text-2); }
+.hg-num .icon { width: 14px; height: 14px; }
+.hg-steps > li.done .hg-num { background: var(--ok); color: #fff; }
+.hg-step { min-width: 0; display: grid; gap: 6px; }
+.hg-step strong { font-size: 13.5px; font-weight: 600; padding-top: 3px; }
+.hg-step p { margin: 0; color: var(--text-2); font-size: 13px; line-height: 1.6; }
+.cmd-box { display: flex; align-items: center; gap: 8px; padding: 6px 6px 6px 12px; border-radius: 10px; background: var(--bg-elev); border: 1px solid var(--line-strong); min-width: 0; }
+.cmd-text { flex: 1; min-width: 0; font: 12.5px/1.5 var(--mono); color: var(--text); white-space: pre-wrap; overflow-wrap: anywhere; user-select: all; }
+.copy-btn { flex: none; }
+.copy-btn.copied { background: var(--ok); }
+kbd { display: inline-block; min-width: 20px; padding: 0 5px; border-radius: 5px; border: 1px solid var(--line-strong); border-bottom-width: 2px; background: var(--surface); font: 500 11.5px/18px var(--font); text-align: center; color: var(--text); }
+.hg-wait { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: var(--r); background: var(--surface-2); font-size: 13px; transition: background var(--dur) var(--ease), box-shadow var(--dur) var(--ease); }
+.hg-wait > div { flex: 1; min-width: 0; line-height: 1.45; }
+.hg-wait strong { font-weight: 600; }
+.hg-wait.on { background: var(--accent-softer); box-shadow: inset 0 0 0 1px var(--accent-soft); }
+.hg-more { margin-top: 14px; font-size: 12.5px; color: var(--text-2); }
+.hg-more summary { cursor: pointer; color: var(--text-3); font-weight: 500; }
+.hg-more summary:hover { color: var(--accent-text); }
+.hg-more ul { margin: 8px 0; padding-left: 18px; display: grid; gap: 4px; line-height: 1.5; }
+.hg-more code { font: 11.5px var(--mono); background: var(--surface-2); padding: 1px 4px; border-radius: 4px; }
+.hg-more a { color: var(--accent-text); }
+.hg-done { display: flex; gap: 14px; align-items: flex-start; }
+.hg-check { flex: none; width: 36px; height: 36px; border-radius: 50%; display: grid; place-items: center; background: var(--ok); color: #fff; animation: ob-rise 320ms var(--ease); }
+.ob-actions.end { justify-content: flex-end; }
+@media (max-width: 460px) {
+  .hg-card { padding: 22px 18px 18px; }
+  .hg-card .ob-title { font-size: 23px; }
+  .hg-steps > li { grid-template-columns: 22px 1fr; gap: 10px; }
+  .hg-num { width: 22px; height: 22px; font-size: 11.5px; }
+  .hg-wait { flex-wrap: wrap; }
+}
+
+/* ---------- Settings → Setup (views/setup.js createSetupPage) ---------- */
+.setup-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.setup-summary { display: flex; align-items: flex-start; gap: 10px; padding: 12px 14px; border-radius: var(--r); background: var(--surface-2); font-size: 13px; line-height: 1.5; margin-bottom: 6px; }
+.setup-summary strong { font-weight: 600; }
+.setup-summary.good { background: color-mix(in srgb, var(--ok) 10%, var(--surface)); }
+.setup-summary.warn { background: var(--accent-softer); box-shadow: inset 0 0 0 1px var(--accent-soft); }
+.setup-group { margin: 18px 0 6px; font-size: 11.5px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--text-3); }
+.setup-list { list-style: none; margin: 0; padding: 0; border: 1px solid var(--line); border-radius: var(--r-lg); background: var(--surface); }
+.setup-item { display: grid; grid-template-columns: 24px 1fr; gap: 12px; padding: 14px 16px; border-top: 1px solid var(--line); }
+.setup-item:first-child { border-top: 0; }
+.si-mark { width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center; background: var(--surface-2); color: var(--text-3); flex: none; }
+.si-mark .icon { width: 14px; height: 14px; stroke-width: 2; }
+.si-mark i { width: 6px; height: 6px; border-radius: 50%; background: var(--text-3); }
+.setup-item.good .si-mark, .setup-summary.good .si-mark { background: var(--ok); color: #fff; }
+.setup-item.warn .si-mark, .setup-summary.warn .si-mark { background: var(--accent); color: #fff; }
+.setup-item.bad .si-mark { background: var(--bad); color: #fff; }
+.si-body { min-width: 0; display: grid; gap: 6px; }
+.si-head { display: flex; align-items: center; gap: 8px; min-height: 24px; }
+.si-head h3 { margin: 0; font-size: 14px; font-weight: 600; }
+.si-status { margin: 0; color: var(--text-2); font-size: 13px; line-height: 1.5; overflow-wrap: anywhere; }
+.si-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 2px; }
+.si-actions .btn .icon { width: 14px; height: 14px; }
+.si-sub { display: grid; gap: 6px; }
+.si-sub .hint, .si-body > .hint { margin: 0; }
+.si-clients { list-style: none; margin: 2px 0 0; padding: 0; border-top: 1px solid var(--line); }
+.si-clients li { border-bottom: 1px solid var(--line); }
+.si-clients .setting, .si-options .setting { padding: 7px 0; }
+.si-options { padding-top: 2px; }
+.si-secret .form-actions { margin-top: 2px; flex-wrap: nowrap; }
+.si-secret .input { flex: 1; min-width: 0; }
+.si-secret .hint { margin-top: 6px; }
+.si-done, .si-wait { display: flex; align-items: center; gap: 6px; margin: 0; font-size: 12.5px; }
+.si-done .icon { width: 14px; height: 14px; }
+.si-done.good { color: var(--ok); }
+.si-done.bad { color: var(--bad); }
+.si-wait { color: var(--text-2); }
+.setup-line { display: flex; align-items: center; gap: 6px; margin: 0; font-size: 13px; color: var(--text-2); }
+.setup-line .icon { width: 15px; height: 15px; color: var(--ok); }
+.setup-line.warn .icon { color: var(--accent); }
+@media (max-width: 460px) {
+  .setup-item { grid-template-columns: 22px 1fr; gap: 10px; padding: 12px; }
+  .si-mark { width: 22px; height: 22px; }
+}
+.hint .link-btn, .setting-text p .link-btn { display: inline; padding: 0; font-size: inherit; color: var(--accent-text); text-decoration: underline; text-underline-offset: 2px; }
+.setup-item .si-head h3 { color: var(--text); }

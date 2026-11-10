@@ -5,6 +5,28 @@ share one version number. Dates are the tag dates. Releases are published to
 <https://enso.wicker.life> by the release workflow ([docs/releasing.md](docs/releasing.md));
 the extension updates itself, the helper updates when you run the installer again.
 
+## Unreleased
+
+Setup from inside Ensō: one command, then buttons.
+
+- **First-run guide.** Without a helper, Ensō explains why one terminal step is
+  needed, shows the install command with a Copy button and how to open
+  Terminal, then waits and moves on by itself when the helper connects (no Zen
+  restart). A helper that can't start gets a "run it again to repair" variant.
+  background.js now tracks the helper's state (`helper.status`) and retries
+  `connectNative` on its own, also after a crash or an update.
+- **Settings → Setup.** A checklist the helper keeps current: helper version
+  and **Update**, Claude Code (install or sign in through Terminal, plan shown)
+  or an API key stored in the Keychain from a password field, a switch per agent
+  (Claude Code, Codex, Cursor, OpenCode) with read-only and the Claude Code hook,
+  T3 Code, GitHub (gh sign-in or a token), Tools and the agent token. New helper
+  messages `setup.status` and `setup.run`; `enso setup` and `enso update` in the
+  terminal.
+- **Installer.** No questions any more (agents are set up in Setup); fetches its
+  own Node.js 24 with a pinned SHA-256 when the Mac has no Node 18+; doesn't
+  reopen the extension when Zen already has it; writes `install.json`; ends with
+  a short summary.
+
 ## 0.5.4 (10 November 2026)
 
 A Tasks widget that keeps up, and monday.com on the new tab.
