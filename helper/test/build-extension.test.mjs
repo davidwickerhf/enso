@@ -11,7 +11,7 @@ import { createRequire } from "node:module";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const repo = path.join(here, "../..");
@@ -94,7 +94,7 @@ try {
   const pin = (data, setup) => {
     mkdirSync(data, { recursive: true });
     setup?.(data);
-    const r = spawnSync(process.execPath, ["--input-type=module", "-e", 'const s = await import(process.argv[1]); console.log(JSON.stringify({ r: s.pinPreviousDefaults(), again: s.pinPreviousDefaults() }));', path.join(here, "../lib/store.mjs")], { env: { ...process.env, ENSO_DATA: data, ENSO_LEGACY_DATA: "" }, encoding: "utf8" });
+    const r = spawnSync(process.execPath, ["--input-type=module", "-e", 'const s = await import(process.argv[1]); console.log(JSON.stringify({ r: s.pinPreviousDefaults(), again: s.pinPreviousDefaults() }));', pathToFileURL(path.join(here, "../lib/store.mjs")).href], { env: { ...process.env, ENSO_DATA: data, ENSO_LEGACY_DATA: "" }, encoding: "utf8" });
     assert.equal(r.status, 0, r.stderr);
     return { out: JSON.parse(r.stdout.trim().split("\n").at(-1)), settings: JSON.parse(readFileSync(path.join(data, "settings.json"), "utf8")) };
   };

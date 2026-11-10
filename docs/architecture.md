@@ -52,7 +52,7 @@ receives every broadcast, so they stay in sync.
 ## The extension
 
 `extension/manifest.json`: Manifest V2, id `enso@wicker.life`, minimum Firefox
-139. Permissions: `nativeMessaging`, `tabs`, `tabGroups`, `history`, `menus`,
+142. Permissions: `nativeMessaging`, `tabs`, `tabGroups`, `history`, `menus`,
 `storage`, `bookmarks`, `search`, `cookies`, `contextualIdentities`,
 `webRequest`, `webNavigation` and `<all_urls>`.
 
