@@ -5,6 +5,7 @@
 import { h, icon, clear, isHttpUrl } from "../dom.js";
 import { relTime, stripAsk } from "../format.js";
 import { createTips } from "./tips.js";
+import { loadingOr } from "./helperstate.js";
 
 const LIMIT = 4;
 const ISO = /\d{4}-\d{2}-\d{2}/;
@@ -110,7 +111,10 @@ export function createDashboard(store, ctx, { variant }) {
       out.push(h("p", { class: "b-error", role: "alert" }, h("span", { class: "b-dot" }), `Couldn't update the brief: ${error} `, h("button", { type: "button", class: "b-link", onclick: () => actions.refreshDashboard() }, "Try again")));
     }
     if (!d) {
-      if (loading) out.push(...skeleton());
+      // Waiting for the helper (its first answer, or the refresh request): never a skeleton forever.
+      const key = !s.ready ? "state" : loading ? "dashboard" : null;
+      if (store.helperDown() || (key && store.loadState(key) === "timeout")) { clear(body, loadingOr(store, key ?? "state", null, { tiny: true })); return; } // the banner above has the details
+      if (loading || !s.ready) out.push(...skeleton());
       else if (!error) out.push(h("p", { class: "b-empty" }, "No brief yet. It gathers today's calendar, mail that matters, deadlines and practice. ", h("button", { type: "button", class: "b-link", onclick: () => actions.refreshDashboard() }, "Build my brief")));
       clear(body, out);
       return;
@@ -149,6 +153,7 @@ export function createDashboard(store, ctx, { variant }) {
     heroSlot: null,
     update(topics) {
       if (topics.has("dashboard") || topics.has("state")) renderAll();
+      else if (!s.dashboard.data && (topics.has("waits") || topics.has("helper"))) renderBody();
     },
     show() { renderAll(); },
   };

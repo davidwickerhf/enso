@@ -9,11 +9,13 @@ group: Start
 
 Ensō has two parts: the **browser extension** and a small **helper** program that runs on your Mac. You install the extension, run one command, and do everything else with buttons in Ensō.
 
+> **Ensō needs a Mac.** The helper runs on macOS only for now. Windows and Linux support is planned. On Linux or Windows the extension installs, but chat, memory, history, settings and tools don't work without the helper (the new tab's search box, clock, quick links and note do). Follow the work on [GitHub](https://github.com/davidwickerhf/enso).
+
 ## Requirements
 
 | | |
 |---|---|
-| System | macOS. Linux and Windows aren't supported yet. |
+| System | **macOS only for now.** Windows and Linux support is planned; the installer stops with that message on other systems. |
 | Browser | [Zen](https://zen-browser.app). Firefox 139 or newer works too, without Zen's spaces. |
 | Engine | Your Claude subscription (through Claude Code) **or** an Anthropic API key. Both are set up from Ensō afterwards; see [Engines](/docs/engines). |
 
