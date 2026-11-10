@@ -5,9 +5,27 @@ share one version number. Dates are the tag dates. Releases are published to
 <https://enso.wicker.life> by the release workflow ([docs/releasing.md](docs/releasing.md));
 the extension updates itself, the helper updates when you run the installer again.
 
-## Unreleased
+## 0.5.6 (10 November 2026)
 
-Make a helper crash diagnosable, and stop waiting forever.
+Linux and Windows, a clearer Settings, the address bar as Ensō's box, and a
+helper whose crashes can be diagnosed.
+
+- **Linux and Windows.** See below; the helper, installers and releases now
+  cover all three systems.
+- **Settings in sections** (General, You & memory, Skills, Connections, Agents &
+  screenshots, Privacy & safety, Setup, Advanced) with a nav, search (`/`),
+  deep links (`#settings/<section>`) and a dot where something needs attention.
+  The separate Setup page is folded in; no setting was renamed.
+- **The address bar as Ensō's box.** Ensō is a search engine in Zen (keyword
+  `@enso`). One setting decides where address-bar queries go: Ensō, a web
+  search engine, or a choice each time; `e ` and `g ` override it. With
+  `zen.urlbar.replace-newtab` on, ⌘T opens Zen's command bar for addresses,
+  searches and questions.
+- **New tabs open once.** The tab swap that moved keyboard focus into Ensō is
+  off by default (it showed as an extra tab); Settings → General can turn it on.
+
+### Crash diagnostics
+
 
 - **Helper log.** The helper writes `~/Library/Logs/Enso/helper.log` (about 1 MB,
   plus one older file): startup (helper and Node version, Node's path, macOS),
