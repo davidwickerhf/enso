@@ -58,9 +58,9 @@ disagree, the policy needs a decision, not a quiet edit: see
 | To | What | When |
 |---|---|---|
 | **Anthropic** (through Claude Code on your plan, or the API with your key) | Your message; your profile and memory (system prompt); time, Zen space name, your note about it and that space's memory; the conversation so far; whatever context is attached: the current page's text when the page chip is on, `@`-mentioned tabs, attachments, screenshots; every tool result Claude reads (page snapshots, mail, calendar, GitHub data, console and network output). | Each chat turn. |
-| **Anthropic** | Profile, memory and the results of read-only tool calls (calendar, mail, tasks, a GitHub summary) for the Home briefing. | Automatically when the briefing is stale: when Ensō connects and while Home is open, by default when it is more than an hour old or from before 05:00 today (Settings → Home → Refresh the briefing). "Off" (0) stops every automatic refresh, on the helper side (`dashboardStale` returns false) and in the UI; the brief then only runs from its refresh button. |
+| **Anthropic** | Profile, memory and the results of read-only tool calls (calendar, mail, tasks, a GitHub summary) for the Home briefing. | When you press the brief's refresh button, or automatically once you turn it on (onboarding's **Turn on the daily brief**, or Settings → General → Refresh the brief). **Off by default for new installs since 0.5.7** (`config.json` `dashboard.autoRefreshMinutes: 0`). On, it refreshes when the brief is older than the interval or from before 05:00 today, when Ensō connects and while Home is open. "Off" (0) stops every automatic refresh (`dashboardStale` returns false). Installs from before 0.5.7 keep the hourly default they had: on its first start, the helper writes `60` into their `settings.json` where they never chose a value (`store.pinPreviousDefaults`, once). |
 | **The services behind your tools** | The tool call's input (a Gmail search, an event to create), under your account there. claude.ai connectors go through Anthropic's connector service; servers Ensō signs in to are called by the helper directly. | When a tool runs, and for task apps and monday.com when their widgets refresh (every five minutes at most). Connect-button servers (monday.com, Commonfold, …) use OAuth tokens from the secret store. |
-| **Your default search engine** (Google or DuckDuckGo suggestion endpoints) | What you type in the new tab's search box, from the extension (`transport.suggestions`, `credentials: "omit"`, no referrer). | As you type on the new tab. |
+| **Your default search engine** (Google or DuckDuckGo suggestion endpoints) | What you type in the new tab's search box, from the extension (`transport.suggestions`, `credentials: "omit"`, no referrer). | As you type on the new tab, **only with Settings → General → Search suggestions while typing on** (`browser.storage.local.searchSuggestions`). Off for new installs since 0.5.7; installs updated from an earlier version get it set to on once (`runtime.onInstalled` in background.js), since they had it. |
 | **GitHub** (`api.github.com`) | API requests with your token. | GitHub tools, the GitHub widget, the briefing. |
 | **Websites** | Ordinary requests: pages Ensō opens or navigates to, web search and fetch, `session_fetch` with your session on sites you allowed. | When Claude uses those tools. |
 | **Other agents' providers** | Whatever an MCP client reads through `zen-browser`: tab lists, page text, screenshots, history, console and network logs, GitHub data. It goes to that client's model provider (Anthropic for Claude Code, OpenAI for Codex, Cursor's providers for Cursor). | When you use Zen from that client. |
@@ -107,6 +107,9 @@ points from the previous check are closed:
 3. **Claude Code transcripts.** Disclosed in the policy and in Privacy & data.
 4. **Other agents.** Disclosed: what an MCP client reads goes to its provider.
 5. **Sync.** The policy and the sync docs say it isn't available in Ensō yet.
+6. **Nothing sent automatically by default (0.5.7).** New installs start with
+   the Home brief and new-tab search suggestions off; the policy says so.
+   Existing installs keep what they had.
 
 Also added: screenshots to T3 Code and agents, OAuth-connected tools
 (monday.com, Commonfold) and the addons.mozilla.org listing. The policy is also

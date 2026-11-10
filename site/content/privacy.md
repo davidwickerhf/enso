@@ -7,7 +7,7 @@ description: What Ensō and enso.wicker.life collect, why, where it is kept, and
 
 <p class="lede">Ensō is built so that we hold as little about you as possible. This policy covers the Ensō extension (including the version listed on addons.mozilla.org) and helper, and the website and sync service at enso.wicker.life.</p>
 
-*Last updated 10 November 2026.*
+*Last updated 10 November 2026 (version 0.5.7).*
 
 **Who we are.** Ensō is made and run by David Wicker, an individual developer in the Netherlands, who is the controller for the data described here. Contact: [privacy@enso.wicker.life](mailto:privacy@enso.wicker.life).
 
@@ -17,9 +17,9 @@ The Ensō extension and local helper run on your computer (macOS, Linux or Windo
 
 When you send a message, the helper sends it to **Anthropic**, together with the context needed to answer it: your profile and memory, the conversation so far, the current page if included, mentioned tabs, attachments, screenshots and tool results. This goes either through Claude Code under your Claude subscription, or to the Anthropic API under your own API key. Anthropic processes it as your provider, under the terms and privacy policy you accepted with them; we are not a party to that and never see it.
 
-**The Home brief** also goes to Anthropic, without you sending a message. By default, about once an hour while Ensō is running, the helper asks Claude to write the brief on the new tab: it sends your profile and memory and what your read-only tools return (today's calendar, mail, tasks, a GitHub summary). To stop it, set *Settings → Home → Refresh the briefing* to **Off**; the brief then only updates when you press its refresh button.
+**The Home brief** goes to Anthropic too, but only when you ask for it. It is **off by default**: the helper writes the brief on the new tab when you press its refresh button, or by itself once you turn it on (during setup with *Turn on the daily brief*, or in *Settings → General → Refresh the brief*). Each brief sends your profile and memory and what your read-only tools return (today's calendar, mail, tasks, a GitHub summary). Setting it back to **Off** stops every automatic refresh. (Installs from before version 0.5.7 keep the setting they had, which refreshed about once an hour.)
 
-**Search suggestions.** As you type in the new tab's search box, the text goes to the suggestion service of the web search engine you chose in Ensō (Google or DuckDuckGo), without cookies, the same way Firefox's own address bar suggests searches.
+**Search suggestions** are **off by default**. If you turn on *Search suggestions while typing* (*Settings → General → New tab & Home*), what you type in the new tab's search box goes to the suggestion service of the web search engine you chose in Ensō (Google or DuckDuckGo), without cookies, the same way Firefox's own address bar suggests searches. With it off, nothing you type there leaves your computer until you press Enter. (Installs from before version 0.5.7 keep suggestions on, as they had them; the switch turns them off.)
 
 **Address-bar search.** Ensō adds itself to Zen as a search engine whose address is `enso.wicker.life/ask#q=…`. What you type sits after the `#`, which browsers never send to a server, and the extension opens its own page before that address loads. Without the extension, the site's `/ask` page reads it in your browser only, has no analytics and records nothing.
 
@@ -95,4 +95,5 @@ Ensō is not meant for children under 16, and we don't knowingly hold their data
 
 If this policy changes in a way that affects your data, we will update the date above and, if you have a sync account, email you before the change takes effect.
 
+- **10 November 2026 (0.5.7):** nothing is sent automatically by default on new installs: the Home brief and new-tab search suggestions are off until you turn them on.
 - **10 November 2026:** the helper now also runs on Linux and Windows, with secrets in each system's own store; added the Home brief, Claude Code's transcripts, other agents, screenshots, OAuth-connected tools and the addons.mozilla.org listing; tax and government sites are now on the private-site list, which is described in full; sync is marked as not available yet.

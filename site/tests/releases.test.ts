@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
 import { bytes, req } from './helpers';
 import { latestVersions, releasePut } from '$lib/server/api';
-import { compareVersions, updateManifest } from '$lib/server/releases';
+import { compareVersions, isDirectBuild, latestDirect, updateManifest } from '$lib/server/releases';
 import { getStore, releaseObjectKey } from '$lib/server/storage';
 
 const publish = (kind: string, version: string, data: Uint8Array, token = 'test-release-token', qs = '') =>
@@ -66,6 +66,18 @@ describe('releases and the update feed', () => {
 		expect((await publish('plugin', '1.0.0', bytes(5))).status).toBe(400);
 		expect((await publish('extension', 'latest', bytes(5))).status).toBe(400);
 		expect((await publish('extension', '1.0.0', new Uint8Array())).status).toBe(400);
+	});
+
+	it('serves the newest direct-download (four-part) extension as enso-latest.xpi', async () => {
+		expect(isDirectBuild('0.5.7.1')).toBe(true);
+		expect(isDirectBuild('0.5.7')).toBe(false);
+		expect(isDirectBuild('0.5.7.1-beta')).toBe(false);
+		await publish('extension', '7.0.0', bytes(5, 11));
+		expect((await latestDirect())?.version).not.toBe('7.0.0.1');
+		await publish('extension', '7.0.0.1', bytes(5, 12));
+		await publish('extension', '7.0.1', bytes(5, 13)); // a newer listed build
+		expect((await latestDirect())?.version).toBe('7.0.0.1');
+		expect((await latestDirect())?.filename).toBe('enso-7.0.0.1.xpi');
 	});
 
 	it('reports the newest versions, comparing numerically', async () => {

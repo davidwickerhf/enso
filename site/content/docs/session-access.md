@@ -16,7 +16,9 @@ Ensō can debug web pages with you: read a tab's console and network requests, r
 | Read the console | Console messages and errors of a tab, from the first time it looks | No |
 | List network requests | The tab's requests: URL, status, timing, sizes. Secret header values are hidden; bodies are never recorded | No |
 | Inspect storage | Storage keys, cookie names and flags. Never cookie values | Only for storage values you didn't ask for |
-| Run JavaScript on the page | For debugging: reading state, checking a selector | Unless you asked for it |
+| Find elements | The elements matching a CSS selector: text, attributes (links resolved), visible or not, position. Runs no code | No |
+| Inspect an element | One element's computed styles, size, scroll size, whether it's visible, in view or covered. Runs no code | No |
+| Run JavaScript on the page | For debugging: reading state, checking a selector. Only in the [direct download build](/docs/install#two-builds) | Unless you asked for it |
 | Request with your session | An HTTP request made inside a tab of the site, with your login there | The site needs your permission |
 | Headless Zen | A separate, invisible Zen with a throwaway profile, signed out unless you let it copy a site's session | Copying a session needs permission |
 

@@ -27,8 +27,11 @@ kept in two places:
 - `version` in `helper/package.json` (and `package-lock.json`).
 
 CI fails when they differ, and the release workflow refuses a tag that doesn't
-match both. Use plain `MAJOR.MINOR.PATCH`. Firefox compares versions
-numerically, so `0.5.10` is newer than `0.5.9`.
+match both. Use plain `MAJOR.MINOR.PATCH` for a listed release (the Firefox
+Add-ons build) and `MAJOR.MINOR.PATCH.N` for a direct download build (signed
+unlisted, includes `page_eval`): a four-part tag doesn't trigger the workflow;
+run it by hand with mode `submit-unlisted`. Firefox compares versions
+numerically, so `0.5.10` is newer than `0.5.9`, and `0.5.7.1` newer than `0.5.7`.
 
 During development, bump the manifest version whenever you want Zen to take a
 new dev build (see [development.md](development.md#after-a-change)), and keep
@@ -93,9 +96,12 @@ Modes (`workflow_dispatch` input `mode`; a tag push is `submit-listed`):
    versions; the manifest id must be `enso@wicker.life`.
 2. **Helper checks.** `npm ci --omit=optional`, `node --check` on every module,
    `npm test`.
-3. **Prepare the extension.** Copies `extension/` to `build/extension`. Listed:
-   fails if the manifest has an `update_url` (AMO refuses it). Unlisted: sets
-   `update_url` to `https://enso.wicker.life/updates.json`.
+3. **Prepare the extension.** `scripts/build-extension.mjs --channel listed|unlisted`
+   copies `extension/` to `build/extension` and writes `channel.js`. Listed:
+   removes the `// <unlisted-only>` blocks (page_eval), fails if `eval(` or
+   `new Function` is left, and fails if the manifest has an `update_url` (AMO
+   refuses it). Unlisted: keeps the files and sets `update_url` to
+   `https://enso.wicker.life/updates.json`.
 4. **Site check.** Reads `extensionIds` from `/api/latest` and fails if
    `enso@wicker.life` isn't there: self-hosted copies would never be offered
    the update.

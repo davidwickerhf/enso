@@ -18,6 +18,8 @@ import { SCREENSHOT_SHORTCUT } from "./send.js";
 import { setupSummary, createSetupKit, switchRow, SITE, vaultOf } from "./setup.js";
 import { inExtension } from "../transport.js";
 import { loadingOr } from "./helperstate.js";
+import { readSearchSuggestions, writeSearchSuggestions } from "../omnibox.js";
+import { EDITION, PAGE_EVAL, PAGE_EVAL_NOTE } from "../edition.js";
 
 // "Type straight into Ensō on new tabs" lives in the extension's own storage
 // (browser.storage.local.newTabFocus), not in the helper's settings:
@@ -41,7 +43,7 @@ const MODELS = [
   ["claude-sonnet-5-5", "Claude Sonnet 5.5"],
   ["claude-haiku-5-5", "Claude Haiku 5.5"],
 ];
-const REFRESH = [[0, "Off"], [15, "Every 15 min"], [30, "Every 30 min"], [60, "Every hour"], [120, "Every 2 hours"], [240, "Every 4 hours"]];
+const REFRESH = [[0, "Off"], [1440, "Once a day"], [15, "Every 15 min"], [30, "Every 30 min"], [60, "Every hour"], [120, "Every 2 hours"], [240, "Every 4 hours"]];
 
 export const SECTIONS = [
   { id: "general", label: "General", icon: "sliders", desc: "Which Claude answers, how long it thinks, and what it sees by default.", docs: "engines" },
@@ -119,6 +121,8 @@ export function createSettings(store, ctx) {
   let query = "";
   let newTabFocus = false;
   readNewTabFocus().then(v => { newTabFocus = v; renderSection("general"); });
+  let searchSuggestions = false;
+  readSearchSuggestions().then(v => { searchSuggestions = v; renderSection("general", "privacy"); });
   // The address-bar row (views/addressbar.js, PR #25): built once and moved into General on each render.
   // Loaded lazily so Settings works the same on a build without it.
   let addressBar = null;
@@ -287,8 +291,10 @@ export function createSettings(store, ctx) {
       group("New tab & Home",
         switchRow("Type straight into Ensō on new tabs", "Zen puts the cursor in the address bar. With this on, Ensō swaps each new tab for one that gets the cursor; Zen briefly shows the extra tab.", newTabFocus,
           v => { newTabFocus = v; writeNewTabFocus(v); flashSaved(); renderSection("general"); }, { keys: "new tab focus cursor address bar keyboard type" }),
-        row({ label: "Refresh the brief", forId: refreshId, desc: `${brief} Off: only when you press refresh.`, keys: "dashboard briefing home new tab auto-refresh widgets",
-          control: h("select", { class: "select", id: refreshId, onchange: ev => save({ dashboard: { autoRefreshMinutes: Number(ev.target.value) } }) }, REFRESH.map(([v, l]) => h("option", { value: v, selected: v === (st.dashboard?.autoRefreshMinutes ?? 60) }, l))) }),
+        switchRow("Search suggestions while typing", "Sends what you type in the new tab's box to your search engine (Google or DuckDuckGo) for suggestions. Off: only your tabs, bookmarks and history are suggested.", searchSuggestions,
+          v => { searchSuggestions = v; writeSearchSuggestions(v); flashSaved(); renderSection("general", "privacy"); }, { keys: "search suggestions google duckduckgo autocomplete omnibox typing network" }),
+        row({ label: "Refresh the brief", forId: refreshId, desc: `${brief} Off: only when you press refresh. Each refresh sends your profile, memory and what your tools return to Anthropic.`, keys: "dashboard briefing home new tab auto-refresh widgets",
+          control: h("select", { class: "select", id: refreshId, onchange: ev => save({ dashboard: { autoRefreshMinutes: Number(ev.target.value) } }) }, REFRESH.map(([v, l]) => h("option", { value: v, selected: v === (st.dashboard?.autoRefreshMinutes ?? 0) }, l))) }),
         row({ label: "Widgets", desc: "Arrange them on the new tab with the layout button in its top bar.", keys: "new tab widgets layout customize" })),
       addressBar ? group(null, h("div", { class: "set-row set-block", dataset: { search: "address bar url bar search engine zen default ask" } }, addressBar.el)) : null,
     ];
@@ -527,11 +533,15 @@ export function createSettings(store, ctx) {
         row({ label: "Private sites", keys: "blocked private sites banking health tax sensitive off-limits", desc: "Banking, health, tax and similar sites are always off-limits: no reading, acting, sharing or session access." })),
       group(`What leaves ${here()}`,
         row({ label: "Your messages", desc: "What you send, and the page or tabs you include, go to Anthropic to answer.", keys: "anthropic data messages page" }),
-        row({ label: "The Home brief", desc: "Your profile, memory and what read-only tools return go to Anthropic on each refresh (General → Home).", keys: "brief dashboard anthropic data" }),
+        row({ label: "The Home brief", desc: `Your profile, memory and what read-only tools return go to Anthropic on each refresh. ${(st.dashboard?.autoRefreshMinutes ?? 0) ? "It refreshes by itself" : "Off by default: only when you press refresh"} (General → New tab & Home).`, keys: "brief dashboard anthropic data" }),
+        row({ label: "Search suggestions", desc: searchSuggestions ? "On: what you type in the new tab's box goes to your search engine for suggestions (General → New tab & Home)." : "Off: nothing you type in the new tab's box leaves until you press Enter (General → New tab & Home).", keys: "search suggestions google duckduckgo typing" }),
         row({ label: "Everything else", desc: `Conversations, memory, screenshots and settings stay in Ensō's folder on ${here()}.`, keys: "local data folder screenshots storage",
           control: h("span", { class: "set-links" }, learnMore("privacy", "Privacy policy"), learnMore("docs/privacy-data", "Where data lives")) })),
     ];
   };
+
+  const editionRow = () => row({ label: EDITION.name, desc: EDITION.detail, keys: "edition build version channel firefox add-ons direct download development page_eval about",
+    control: (v => (v ? h("span", { class: "tag" }, v) : null))(globalThis.browser?.runtime?.getManifest?.().version) });
 
   renderers.setup = () => {
     const st = s.setup.status;
@@ -558,6 +568,7 @@ export function createSettings(store, ctx) {
         glance("T3 Code", !t.installed || !t.connected ? "off" : t.tokenValid === false ? "warn" : "good", !t.installed ? `Not on ${here()}.` : !t.connected ? "Not connected." : t.tokenValid === false ? "Needs a new connection." : "Connected.", "connections", "Connections", "t3 screenshots"),
         glance("GitHub", st.github.connected ? "good" : st.github.error ? "warn" : "off", st.github.connected ? `Signed in as ${st.github.login}.` : "Not connected.", "connections", "Connections", "github gh"),
         glance("Tools", tools.needsAuth ? "warn" : tools.on ? "good" : "off", tools.total ? `${tools.on} of ${tools.total} on${tools.needsAuth ? ` · ${tools.needsAuth} need${tools.needsAuth === 1 ? "s" : ""} a sign-in` : ""}.` : "None yet.", "tools", "Tools", "connectors mcp")),
+      group("This copy of Ensō", editionRow()),
       kit.placesRows(st).length ? group("Where Ensō keeps things", ...kit.placesRows(st)) : null,
       h("p", { class: "hint set-foot" }, "Everything here also works from the ", h("code", null, "enso"), ` command in ${s.platform === "win" ? "PowerShell" : s.platform === "linux" ? "a terminal" : "Terminal"} (`, h("code", null, "enso setup"), ")."),
     ];
@@ -570,12 +581,14 @@ export function createSettings(store, ctx) {
     const pathId = nextId("set-claude-path");
     const paths = s.paths;
     return [
+      group("This copy of Ensō", editionRow()),
       group("Claude Code",
         row({ label: "Claude Code location", forId: pathId, keys: "claude path cli binary location",
           desc: eng.subscription?.path ? `Using ${eng.subscription.path}. Leave empty to find it automatically.` : `Found automatically on your PATH, in ${s.platform === "win" ? "%USERPROFILE%\\.local\\bin or npm" : s.platform === "linux" ? "~/.local/bin, npm or Linuxbrew" : "~/.local/bin or Homebrew"}. Set a path only if yours lives elsewhere.`,
           control: h("input", { type: "text", class: "input mono set-path", id: pathId, value: st.claudePath ?? "", placeholder: "/path/to/claude", spellcheck: "false", onchange: ev => save({ claudePath: ev.target.value.trim() }) }) })),
       group("Developer tools",
-        switchRow("Developer tools", "Console, network, JavaScript and storage of your tabs, for Claude and your agents. Running JavaScript asks first.", st.developerTools !== false, v => save({ developerTools: v }), { keys: "devtools console network eval storage debugging" }),
+        switchRow("Developer tools", PAGE_EVAL ? "Console, network, JavaScript and storage of your tabs, for Claude and your agents. Running JavaScript asks first." : "Console, network and storage of your tabs, for Claude and your agents.", st.developerTools !== false, v => save({ developerTools: v }), { keys: "devtools console network eval storage debugging" }),
+        PAGE_EVAL ? null : row({ label: "Running JavaScript", desc: PAGE_EVAL_NOTE, keys: "page_eval javascript eval firefox add-ons build unavailable", control: h("span", { class: "tag" }, "Not in this build") }),
         switchRow("Headless browser", "A separate, invisible Zen with a throwaway profile for testing pages. Stops after 10 minutes idle.", st.headless !== false, v => save({ headless: v }), { keys: "headless zen testing marionette" }),
         row({ label: "Session access", desc: "Which sites these tools may use as you.", keys: "session access", control: h("button", { type: "button", class: "btn small ghost", onclick: () => open("privacy") }, "Privacy & safety", icon("chevronRight")) })),
       group("Files",

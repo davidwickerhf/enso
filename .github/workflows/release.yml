@@ -3,7 +3,9 @@
 #
 # On a version tag (v0.5.5) it:
 #   1. checks that the tag matches extension/manifest.json and helper/package.json,
-#      syntax-checks and tests the helper, lints the extension with web-ext;
+#      syntax-checks and tests the helper, builds the extension for its channel
+#      (scripts/build-extension.mjs: the listed build has no page_eval) and
+#      lints that build with web-ext;
 #   2. submits the extension to AMO as a *listed* version (no update_url: listed
 #      copies update from AMO), with the licence, reviewer notes
 #      (amo/approval-notes.md) and release notes (CHANGELOG.md);
@@ -109,9 +111,14 @@ jobs:
           npm test
 
       - name: Prepare the extension
+        # scripts/build-extension.mjs copies extension/ to build/extension and
+        # writes channel.js. The listed build (AMO) has the page_eval code (the
+        # `// <unlisted-only>` blocks) removed, and the script fails if eval( or
+        # new Function is left in it. The unlisted build keeps it.
         if: env.MODE != 'publish-approved'
         run: |
-          rm -rf build/extension && mkdir -p build && cp -R "$EXTENSION_DIR" build/extension
+          if [ "$MODE" = submit-unlisted ]; then CHANNEL=unlisted; else CHANNEL=listed; fi
+          node scripts/build-extension.mjs --channel "$CHANNEL" --src "$EXTENSION_DIR" --out build/extension
           if [ "$MODE" = submit-unlisted ]; then
             node -e '
               const fs = require("fs");

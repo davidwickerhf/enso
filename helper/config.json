@@ -7,7 +7,7 @@
     "autoApproveReadOnly": true,
     "alwaysAllowedTools": [],
     "dashboard": {
-      "autoRefreshMinutes": 60
+      "autoRefreshMinutes": 0
     },
     "externalControl": "full",
     "agentTitlePrefix": true

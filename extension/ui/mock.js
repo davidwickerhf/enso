@@ -7,7 +7,8 @@
 // Try these messages: anything (Gmail + calendar answer with a table),
 // "fill in the form on this page" (page actions + approval), "error"
 // (no_api_key error), and Stop while an answer streams.
-// ?onboarding=1 starts without a profile (the first-run card).
+// ?onboarding=1 starts without a profile (the first-run card), like a new install (brief off).
+// ?channel=listed | unlisted | dev shows that build's edition (ui/edition.js).
 // ?agents=running | paused | delivered | idle | stopped | list | t3 shows external
 // agents (Claude Code, Codex) working in tabs: the agent card and the Agents row
 // (t3: Claude Code running inside a T3 Code thread).
@@ -519,6 +520,7 @@ export function createMockHost() {
   };
   const onboarding = new URLSearchParams(globalThis.location?.search ?? "").has("onboarding");
   let profile = onboarding ? { name: "", about: "", spaceHints: {} } : { ...PROFILE };
+  if (onboarding) settings.dashboard = { autoRefreshMinutes: 0 }; // a new install: the brief is off until turned on
   let onboardingDone = !onboarding;
   const profileState = () => ({
     ...profile,

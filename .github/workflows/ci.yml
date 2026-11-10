@@ -52,6 +52,13 @@ jobs:
       - name: Lint the extension
         run: npx --yes web-ext@8 lint --source-dir extension
 
+      - name: Build and lint the listed (AMO) extension
+        # The build submitted to addons.mozilla.org: page_eval stripped, and the
+        # script fails if eval( or new Function is left (scripts/build-extension.mjs).
+        run: |
+          node scripts/build-extension.mjs --channel listed --out "$RUNNER_TEMP/listed"
+          npx --yes web-ext@8 lint --source-dir "$RUNNER_TEMP/listed"
+
       - name: Install helper dependencies
         working-directory: helper
         run: npm ci --omit=optional --no-audit --no-fund

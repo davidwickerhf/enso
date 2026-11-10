@@ -25,6 +25,8 @@ const STEP_VERB = {
   page_navigate: "Opened",
   page_back: "Went back",
   page_eval: "Ran JavaScript",
+  page_query: "Found elements:",
+  page_inspect: "Inspected",
   page_storage: "Read storage",
   tabs_list: "Listed tabs",
   tab_read: "Read a tab",
@@ -37,7 +39,7 @@ const STEP_VERB = {
   session_fetch: "Made a request to",
   session_start: "Started",
 };
-const STEP_ICON = { page_click: "cursor", page_type: "keyboard", page_press: "keyboard", page_navigate: "compass", page_back: "arrowLeft", page_read: "page", page_screenshot: "camera", page_scroll: "chevronDown", page_eval: "command", tabs_close: "x", tabs_open: "plus", session_fetch: "globe", history_search: "search" };
+const STEP_ICON = { page_click: "cursor", page_type: "keyboard", page_press: "keyboard", page_navigate: "compass", page_back: "arrowLeft", page_read: "page", page_screenshot: "camera", page_scroll: "chevronDown", page_eval: "command", page_query: "search", page_inspect: "search", tabs_close: "x", tabs_open: "plus", session_fetch: "globe", history_search: "search" };
 const RISKY = /\b(send|delete|remove|submit|pay|purchase|buy|publish|post|confirm|transfer|merge)\b/i;
 
 export const isRisky = a => !!a.irreversible || a.tool === "tabs_close" || ((a.tool === "page_click" || a.tool === "page_press") && RISKY.test(a.target ?? ""));
