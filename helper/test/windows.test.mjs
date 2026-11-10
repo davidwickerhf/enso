@@ -81,6 +81,11 @@ try {
   console.log("ok - enso mcp install on Windows: enso.cmd for people, node.exe + enso.mjs for Cursor");
 } finally {
   const { rmSync } = await import("node:fs");
-  rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 300 });
+  await new Promise(r => setTimeout(r, 2500)); // checkHello ends the helper's process tree 1.5 s after it answered
+  try {
+    rmSync(root, { recursive: true, force: true, maxRetries: 20, retryDelay: 300 });
+  } catch (err) {
+    console.log(`note - couldn't remove ${root} (${err.code}); it is a temporary folder`);
+  }
 }
 console.log("windows checks passed");

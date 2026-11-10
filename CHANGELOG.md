@@ -25,9 +25,18 @@ Make a helper crash diagnosable, and stop waiting forever.
 - **`enso doctor`** checks the native-messaging manifests, run.sh's Node, a test
   start of the helper (hello answered), the MCP port and the log's last lines,
   with a fix for each problem.
-- **macOS only, said plainly.** On Linux and Windows the extension, `install.sh`
-  and `enso doctor` say "Ensō's helper runs on macOS only for now. Windows and
-  Linux support is planned" instead of an install command or "helper stopped".
+- **Linux and Windows.** The helper runs on macOS, Linux (x86_64, arm64) and
+  Windows 10/11 (x64, arm64), with Zen or Firefox. Linux installs with the same
+  `install.sh` (into `~/.local/share/enso`, log in `~/.local/state/enso`,
+  secrets in the desktop keyring through libsecret, or a 0600 file with a
+  warning when there is none). Windows installs with
+  `irm https://enso.wicker.life/install.ps1 | iex` (into `%APPDATA%\Enso`,
+  registered under `HKCU\Software\Mozilla\NativeMessagingHosts`, secrets in
+  the Credential Manager, `enso` on your PATH). Both download Ensō's own pinned
+  Node when there is no Node 18+. The extension shows the right install command,
+  terminal, paths, secret store and shortcuts for the system; a system the
+  helper doesn't run on (ChromeOS, BSD) gets a plain message. One helper
+  release serves all three; `/api/latest?platform=` picks it.
 - The installer resolves version-manager shims (asdf, nodenv, Volta) to the real
   Node binary, and never opens Zen from a temporary HOME.
 

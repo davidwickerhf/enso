@@ -9,9 +9,10 @@
 	let { data } = $props();
 
 	const installCommand = 'curl -fsSL https://enso.wicker.life/install.sh | bash';
+	const installCommandWindows = 'irm https://enso.wicker.life/install.ps1 | iex';
 	const title = 'Ensō: search or ask from every new tab in Zen';
 	const description =
-		'Ensō turns the Zen browser’s new tab into one box for sites, searches and questions, and adds a sidebar that can read and act on the page you are on. It runs on your own Claude subscription and keeps everything on your Mac.';
+		'Ensō turns the Zen browser’s new tab into one box for sites, searches and questions, and adds a sidebar that can read and act on the page you are on. It runs on your own Claude subscription and keeps everything on your computer.';
 </script>
 
 <svelte:head>
@@ -93,13 +94,13 @@
 
 <section class="wrap moment private" aria-labelledby="private-title">
 	<div class="private-text">
-		<h2 id="private-title">It runs on your Mac, on your Claude plan.</h2>
+		<h2 id="private-title">It runs on your computer, on your Claude plan.</h2>
 		<p>
-			Conversations, memory, reports and the activity log are files in your Library folder. Ensō answers through Claude Code signed in with your
-			own subscription, or an API key kept in the Keychain. What you send goes to Anthropic, never through a server of ours.
+			Conversations, memory, reports and the activity log are files in a folder of yours. Ensō answers through Claude Code signed in with your
+			own subscription, or an API key kept in your system’s keychain. What you send goes to Anthropic, never through a server of ours.
 		</p>
 		<p>
-			Banking, payment, health, tax and government sites are never read or acted on. Sync between your Macs is on its way, end-to-end
+			Banking, payment, health, tax and government sites are never read or acted on. Sync between your computers is on its way, end-to-end
 			encrypted, so our server will hold data it can’t read.
 		</p>
 		<p class="links"><a href="/privacy">Privacy policy</a> <a href="/docs/privacy-data">What is stored where</a></p>
@@ -121,8 +122,10 @@
 		</li>
 		<li>
 			<h3>Run one command</h3>
-			<p>Press <kbd>⌘E</kbd> and Ensō shows this with a Copy button: paste it in Terminal. It installs the helper Zen starts, with its own Node if your Mac has none, and asks no questions.</p>
+			<p>Press <kbd>⌘E</kbd> (<kbd>Ctrl</kbd>+<kbd>E</kbd> on Linux and Windows) and Ensō shows this with a Copy button: paste it in Terminal. It installs the helper Zen starts, with its own Node if you have none, and asks no questions.</p>
 			<CopyCommand command={installCommand} />
+			<p class="alt">On Windows, in PowerShell:</p>
+			<CopyCommand command={installCommandWindows} />
 		</li>
 		<li>
 			<h3>Finish in Setup</h3>
@@ -130,7 +133,7 @@
 		</li>
 	</ol>
 	<p class="req">
-		Needs macOS (Linux later), Zen or Firefox 139 or newer, and your Claude plan (through Claude Code, which Setup installs) or an Anthropic API key. Questions count against
+		Needs macOS, Linux or Windows, Zen or Firefox 139 or newer, and your Claude plan (through Claude Code, which Setup installs) or an Anthropic API key. Questions count against
 		your Claude plan’s usage, as they do in Claude Code. <a href="/docs/install">Full instructions</a>
 	</p>
 </section>

@@ -132,7 +132,9 @@ export function checkHello(command, { manifestFile = "", extensionId = EXTENSION
       } catch {}
       setTimeout(() => {
         try {
-          child.kill("SIGKILL");
+          // Windows: killing cmd.exe leaves the node it started; end the whole tree.
+          if (process.platform === "win32" && child.exitCode === null) spawnSync("taskkill", ["/PID", String(child.pid), "/T", "/F"], { stdio: "ignore", windowsHide: true });
+          else child.kill("SIGKILL");
         } catch {}
       }, 1500).unref();
       resolve({ ms: Date.now() - started, ...r });
