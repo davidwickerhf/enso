@@ -32,7 +32,7 @@ root.dataset.mode = mode;
 // "#f" marks a new tab that background.js swapped in for keyboard focus; drop it before routing.
 if (location.hash === "#f") history.replaceState(null, "", location.pathname + location.search);
 // "#urlbar": background.js opened this page for a query typed in Zen's address bar (views/addressbar.js).
-const urlbarHash = mode === "newtab" ? readUrlbarHash() : null;
+const urlbarHash = mode === "newtab" || mode === "full" ? readUrlbarHash() : null;
 
 // The new-tab focus fix lives in background.js (tabs.onCreated).
 
@@ -105,7 +105,7 @@ function bootApp() {
   const dock = h("div", { class: "dock" });
   // External agents (Claude Code, Codex…) on the active tab and elsewhere: above the content, sidebar and full page.
   const agents = mode === "sidebar" || mode === "full" ? createAgentsPanel(store) : null;
-  const urlbar = mode === "newtab" ? createUrlbarArrival(store, ctx) : null;
+  const urlbar = mode === "newtab" || mode === "full" ? createUrlbarArrival(store, ctx) : null;
   const main = h("main", { class: "main" }, topbar, banner, urlbar?.el, agents?.el, scroller, dock);
   const nav = mode === "full" ? createNav(store, ctx) : null;
   const context = mode === "full" ? createContext(store, ctx) : null;
