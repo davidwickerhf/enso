@@ -30,7 +30,7 @@ All messages are objects with a `type`. Times are ISO strings. Ids are strings.
 | `conversation.open` | `id` | `conversation.loaded` |
 | `conversation.rename` | `id`, `title` | `conversation.updated` |
 | `conversation.delete` | `id` | `conversation.deleted` |
-| `chat.send` | `conversationId`, `text`, `skill?` (name), `includePage` (bool), `mentionedTabIds?` (number[]), `attachScreenshot?` (bool), `attachments?` ([{ name, mimeType, dataBase64 }], images/PDF/text, ≤ 10 MB total) | stream of `event` |
+| `chat.send` | `conversationId`, `text`, `skill?` (name), `includePage` (bool), `mentionedTabIds?` (number[]), `attachScreenshot?` (bool), `attachments?` ([{ name, mimeType, dataBase64 }], any file type, ≤ 25 MB total, converted by `lib/attachments.mjs`) | stream of `event` |
 | `chat.stop` | `conversationId` | `event` notice + `turn.end` |
 | `approval.reply` | `id`, `decision`: `"allow"` \| `"always"` \| `"deny"` | `event` `approval.resolved` |
 | `history.search` | `query`, `spaceId?` (only that space's conversations) | `history.results` |
@@ -61,7 +61,9 @@ All messages are objects with a `type`. Times are ISO strings. Ids are strings.
 `chat.send`: background always adds `page: { tabId, url, title }` for the active
 tab (so page tools act on the tab the user was looking at), plus `text` when
 `includePage` is true, `screenshot` (PNG data URL) when `attachScreenshot` is
-true, and `mentionedTabs: [{ tabId, url, title, text }]` for `mentionedTabIds`.
+true, `mentionedTabs: [{ tabId, url, title, text }]` for `mentionedTabIds` (at
+most 20), and `space: { id, name, icon, containerId } | null`, the Zen space of
+the active tab. On a private site no `text` or `screenshot` is added.
 
 ### Answered by background.js itself (never reach the host)
 
@@ -69,6 +71,17 @@ true, and `mentionedTabs: [{ tabId, url, title, text }]` for `mentionedTabIds`.
 |---|---|---|
 | `tabs.list` | | `tabs`: `{ type, tabs: [{ tabId, title, url, favIconUrl, active }] }` (open http(s) tabs; each also has `hidden` (true = another Zen space) and `space` (name); current space's tabs first) |
 | `page.current` | | `page.current`: `{ type, tab: { tabId, title, url, favIconUrl, sensitive } \| null }`, also pushed whenever the active tab changes. `sensitive: true` on banking/health sites: the page chip shows a lock and the page is not sent or acted on. |
+
+background.js also sends two messages of its own to every UI:
+
+- `composer.prefill`: `{ type, text }` from the "Ask Ensō about this" context menu;
+- an `event` with `conversationId: null` and `code: "host_disconnected"` when the
+  native port closes (the UI shows "The chat helper stopped" with Reconnect).
+
+Error `code`s the UI handles specially: `host_disconnected` (the helper isn't
+running; `host_missing` is handled the same way but nothing sends it today),
+`no_claude_code` (subscription engine without Claude Code), `no_api_key` (API
+engine without a key).
 
 ## host → UI
 
@@ -86,7 +99,9 @@ true, and `mentionedTabs: [{ tabId, url, title, text }]` for `mentionedTabIds`.
   paths: { data, localConfig },           // data folder and config.local.json on this Mac
   skills: [Skill],                        // slash commands, built-ins first
   sensitiveHosts: ["*.bank*", ...],       // patterns where page reading/acting is off
-  spaces: [Space]                         // the user's Zen spaces
+  spaces: [Space],                        // the user's Zen spaces
+  connections: [Connection],              // OAuth servers, see Connections below
+  reports: [{ id, title, createdAt, conversationId }]
 }
 ```
 
@@ -124,7 +139,6 @@ again after `settings.update` changes `claudePath`.
 Typing `/` in the composer opens a picker of skills; choosing one sends
 `chat.send` with `text` = the typed message and `skill: "<name>"`. The host
 expands the skill's prompt (replacing `{input}` with the text).
-```
 
 ### `Server` (a connected tool: claude.ai connector or MCP server)
 ```js
@@ -185,7 +199,12 @@ starts a fresh warm session. A Claude Code registration of the same name
   externalControl: "full" | "read" | "off",   // what MCP clients (zen-browser) may do; a read-scope token caps it at "read"
   developerTools: true,                        // console/network/eval/storage/session tools (default on)
   headless: true,                              // headless Zen tools (default on)
-  sessionAccess: { "https://github.com": "allow" }  // per-site use of the user's signed-in sessions; missing = "ask"
+  sessionAccess: { "https://github.com": "allow" },  // per-site use of the user's signed-in sessions; missing = "ask"
+  serverOverrides: { "claude.ai Gmail": false },      // Tools page switches (tools.toggle)
+  spaceHints: { "{space id}": "what this space is for" },
+  homeWidgets: [{ id, type, size: "S" | "M" }],       // new-tab widget layout
+  onboardingDone: true,
+  claudePath: "/path/to/claude"                       // Settings → Engine → Claude Code location
 }
 ```
 `sessionAccess` keys are origins; an entry also covers its subdomains (same
@@ -296,7 +315,7 @@ Browser-level actions use the same envelope (`browser.request` / `browser.respon
 
 | action | args | result |
 |---|---|---|
-| `tabs_list` | | `[{ tabId, title, url, groupId, active, windowId }]` |
+| `tabs_list` | `allSpaces?` | `[{ tabId, title, url, groupId, active, windowId, space }]` (the current space only unless `allSpaces`) |
 | `tab_text` | `tabId` | `{ url, title, text }` |
 | `tabs_open` | `urls`, `background?` | `[{ tabId, url }]` |
 | `tabs_close` | `tabIds` | |
@@ -410,4 +429,4 @@ it then polls every 5 s and sends `notifications/tools/list_changed` when the
 helper is back.
 
 **Registration** (`lib/mcpinstall.mjs`): `enso mcp install | uninstall | status`,
-see the README.
+see [mcp.md](mcp.md).
