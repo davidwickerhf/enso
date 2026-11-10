@@ -1065,58 +1065,12 @@ browser.windows.onFocusChanged.addListener(async windowId => {
 });
 browser.windows.onRemoved.addListener(id => { if (id === lastWindowId) lastWindowId = null; });
 
-// ---------- new tabs: keyboard focus in Ensō's box, not the address bar ----------
-// Firefox focuses the address bar for every tab opened on the new-tab URL
-// (isBlankPageURL), so typing would land there. Tabs created through
-// tabs.create with an explicit url skip that, so a fresh new tab is swapped
-// for an identical one (same position, container and space). "#f" keeps it
-// from repeating; Firefox ignores the hash when matching the new-tab URL, so
-// the address bar stays empty.
+// ---------- new tabs ----------
+// Zen puts the cursor in the address bar on a new tab and extensions can't move it.
+// Ensō used to swap each new tab for a copy that got page focus; Zen showed that as an
+// extra tab appearing and vanishing, so it's gone for good.
 const NEWTAB = browser.runtime.getURL("newtab.html");
-const fresh = new Set(); // tabs just created by the user, waiting to show which page they load
-const ours = new Set(); // tabs this script created: never swap these again
-const isNewTabUrl = u => u === NEWTAB || u === "about:newtab" || u === "about:home";
-let swapping = false;
-
-async function swapForFocus(tabId) {
-  fresh.delete(tabId);
-  if (ours.has(tabId) || swapping) return;
-  const tab = await browser.tabs.get(tabId).catch(() => null);
-  if (!tab?.active || !isNewTabUrl(tab.url)) return;
-  swapping = true;
-  try {
-    // Load the replacement in the background, right after the original, and
-    // switch only once it has drawn: switching to a tab that is still blank is
-    // what showed as a white flash between two drawings of the page.
-    const created = await browser.tabs.create({ url: `${NEWTAB}#f`, index: tab.index + 1, active: false, windowId: tab.windowId, ...(tab.cookieStoreId ? { cookieStoreId: tab.cookieStoreId } : {}) });
-    ours.add(created.id);
-    fresh.delete(created.id);
-    await loaded(created.id, 1500);
-    const still = await browser.tabs.get(tabId).catch(() => null);
-    if (!still?.active || !isNewTabUrl(still.url)) {
-      // The user already moved on (typed in the address bar, switched tabs): keep their tab.
-      await browser.tabs.remove(created.id).catch(() => {});
-      return;
-    }
-    await browser.tabs.update(created.id, { active: true });
-    await browser.tabs.remove(tabId);
-  } catch {
-  } finally {
-    swapping = false;
-  }
-}
-
-/** Resolves when the tab has finished loading, or after `ms`. */
-function loaded(tabId, ms) {
-  return new Promise(resolve => {
-    let done = false;
-    const finish = () => { if (done) return; done = true; browser.tabs.onUpdated.removeListener(onUpd); clearTimeout(timer); resolve(); };
-    const onUpd = (id, info) => { if (id === tabId && info.status === "complete") finish(); };
-    const timer = setTimeout(finish, ms);
-    browser.tabs.onUpdated.addListener(onUpd);
-    browser.tabs.get(tabId).then(t => { if (t?.status === "complete") finish(); }).catch(finish);
-  });
-}
+browser.storage.local.remove("newTabFocus").catch(() => {}); // the old switch
 
 // Search suggestions while typing in the new tab (ui/omnibox.js) are off for
 // new installs since 0.5.7. Installs updated from an earlier version had them
@@ -1129,32 +1083,6 @@ browser.runtime.onInstalled.addListener(async ({ reason, previousVersion }) => {
     const r = await browser.storage.local.get("searchSuggestions");
     if (typeof r.searchSuggestions !== "boolean") await browser.storage.local.set({ searchSuggestions: true });
   } catch {}
-});
-
-// Off by default: the swap opens a second tab and closes the first, which Zen
-// shows as an extra tab appearing and vanishing. Settings can turn it on
-// (storage.local newTabFocus) for people who prefer typing straight into Ensō.
-let newTabFocus = false;
-browser.storage.local.get("newTabFocus").then(r => { newTabFocus = r.newTabFocus === true; }).catch(() => {});
-browser.storage.onChanged.addListener((changes, area) => { if (area === "local" && changes.newTabFocus) newTabFocus = changes.newTabFocus.newValue === true; });
-
-browser.tabs.onCreated.addListener(tab => {
-  if (!newTabFocus) return;
-  if (swapping || ours.has(tab.id) || (tab.url ?? "").includes("#f")) return; // our own replacement
-  if (isNewTabUrl(tab.url)) return void setTimeout(() => swapForFocus(tab.id), 30);
-  if (tab.url === "about:blank") {
-    fresh.add(tab.id); // the real URL arrives in onUpdated
-    setTimeout(() => fresh.delete(tab.id), 3000);
-  }
-});
-browser.tabs.onUpdated.addListener((tabId, info) => {
-  if (!info.url || !fresh.has(tabId)) return;
-  if (info.url.includes("#f")) return void fresh.delete(tabId);
-  if (isNewTabUrl(info.url)) swapForFocus(tabId);
-});
-browser.tabs.onRemoved.addListener(tabId => {
-  fresh.delete(tabId);
-  ours.delete(tabId);
 });
 
 // ---------- the address bar as Ensō's box ----------
