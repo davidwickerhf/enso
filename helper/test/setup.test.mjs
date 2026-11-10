@@ -238,7 +238,7 @@ try {
   console.log("ok - engine.login / engine.install open a .command file in Terminal with the fixed command");
 
   // ---- GitHub ----
-  r = await setup.run("github.login");
+  r = await make({ env: { ...process.env, PATH: path.join(root, "no-such-dir") } }).run("github.login"); // CI runners have gh in /usr/bin
   assert.equal(r.ok, false, "no gh on PATH");
   const fakeGh = path.join(bin, "gh");
   writeFileSync(fakeGh, "#!/bin/bash\nexit 0\n");

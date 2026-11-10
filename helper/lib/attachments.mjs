@@ -1,7 +1,8 @@
 // Turns any attached file into content Claude can read:
-//   images (incl. HEIC/TIFF, converted with sips) → image blocks
+//   images (incl. HEIC/TIFF, converted with sips on macOS) → image blocks
 //   PDF → document blocks
-//   Word/RTF/ODT/HTML/Pages-exported docs → text (macOS textutil)
+//   Word/RTF/ODT/HTML/Pages-exported docs → text (macOS textutil; on Linux and
+//     Windows .docx/.odt from their XML, other formats get a note)
 //   Excel/ODS → CSV-like text per sheet, PowerPoint/ODP → text per slide (unzip + XML)
 //   archives → a listing; code, CSV, JSON, Markdown, logs… → text
 //   anything else → a short note with name, type and size, so Claude can say so.
@@ -24,10 +25,31 @@ const cut = t => (t.length > MAX_TEXT ? `${t.slice(0, MAX_TEXT)}\n[cut at ${MAX_
 const decodeXml = s => s.replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&amp;/g, "&");
 const sizeLabel = n => (n > 1e6 ? `${(n / 1e6).toFixed(1)} MB` : `${Math.ceil(n / 1e3)} kB`);
 
+// unzip (macOS, most Linux); Windows' built-in tar (bsdtar) reads zip files too.
 function unzipEntries(file) {
-  return run("unzip", ["-Z1", file]).split("\n").filter(Boolean);
+  try {
+    return run("unzip", ["-Z1", file]).split("\n").filter(Boolean);
+  } catch (err) {
+    if (process.platform !== "win32" && err.code !== "ENOENT") throw err;
+    return run("tar", ["-tf", file]).split(/\r?\n/).filter(Boolean);
+  }
 }
-const unzipText = (file, entry) => run("unzip", ["-p", file, entry]);
+function unzipText(file, entry) {
+  try {
+    return run("unzip", ["-p", file, entry]);
+  } catch (err) {
+    if (process.platform !== "win32" && err.code !== "ENOENT") throw err;
+    return run("tar", ["-xOf", file, entry]);
+  }
+}
+
+/** .docx / .odt text without textutil (Linux, Windows). */
+function docText(file, name) {
+  const entries = unzipEntries(file);
+  if (entries.includes("word/document.xml")) return decodeXml(unzipText(file, "word/document.xml").replace(/<\/w:p>/g, "\n").replace(/<w:tab\/>/g, "\t").replace(/<[^>]+>/g, ""));
+  if (entries.includes("content.xml")) return decodeXml(unzipText(file, "content.xml").replace(/<\/text:p>/g, "\n").replace(/<[^>]+>/g, ""));
+  throw new Error(`${path.extname(name) || "this format"} can only be converted on macOS`);
+}
 
 function sheetText(file) {
   const entries = unzipEntries(file);
@@ -79,11 +101,12 @@ export function convertAttachment({ name = "file", mimeType = "", dataBase64 }) 
   try {
     writeFileSync(file, data);
     if (mimeType.startsWith("image/") || /\.(heic|heif|tiff?|bmp|avif)$/i.test(name)) {
+      if (process.platform !== "darwin") throw new Error("only PNG, JPEG, GIF and WebP images can be read here");
       const out = path.join(dir, "converted.jpg");
       run("sips", ["-s", "format", "jpeg", "-Z", "2400", file, "--out", out]);
       return { blocks: [{ type: "image", source: { type: "base64", media_type: "image/jpeg", data: readFileSync(out).toString("base64") } }], notes: [] };
     }
-    if (DOC_EXT.test(name) || /officedocument\.wordprocessingml|msword|rtf|opendocument\.text/.test(mimeType)) return asText(run("textutil", ["-convert", "txt", "-stdout", file]));
+    if (DOC_EXT.test(name) || /officedocument\.wordprocessingml|msword|rtf|opendocument\.text/.test(mimeType)) return asText(process.platform === "darwin" ? run("textutil", ["-convert", "txt", "-stdout", file]) : docText(file, name));
     if (SHEET_EXT.test(name) || /spreadsheetml|opendocument\.spreadsheet/.test(mimeType)) return asText(sheetText(file));
     if (SLIDES_EXT.test(name) || /presentationml|opendocument\.presentation/.test(mimeType)) return asText(slidesText(file));
     if (ARCHIVE_EXT.test(name) || /zip/.test(mimeType)) return asText(`Archive contents:\n${unzipEntries(file).slice(0, 500).join("\n")}`);

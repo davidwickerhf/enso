@@ -1,11 +1,13 @@
 // `enso doctor`: why doesn't Zen's helper start? Checks, in order:
 //   1. the native-messaging manifests Zen and Firefox read (exists, valid,
-//      points at an executable run.sh, allows Ensō's extension id);
+//      points at an executable run.sh / run.cmd, allows Ensō's extension id);
+//      on Windows first the registry key that points at the manifest;
 //   2. the Node that run.sh starts (still there, version 18 or newer);
 //   3. the helper itself: starts it the way Zen does (run.sh with native
 //      messaging framing on stdin/stdout) and waits for its answer to hello;
 //   4. the MCP port (47823): Ensō's running helper, free, or another program;
-//   5. the last lines of ~/Library/Logs/Enso/helper.log.
+//   5. where secrets are kept (a warning on Linux without a keyring);
+//   6. the last lines of helper.log (folder per OS: lib/platform.mjs).
 // Each failure comes with a suggested fix. Nothing is changed, and nothing
 // secret is printed (log lines pass through redact()).
 //
@@ -14,34 +16,50 @@
 // the running helper's headless Zen.
 
 import { spawn, spawnSync } from "node:child_process";
-import { accessSync, constants, existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import http from "node:http";
-import { homedir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import path from "node:path";
 import { logFile, tailLines } from "./logfile.mjs";
+import { currentPlatform, installCommand, isExecutable as platformIsExecutable, nativeHostDirs, nativeHostRegistryKeys, PLATFORM_NAMES, SUPPORTED_PLATFORMS } from "./platform.mjs";
+import { secretsInfo } from "./secrets.mjs";
 
 export const EXTENSION_ID = "enso@wicker.life";
 export const HOST_NAME = "enso";
 export const MIN_NODE = 18;
-const INSTALL = "curl -fsSL https://enso.wicker.life/install.sh | bash";
-export const UNSUPPORTED = "Ensō's helper runs on macOS only for now. Windows and Linux support is planned.";
-const REINSTALL = `Run the installer again (Terminal): ${INSTALL}`;
+const PLATFORM = currentPlatform();
+const INSTALL = installCommand("https://enso.wicker.life");
+const WHERE = PLATFORM === "darwin" ? "Terminal" : PLATFORM === "win32" ? "PowerShell" : "a terminal";
+/** Supported systems come from lib/platform.mjs (SUPPORTED_PLATFORMS). */
+export const unsupportedText = platform => `Ensō's helper runs on ${SUPPORTED_PLATFORMS.map(p => PLATFORM_NAMES[p]).join(", ").replace(/, ([^,]+)$/, " and $1")}; this system (${platform}) isn't supported.`;
+export const UNSUPPORTED = unsupportedText(process.platform);
+const REINSTALL = `Run the installer again (${WHERE}): ${INSTALL}`;
 
-const isExecutable = f => {
-  try {
-    accessSync(f, constants.X_OK);
-    return true;
-  } catch {
-    return false;
+const isExecutable = f => platformIsExecutable(f, PLATFORM);
+
+/** The manifest files to check (macOS, Linux). Windows: registryManifest() first. */
+export function manifestPaths(home, platform = PLATFORM) {
+  if (platform === "darwin") {
+    const support = path.join(home, "Library", "Application Support");
+    return [
+      { label: "Zen manifest", file: path.join(support, "zen", "NativeMessagingHosts", `${HOST_NAME}.json`) },
+      { label: "Firefox manifest", file: path.join(support, "Mozilla", "NativeMessagingHosts", `${HOST_NAME}.json`) },
+    ];
   }
-};
-
-export function manifestPaths(home) {
-  const support = path.join(home, "Library", "Application Support");
+  // Linux: Zen and Firefox both read ~/.mozilla; ~/.zen is written for when Zen reads its own folder.
+  const [mozilla, zen] = nativeHostDirs({ platform: "linux", home });
   return [
-    { label: "Zen manifest", file: path.join(support, "zen", "NativeMessagingHosts", `${HOST_NAME}.json`) },
-    { label: "Firefox manifest", file: path.join(support, "Mozilla", "NativeMessagingHosts", `${HOST_NAME}.json`) },
+    { label: "Zen/Firefox manifest", file: path.join(mozilla, `${HOST_NAME}.json`) },
+    { label: "Zen manifest", file: path.join(zen, `${HOST_NAME}.json`), optional: true },
   ];
+}
+
+/** Windows: the manifest file HKCU\Software\Mozilla\NativeMessagingHosts\enso points at, or { error }. */
+export function registryManifest({ run = spawnSync } = {}) {
+  const key = nativeHostRegistryKeys(HOST_NAME)[0];
+  const r = run("reg", ["query", key, "/ve"], { encoding: "utf8", timeout: 10_000, windowsHide: true });
+  const file = /REG_SZ\s+(.+?)\s*$/m.exec(String(r.stdout ?? ""))?.[1];
+  return file ? { key, file } : { key, error: `${key} is missing` };
 }
 
 /** { ok, detail, fix, manifest } for one manifest file. */
@@ -63,10 +81,12 @@ export function checkManifest(file, extensionId = EXTENSION_ID) {
   return { ok: true, detail: `${file} → ${m.path}`, manifest: m };
 }
 
-/** The node and host.mjs paths a run.sh starts (install.sh's and dev.sh's, old and new style). */
+/** The node and host.mjs paths a run.sh (or Windows run.cmd) starts (install scripts' and dev.sh's, old and new style). */
 export function parseRunSh(text) {
-  const node = text.match(/^NODE="([^"]+)"/m)?.[1] ?? text.match(/^exec "([^"$]+)" "/m)?.[1] ?? null;
-  const host = text.match(/^HOST="([^"]+)"/m)?.[1] ?? text.match(/^exec "[^"]+" "([^"$]+)"/m)?.[1] ?? null;
+  const cmd = /^\s*"([^"]+node(?:\.exe)?)"\s+"([^"]+host\.mjs)"/im.exec(text);
+  const setVar = name => new RegExp(`^set "${name}=([^"]+)"`, "im").exec(text)?.[1];
+  const node = text.match(/^NODE="([^"]+)"/m)?.[1] ?? text.match(/^exec "([^"$]+)" "/m)?.[1] ?? setVar("NODE") ?? cmd?.[1] ?? null;
+  const host = text.match(/^HOST="([^"]+)"/m)?.[1] ?? text.match(/^exec "[^"]+" "([^"$]+)"/m)?.[1] ?? setVar("HOST") ?? cmd?.[2] ?? null;
   return { node, host };
 }
 
@@ -74,7 +94,7 @@ export function checkNode(node) {
   if (!node) return { ok: false, detail: "run.sh doesn't name a Node.js binary", fix: REINSTALL };
   if (!existsSync(node)) return { ok: false, detail: `${node} doesn't exist any more (Node was removed or moved)`, fix: REINSTALL };
   if (!isExecutable(node)) return { ok: false, detail: `${node} isn't executable`, fix: REINSTALL };
-  const r = spawnSync(node, ["-p", "process.versions.node"], { encoding: "utf8", timeout: 10_000, env: { PATH: "/usr/bin:/bin", HOME: process.env.HOME ?? homedir() } });
+  const r = spawnSync(node, ["-p", "process.versions.node"], { encoding: "utf8", timeout: 10_000, windowsHide: true, env: PLATFORM === "win32" ? process.env : { PATH: "/usr/bin:/bin", HOME: process.env.HOME ?? homedir() } });
   const version = String(r.stdout ?? "").trim();
   const major = Number.parseInt(version, 10);
   if (r.status !== 0 || !Number.isFinite(major)) return { ok: false, detail: `${node} doesn't run${r.stderr ? `: ${String(r.stderr).trim().split("\n")[0]}` : ""}`, fix: `${REINSTALL}\n(It picks a working Node, or downloads Ensō's own copy.)` };
@@ -92,7 +112,11 @@ export function checkHello(command, { manifestFile = "", extensionId = EXTENSION
     const started = Date.now();
     let child;
     try {
-      child = spawn(command, [manifestFile, extensionId], { env: { ...env, ENSO_DOCTOR: "1" }, stdio: ["pipe", "pipe", "pipe"], cwd: "/" });
+      // Firefox starts a .cmd/.bat host through cmd.exe; so does this.
+      const viaCmd = /\.(cmd|bat)$/i.test(command);
+      child = viaCmd
+        ? spawn(`"${command}"`, [`"${manifestFile}"`, extensionId], { env: { ...env, ENSO_DOCTOR: "1" }, stdio: ["pipe", "pipe", "pipe"], cwd: tmpdir(), shell: true, windowsHide: true })
+        : spawn(command, [manifestFile, extensionId], { env: { ...env, ENSO_DOCTOR: "1" }, stdio: ["pipe", "pipe", "pipe"], cwd: "/" });
     } catch (err) {
       return resolve({ ok: false, detail: `couldn't start ${command}: ${err.message}`, fix: REINSTALL });
     }
@@ -131,7 +155,8 @@ export function checkHello(command, { manifestFile = "", extensionId = EXTENSION
         if (msg?.type === "state") return finish({ ok: true, detail: "started and answered hello" });
       }
     });
-    child.on("exit", (code, signal) => {
+    // "close", not "exit": stderr may still be in the pipe when the process exits.
+    child.on("close", (code, signal) => {
       const last = stderr.trim().split("\n").filter(Boolean).slice(-3).join(" / ");
       finish({ ok: false, detail: `exited before answering hello (${signal ? `signal ${signal}` : `exit code ${code}`})${last ? `: ${last}` : ""}`, fix: code === 127 ? REINSTALL : "The helper.log lines below say why. Running the installer again repairs a broken install." });
     });
@@ -141,6 +166,13 @@ export function checkHello(command, { manifestFile = "", extensionId = EXTENSION
     child.stdin.on("error", () => {});
     child.stdin.write(Buffer.concat([header, body]));
   });
+}
+
+/** How to see which program listens on a port, per OS. */
+export function whoListens(port, platform = PLATFORM) {
+  if (platform === "win32") return `netstat -ano | findstr :${port}   (then: tasklist /FI "PID eq <pid>")`;
+  if (platform === "linux") return `ss -ltnp 'sport = :${port}'`;
+  return `lsof -nP -iTCP:${port} -sTCP:LISTEN`;
 }
 
 /** { state: "enso" | "free" | "other", detail, fix? } for the MCP port. */
@@ -154,12 +186,12 @@ export function checkPort(port, { timeoutMs = 2000 } = {}) {
       });
       res.on("end", () => {
         if (res.statusCode === 401 && /token/i.test(body)) resolve({ state: "enso", detail: `in use by Ensō's helper (Zen is running it)` });
-        else resolve({ state: "other", detail: `busy: another program answers on it (HTTP ${res.statusCode})`, fix: `See which one with: lsof -nP -iTCP:${port} -sTCP:LISTEN\nQuit it, or move Ensō to another port: set ENSO_MCP_PORT for Zen and your MCP clients.` });
+        else resolve({ state: "other", detail: `busy: another program answers on it (HTTP ${res.statusCode})`, fix: `See which one with: ${whoListens(port)}\nQuit it, or move Ensō to another port: set ENSO_MCP_PORT for Zen and your MCP clients.` });
       });
     });
     req.on("timeout", () => {
       req.destroy();
-      resolve({ state: "other", detail: "busy: something accepts connections but doesn't answer", fix: `See which program with: lsof -nP -iTCP:${port} -sTCP:LISTEN` });
+      resolve({ state: "other", detail: "busy: something accepts connections but doesn't answer", fix: `See which program with: ${whoListens(port)}` });
     });
     req.on("error", err => {
       if (err.code === "ECONNREFUSED") resolve({ state: "free", detail: "free (no helper is serving agents right now; normal while Zen is closed)" });
@@ -185,14 +217,23 @@ export async function runDoctor({ home = process.env.HOME || homedir(), env = pr
   };
 
   out("Ensō doctor");
-  if (platform !== "darwin") {
-    out(`✗ ${UNSUPPORTED}`);
+  if (!SUPPORTED_PLATFORMS.includes(platform)) {
+    const text = unsupportedText(platform);
+    out(`✗ ${text}`);
     out("    Requirements: https://enso.wicker.life/docs/install#requirements · Follow along: https://github.com/davidwickerhf/enso");
-    return { ok: false, results: [{ label: "Platform", ok: false, detail: UNSUPPORTED }] };
+    return { ok: false, results: [{ label: "Platform", ok: false, detail: text }] };
   }
-  // 1. Manifests
-  const manifests = manifestPaths(home).map(m => ({ ...m, ...checkManifest(m.file, extensionId) }));
-  for (const m of manifests) add(m.label, m);
+  // 1. Manifests (Windows: the registry key first, then the file it names)
+  let manifests;
+  if (platform === "win32") {
+    const reg = registryManifest();
+    add("Registry key", reg.file ? { ok: true, detail: `${reg.key} → ${reg.file}` } : { ok: false, detail: reg.error, fix: REINSTALL });
+    manifests = reg.file ? [{ label: "Manifest", file: reg.file, ...checkManifest(reg.file, extensionId) }] : [];
+  } else {
+    manifests = manifestPaths(home, platform).map(m => ({ ...m, ...checkManifest(m.file, extensionId) }));
+  }
+  // An optional manifest (Linux ~/.zen) that is missing is a note, not a failure.
+  for (const m of manifests) add(m.label, m.optional && !m.ok && !existsSync(m.file) ? { ...m, ok: null, detail: `${m.detail}; not read by Zen yet, written for later` } : m);
 
   // 2. run.sh's Node (from the first manifest that points at something readable)
   const runSh = manifests.map(m => m.manifest?.path).find(p => p && existsSync(p));
@@ -223,7 +264,13 @@ export async function runDoctor({ home = process.env.HOME || homedir(), env = pr
   const p = await checkPort(port);
   add(`MCP port ${port}`, { ok: p.state === "enso" ? true : p.state === "free" ? null : false, detail: p.detail, fix: p.fix });
 
-  // 5. The log (read before the test start)
+  // 5. Secrets
+  try {
+    const si = secretsInfo({ env, platform });
+    add("Secrets", { ok: si.secure ? true : null, detail: si.secure ? `kept in ${si.location}` : si.warning ?? `kept in ${si.location}` });
+  } catch {}
+
+  // 6. The log (read before the test start)
   out("");
   if (!lines.length) out(`No ${tilde(file)} yet: the helper hasn't started since it was updated to a version that writes one (run the installer again).`);
   else {

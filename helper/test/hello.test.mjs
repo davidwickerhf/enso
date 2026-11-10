@@ -14,12 +14,13 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync,
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { dataDirFor, isolatedEnv, stopAndRemove, MAC } from "./env.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const home = realpathSync(mkdtempSync(path.join(tmpdir(), "enso-hello-")));
-const support = path.join(home, "Library/Application Support");
-const legacy = path.join(support, "zen-chat");
-const data = path.join(support, "Enso");
+// The pre-rename folder exists on macOS only; elsewhere ENSO_LEGACY_DATA points at a stand-in.
+const legacy = MAC ? path.join(home, "Library/Application Support/zen-chat") : path.join(home, "old-zen-chat");
+const data = dataDirFor(home);
 const port = 48000 + Math.floor(Math.random() * 900);
 
 // An install from before the rename.
@@ -30,7 +31,7 @@ writeFileSync(path.join(legacy, "conversations", `${conv.id}.jsonl`), JSON.strin
 writeFileSync(path.join(legacy, "mcp-token"), "f".repeat(64));
 writeFileSync(path.join(legacy, "settings.json"), JSON.stringify({ effort: "medium" }));
 
-const env = { HOME: home, PATH: "/usr/bin:/bin", ENSO_MCP_PORT: String(port), TMPDIR: tmpdir() };
+const env = isolatedEnv(home, { ENSO_MCP_PORT: String(port), ...(MAC ? {} : { ENSO_LEGACY_DATA: legacy }) });
 const host = spawn(process.execPath, [path.join(here, "../host.mjs")], { env, cwd: home, stdio: ["pipe", "pipe", "pipe"] });
 let stderr = "";
 host.stderr.on("data", d => (stderr += d));
@@ -120,7 +121,6 @@ try {
   console.log("ok - MCP server on the same port accepts the migrated token");
 } finally {
   host.stdin.end();
-  host.kill();
-  rmSync(home, { recursive: true, force: true });
+  await stopAndRemove(host, home);
 }
 console.log("hello checks passed");

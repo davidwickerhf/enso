@@ -71,7 +71,8 @@ export function t3Home(env = process.env) {
 }
 
 export function cliPath(env = process.env) {
-  const candidates = [env.T3CODE_CLI_PATH, path.join(t3Home(env), "bin", "t3")].filter(Boolean);
+  const bin = path.join(t3Home(env), "bin");
+  const candidates = [env.T3CODE_CLI_PATH, path.join(bin, "t3"), ...(process.platform === "win32" ? [path.join(bin, "t3.exe"), path.join(bin, "t3.cmd")] : [])].filter(Boolean);
   return candidates.find(p => existsSync(p)) ?? null;
 }
 
@@ -114,7 +115,11 @@ function defaultRunCli(env) {
       if (!cli) return resolve({ code: 127, stdout: "", stderr: "" });
       const childEnv = { ...env };
       delete childEnv.T3CODE_THREAD_ID; // Ensō acts for the user, not as the agent that started it
-      const child = spawn(cli, args, { env: childEnv, stdio: [input == null ? "ignore" : "pipe", "pipe", "pipe"] });
+      // A .cmd wrapper (Windows) needs cmd.exe; the arguments are Ensō's own fixed ones, quoted for it.
+      const viaShell = /\.(cmd|bat)$/i.test(cli);
+      const child = viaShell
+        ? spawn(`"${cli}"`, args.map(a => (/^[\w.:\/=-]+$/.test(a) ? a : `"${String(a).replace(/"/g, "")}"`)), { env: childEnv, shell: true, windowsHide: true, stdio: [input == null ? "ignore" : "pipe", "pipe", "pipe"] })
+        : spawn(cli, args, { env: childEnv, windowsHide: true, stdio: [input == null ? "ignore" : "pipe", "pipe", "pipe"] });
       let stdout = "";
       let stderr = "";
       child.stdout.on("data", d => (stdout += d));
@@ -418,9 +423,9 @@ export function createT3({ env = process.env, secrets = keychainStore, runCli = 
     },
 
     /**
-     * Issue a scoped session through T3's CLI and keep it in the Keychain. The
-     * CLI's output goes from its stdout pipe into `security -i`'s stdin; it is
-     * never printed, logged, written to a file or put on a command line.
+     * Issue a scoped session through T3's CLI and keep it in the OS's secret
+     * store (lib/keychain.mjs). The CLI's output goes from its stdout pipe into
+     * the store's stdin; it is never printed, logged or put on a command line.
      */
     async connect({ label = T3_LABEL, ttl = T3_TTL } = {}) {
       const args = ["auth", "session", "issue", ...T3_SCOPES.flatMap(s => ["--scope", s]), "--label", label, "--ttl", ttl, "--json"];

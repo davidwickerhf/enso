@@ -5,7 +5,6 @@
 
 import "./lib/boot-log.mjs"; // first: the log file and crash handlers (lib/logfile.mjs)
 import { readFileSync, writeFileSync } from "node:fs";
-import { homedir } from "node:os";
 import path from "node:path";
 import { refreshDashboard, dashboardStale } from "./lib/dashboard.mjs";
 import { apiKey, clearApiKeyCache, connectMcp, keychain, runApiTurn } from "./lib/engine-api.mjs";
@@ -28,7 +27,7 @@ import { createMondaySource } from "./lib/monday.mjs";
 import { appBundle, createT3 } from "./lib/t3.mjs";
 import { addLink, createSender, normalizeLinks, removeLink } from "./lib/screenshots.mjs";
 import { createSetup, keychainApiKeyStore } from "./lib/setup.mjs";
-import { spawn } from "node:child_process";
+import { augmentedPath, clientConfigPaths, openUrl } from "./lib/platform.mjs";
 
 // `enso doctor` starts a second copy to check that it answers hello: it must not
 // take the MCP port, clean up the running helper's headless Zen, or start Claude.
@@ -47,7 +46,7 @@ store.setDefaults(config.defaults);
 if (configError) log(configError);
 
 // Zen starts us with a minimal environment; MCP servers and the claude CLI need these.
-process.env.PATH = [path.join(homedir(), ".volta/bin"), path.join(homedir(), ".local/bin"), "/opt/homebrew/bin", "/usr/local/bin", process.env.PATH ?? "/usr/bin:/bin"].join(":");
+process.env.PATH = augmentedPath();
 
 // ---------- MCP server selection ----------
 
@@ -112,7 +111,7 @@ async function probeConnection(name) {
 async function externalServers() {
   let all = {};
   try {
-    all = JSON.parse(readFileSync(path.join(homedir(), ".claude.json"), "utf8")).mcpServers ?? {};
+    all = JSON.parse(readFileSync(clientConfigPaths().claudeJson, "utf8")).mcpServers ?? {};
   } catch (err) {
     log("could not read ~/.claude.json:", err.message);
   }
@@ -580,10 +579,7 @@ function sendLinks(links) {
 function openT3Thread(threadId) {
   if (!t3EnvId || !/^[A-Za-z0-9_.:-]+$/.test(String(threadId))) return;
   const url = `t3code://threads/${encodeURIComponent(t3EnvId)}/${encodeURIComponent(threadId)}`;
-  const app = appBundle();
-  const child = spawn("/usr/bin/open", app ? ["-a", app, url] : [url], { stdio: "ignore", detached: true });
-  child.on("error", () => {});
-  child.unref();
+  openUrl(url, { app: appBundle() });
 }
 
 // ---------- Setup (Settings → Setup, `enso setup`): lib/setup.mjs ----------

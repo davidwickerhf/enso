@@ -13,27 +13,32 @@
 // mcp.rotate.
 //
 // Secrets (an API key, a GitHub token) go from the UI's password field to the
-// Keychain through `security -i` on stdin. They are never logged, returned,
-// written to a file or put on a command line, and errors never quote them.
+// OS's secret store (lib/secrets.mjs: Keychain, libsecret, Credential Manager)
+// on stdin. They are never logged, returned, put on a command line, and
+// errors never quote them.
 //
 // Terminal steps (signing in to Claude Code or gh, installing Claude Code)
-// write a small .command file under <data>/run and open it with Terminal
-// (`open -a Terminal`): no Automation permission is needed, and the user sees
-// exactly what runs. Only these fixed commands can be opened; the UI can't
-// pass a command of its own.
+// write a small script under <data>/run and open it in a terminal
+// (lib/platform.mjs: Terminal on macOS, the desktop's terminal on Linux,
+// PowerShell on Windows): the user sees exactly what runs. Only these fixed
+// commands can be opened; the UI can't pass a command of its own. When Linux
+// has no terminal app, the step fails with the command to copy.
 //
 // Everything is injectable so tests run against a temporary HOME with fakes.
 
 import { spawn } from "node:child_process";
-import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { dataDir as defaultDataDir, rotateTokens } from "./mcpauth.mjs";
 import * as mcpinstall from "./mcpinstall.mjs";
+import * as platformLib from "./platform.mjs";
+import { deleteItem, hasItem, secretsInfo, setItem } from "./secrets.mjs";
+import { logDir } from "./logfile.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 export const DEFAULT_SITE = "https://enso.wicker.life";
-export const CLAUDE_INSTALL_COMMAND = "curl -fsSL https://claude.ai/install.sh | bash";
+export const CLAUDE_INSTALL_COMMAND = platformLib.claudeInstallCommand();
 export const SETUP_STEPS = [
   "helper.update",
   "engine.login",
@@ -54,8 +59,8 @@ export const SETUP_STEPS = [
 const LATEST_TTL_MS = 30 * 60_000;
 const API_KEY = /^sk-ant-[A-Za-z0-9_-]{20,200}$/;
 
-/** Single-quote for bash. */
-export const shellQuote = s => `'${String(s).replace(/'/g, `'\\''`)}'`;
+/** Single-quote for bash / PowerShell. */
+export const { shellQuote, psQuote } = platformLib;
 
 /** Compare dotted versions: -1, 0, 1 (missing parts count as 0, suffixes ignored). */
 export function compareVersions(a, b) {
@@ -69,8 +74,10 @@ export function compareVersions(a, b) {
 export function runFile(file, args = [], { input, timeout = 15_000, env = process.env } = {}) {
   return new Promise(resolve => {
     let child;
+    // Windows can't start a .js file directly (npm's Claude Code is cli.js): run it with this Node.
+    if (process.platform === "win32" && /\.[cm]?js$/i.test(file)) [file, args] = [process.execPath, [file, ...args]];
     try {
-      child = spawn(file, args, { env, stdio: [input == null ? "ignore" : "pipe", "pipe", "pipe"] });
+      child = spawn(file, args, { env, stdio: [input == null ? "ignore" : "pipe", "pipe", "pipe"], windowsHide: true });
     } catch {
       return resolve({ code: 127, stdout: "", stderr: "" });
     }
@@ -91,45 +98,57 @@ export function runFile(file, args = [], { input, timeout = 15_000, env = proces
   });
 }
 
-/** The Anthropic API key in the login Keychain (service from config.json, account "enso"). Only `-i` on stdin ever sees the value. */
-export function keychainApiKeyStore({ service = "enso-anthropic", legacy = [], run = runFile } = {}) {
+/**
+ * The Anthropic API key in the OS's secret store (service from config.json,
+ * account "enso"). On macOS `has` never reads the value.
+ */
+export function keychainApiKeyStore({ service = "enso-anthropic", legacy = [] } = {}) {
   const SAFE = /^[A-Za-z0-9._~-]+$/;
   if (!SAFE.test(service)) throw new Error("Bad Keychain service name");
-  const removeAll = async () => {
-    for (let i = 0; i < 10; i++) if ((await run("/usr/bin/security", ["delete-generic-password", "-s", service])).code !== 0) break;
-  };
   return {
-    /** Is there a key? Uses no -w, so the value never reaches this process. */
     async has() {
-      for (const s of [service, ...legacy]) if ((await run("/usr/bin/security", ["find-generic-password", "-s", s])).code === 0) return true;
+      for (const s of [service, ...legacy]) if (await hasItem(s).catch(() => false)) return true;
       return false;
     },
     async save(key) {
-      await removeAll();
-      await run("/usr/bin/security", ["-i"], { input: `add-generic-password -U -s ${service} -a enso -l "Enso Anthropic API key" -w ${key}\n` });
-      if ((await run("/usr/bin/security", ["find-generic-password", "-s", service])).code !== 0) throw new Error("The Keychain did not store the key.");
+      await deleteItem(service);
+      await setItem(service, key, { label: "Enso Anthropic API key" });
+      if (!(await hasItem(service))) throw new Error(`${secretsInfo().location} did not store the key.`);
     },
     async remove() {
-      await removeAll();
+      await deleteItem(service);
     },
   };
 }
+export const apiKeyStore = keychainApiKeyStore;
 
-/** Write <dir>/<name>.command and open it in Terminal. */
-async function defaultOpenInTerminal(file) {
-  const r = await runFile("/usr/bin/open", ["-a", "Terminal", file], { timeout: 10_000 });
-  if (r.code !== 0) throw new Error("Couldn't open Terminal.");
+/** Open a script written by terminal() in this OS's terminal. */
+async function defaultOpenInTerminal(file, { command } = {}) {
+  await platformLib.openTerminal(file, { command });
 }
 
-/** Download install.sh from the site and run it (non-interactive, no Zen tab opened). Output goes to <data>/logs/update.log. */
-async function defaultRunInstaller({ site, dataDir, fetchImpl, env }) {
-  const res = await fetchImpl(`${site}/install.sh`, { signal: AbortSignal.timeout(30_000) });
+/**
+ * Download this OS's installer from the site and run it (non-interactive, no
+ * Zen tab opened): install.sh with bash, or install.ps1 with Windows
+ * PowerShell. Output goes to <data>/logs/update.log.
+ */
+async function defaultRunInstaller({ site, dataDir, fetchImpl, env, platform = platformLib.currentPlatform(env) }) {
+  const win = platform === "win32";
+  const res = await fetchImpl(`${site}/${win ? "install.ps1" : "install.sh"}`, { signal: AbortSignal.timeout(30_000) });
   if (!res.ok) throw new Error(`Couldn't download the installer (${res.status}).`);
   const script = await res.text();
-  if (!script.startsWith("#!")) throw new Error("The installer download looks wrong; nothing was changed.");
+  if (win ? !/Ensō installer/.test(script) : !script.startsWith("#!")) throw new Error("The installer download looks wrong; nothing was changed.");
   const logs = path.join(dataDir, "logs");
   mkdirSync(logs, { recursive: true });
-  const r = await runFile("/bin/bash", ["-s"], { input: script, timeout: 10 * 60_000, env: { ...env, ENSO_SITE: site, ENSO_NO_OPEN: "1", ENSO_REGISTER_MCP: "0", ENSO_FROM_HELPER: "1" } });
+  const installerEnv = { ...env, ENSO_SITE: site, ENSO_NO_OPEN: "1", ENSO_REGISTER_MCP: "0", ENSO_FROM_HELPER: "1" };
+  let r;
+  if (win) {
+    const file = path.join(logs, "install.ps1");
+    writeFileSync(file, script.replace(/^\uFEFF?/, "\uFEFF")); // BOM: Windows PowerShell reads the file as UTF-8
+    r = await runFile(platformLib.powershellExe(env), ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", file], { timeout: 10 * 60_000, env: installerEnv });
+  } else {
+    r = await runFile("/bin/bash", ["-s"], { input: script, timeout: 10 * 60_000, env: installerEnv });
+  }
   writeFileSync(path.join(logs, "update.log"), `${new Date().toISOString()} exit ${r.code}\n${r.stdout}\n${r.stderr}`, { mode: 0o600 });
   if (r.code !== 0) {
     const last = `${r.stderr}\n${r.stdout}`.split("\n").map(l => l.replace(/\x1b\[[0-9;]*m/g, "").trim()).filter(Boolean).pop() ?? "";
@@ -146,22 +165,17 @@ function readJson(file) {
   }
 }
 
-/** Is T3 Code on this Mac (its CLI, or the app)? */
-function t3Installed(env, apps = "/Applications") {
-  const home = env.HOME ?? "";
-  const cli = [env.T3CODE_CLI_PATH, path.join(env.T3CODE_HOME || path.join(home, ".t3"), "bin", "t3")].filter(Boolean).some(p => existsSync(p));
-  if (cli) return true;
-  try {
-    return readdirSync(apps).some(n => /^T3 Code.*\.app$/.test(n));
-  } catch {
-    return false;
-  }
+/** Is T3 Code on this computer (its CLI, or the app)? */
+function t3Installed(env, apps) {
+  const home = env.HOME || env.USERPROFILE || "";
+  const bin = path.join(env.T3CODE_HOME || path.join(home, ".t3"), "bin");
+  const cli = [env.T3CODE_CLI_PATH, path.join(bin, "t3"), path.join(bin, "t3.cmd"), path.join(bin, "t3.exe")].filter(Boolean).some(p => existsSync(p));
+  return cli || platformLib.t3AppInstalled({ env }, apps);
 }
 
 /** Find a program on PATH, or null (the helper adds Homebrew and ~/.local/bin to its PATH). */
 function which(name, env) {
-  for (const d of String(env.PATH ?? "").split(":").filter(Boolean)) if (existsSync(path.join(d, name))) return path.join(d, name);
-  return null;
+  return platformLib.which(name, { env });
 }
 
 export { defaultRunInstaller as runInstaller };
@@ -184,7 +198,7 @@ export function createSetup({
   servers = () => [],
   mcpListening = () => null,
   mcpPort = 47823,
-  applicationsDir = env.ENSO_APPLICATIONS_DIR || "/Applications", // where T3 Code.app is looked for (tests point it elsewhere)
+  applicationsDir = env.ENSO_APPLICATIONS_DIR || undefined, // where T3 Code's app is looked for (tests point it elsewhere)
   openInTerminal = defaultOpenInTerminal,
   runInstaller = defaultRunInstaller,
   now = Date.now,
@@ -219,7 +233,7 @@ export function createSetup({
 
   async function claudeStatus() {
     const c = claude?.() ?? { found: false, reason: "Claude Code wasn't found." };
-    if (!c.found) return { found: false, reason: c.reason ?? null, installCommand: CLAUDE_INSTALL_COMMAND };
+    if (!c.found) return { found: false, reason: c.reason ?? null, installCommand: platformLib.claudeInstallCommand({ env }) };
     const out = { found: true, path: c.path, version: c.version ?? null, loggedIn: null, authMethod: null, subscriptionType: null, email: null };
     // `claude auth status --json` prints JSON whether or not you are signed in. Only these fields are kept.
     const r = await run(c.path, ["auth", "status", "--json"], { timeout: 10_000, env });
@@ -301,30 +315,29 @@ export function createSetup({
       github: ghSt,
       tools: toolsStatus(),
       mcp: { port: mcpPort, listening: mcpListening() },
+      platform: { os: platformLib.currentPlatform(env), arch: process.arch, installCommand: platformLib.installCommand(site, { env }) },
+      secrets: secretsInfo(),
+      paths: { data: dataDir, logs: logDir(env) },
     };
   }
 
-  async function terminal(name, title, commandLine) {
+  const os = platformLib.currentPlatform(env);
+  const win = os === "win32";
+  /** command: { sh, ps } — the same step in bash and in PowerShell. */
+  async function terminal(name, title, command) {
     const dir = path.join(dataDir, "run");
     mkdirSync(dir, { recursive: true });
-    const file = path.join(dir, `${name}.command`);
-    const body = [
-      "#!/bin/bash",
-      `# Written by Ensō (Settings → Setup): ${title}`,
-      "clear",
-      `printf '\\033[1mEnsō: %s\\033[0m\\n\\n$ %s\\n\\n' ${shellQuote(title)} ${shellQuote(commandLine)}`,
-      commandLine,
-      "status=$?",
-      "echo",
-      'if [ "$status" -eq 0 ]; then echo "Done. Go back to Zen: Ensō checks again by itself."; else echo "That did not finish (exit $status). Close this window and try again from Ensō."; fi',
-      "",
-    ].join("\n");
-    writeFileSync(file, body, { mode: 0o700 });
+    const { ext, body } = platformLib.terminalScript({ title, command }, { platform: os, env });
+    const file = path.join(dir, `${name}${ext}`);
+    writeFileSync(file, win ? `\uFEFF${body}` : body, { mode: 0o700 });
     chmodSync(file, 0o700);
-    await openInTerminal(file);
+    await openInTerminal(file, { command: win ? command.ps : command.sh });
     return file;
   }
+  const terminalName = win ? "PowerShell" : os === "darwin" ? "Terminal" : "A terminal";
 
+  // "your Keychain" on macOS (as before), the store's name elsewhere.
+  const storeName = () => (os === "darwin" ? "your Keychain" : secretsInfo().location);
   const ok = (step, message, extra = {}) => ({ step, ok: true, message, ...extra });
   const fail = (step, error) => ({ step, ok: false, error });
 
@@ -343,12 +356,15 @@ export function createSetup({
         case "engine.login": {
           const c = claude?.();
           if (!c?.found) return fail(step, "Claude Code isn't installed yet. Install it first.");
-          await terminal("claude-login", "sign in to Claude Code", `${shellQuote(c.path)} auth login`);
-          return ok(step, "Terminal is open: follow the sign-in there, then come back.");
+          await terminal("claude-login", "sign in to Claude Code", { sh: `${shellQuote(c.path)} auth login`, ps: /\.[cm]?js$/i.test(c.path) ? `& ${psQuote(process.execPath)} ${psQuote(c.path)} auth login` : `& ${psQuote(c.path)} auth login` });
+          return ok(step, `${terminalName} is open: follow the sign-in there, then come back.`);
         }
         case "engine.install":
-          await terminal("claude-install", "install Claude Code", `${CLAUDE_INSTALL_COMMAND} && "$HOME/.local/bin/claude" auth login`);
-          return ok(step, "Terminal is open: it installs Claude Code, then asks you to sign in.");
+          await terminal("claude-install", "install Claude Code", {
+            sh: `${platformLib.claudeInstallCommand({ platform: "linux" })} && "$HOME/.local/bin/claude" auth login`,
+            ps: `${platformLib.claudeInstallCommand({ platform: "win32" })}; & "$env:USERPROFILE\\.local\\bin\\claude.exe" auth login`,
+          });
+          return ok(step, `${terminalName} is open: it installs Claude Code, then asks you to sign in.`);
         case "engine.apiKey": {
           const key = String(options.key ?? "").trim();
           if (!API_KEY.test(key)) return fail(step, "That doesn't look like an Anthropic API key (it starts with sk-ant-).");
@@ -358,15 +374,15 @@ export function createSetup({
             if (res.status === 401 || res.status === 403) return fail(step, "Anthropic didn't accept this key.");
             checked = res.ok;
           } catch {}
-          if (!apiKeys) return fail(step, "No Keychain available.");
+          if (!apiKeys) return fail(step, "No secret store available.");
           await apiKeys.save(key);
           onApiKeyChange();
-          return ok(step, checked ? "Saved to your Keychain. The key works." : "Saved to your Keychain. (Couldn't reach Anthropic to check it now.)");
+          return ok(step, checked ? `Saved to ${storeName()}. The key works.` : `Saved to ${storeName()}. (Couldn't reach Anthropic to check it now.)`);
         }
         case "engine.forgetApiKey":
           if (apiKeys) await apiKeys.remove();
           onApiKeyChange();
-          return ok(step, "Removed the key from your Keychain.");
+          return ok(step, `Removed the key from ${storeName()}.`);
         case "agents.register": {
           const client = String(options.client ?? "");
           if (!mcp.CLIENTS.includes(client)) return fail(step, "Unknown client.");
@@ -408,8 +424,8 @@ export function createSetup({
         case "github.login": {
           const gh = which("gh", env);
           if (!gh) return fail(step, "The GitHub CLI (gh) isn't installed. Install it from cli.github.com, or paste a token instead.");
-          await terminal("gh-login", "sign in to GitHub", `${shellQuote(gh)} auth login --hostname github.com --git-protocol https --web`);
-          return ok(step, "Terminal is open: follow the GitHub sign-in there, then come back.");
+          await terminal("gh-login", "sign in to GitHub", { sh: `${shellQuote(gh)} auth login --hostname github.com --git-protocol https --web`, ps: `& ${psQuote(gh)} auth login --hostname github.com --git-protocol https --web` });
+          return ok(step, `${terminalName} is open: follow the GitHub sign-in there, then come back.`);
         }
         case "github.token": {
           if (!github) return fail(step, "GitHub isn't available.");
@@ -418,7 +434,7 @@ export function createSetup({
         }
         case "github.forget":
           if (github) await github.forget();
-          return ok(step, "Removed Ensō's GitHub token from your Keychain.");
+          return ok(step, `Removed Ensō's GitHub token from ${storeName()}.`);
         case "mcp.rotate":
           rotate();
           return ok(step, "New tokens written. Agents started with enso mcp keep working.");

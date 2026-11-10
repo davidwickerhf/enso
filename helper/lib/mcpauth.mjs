@@ -12,12 +12,12 @@
 
 import { randomBytes, timingSafeEqual } from "node:crypto";
 import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
-import { homedir } from "node:os";
 import path from "node:path";
+import { dataDir as platformDataDir } from "./platform.mjs";
 
 /** Same folder as lib/store.mjs, without importing it (store.mjs creates folders on import). */
 export function dataDir() {
-  return process.env.ENSO_DATA || process.env.ZEN_CHAT_DATA || path.join(homedir(), "Library/Application Support/Enso");
+  return platformDataDir();
 }
 
 export const SCOPES = ["full", "read"];

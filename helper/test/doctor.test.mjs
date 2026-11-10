@@ -16,13 +16,17 @@ import http from "node:http";
 import net from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
-import { checkPort, parseRunSh, runDoctor } from "../lib/doctor.mjs";
+import { fileURLToPath, pathToFileURL } from "node:url";
+import { checkPort, manifestPaths, parseRunSh, runDoctor } from "../lib/doctor.mjs";
 import { createLog, logFile, redact, tailLines } from "../lib/logfile.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const HOST = path.join(here, "..", "host.mjs");
 const root = realpathSync(mkdtempSync(path.join(tmpdir(), "enso-doctor-")));
+// macOS and Linux run the full doctor against fake installs; Windows (registry,
+// run.cmd) is covered by test/windows.test.mjs and the CI install job.
+const WIN = process.platform === "win32";
+const MAC = process.platform === "darwin";
 const freePort = () => new Promise(r => { const s = net.createServer().listen(0, "127.0.0.1", () => { const { port } = s.address(); s.close(() => r(port)); }); });
 
 try {
@@ -53,22 +57,30 @@ try {
     // A crash in the helper process: the stack is in the log before it exits.
     const data = path.join(root, "crash-data");
     const script = path.join(root, "crash.mjs");
-    writeFileSync(script, `import ${JSON.stringify(path.join(here, "..", "lib", "boot-log.mjs"))};\nsetTimeout(() => { throw new Error("kaboom in a timer"); }, 10);\n`);
-    const r = spawnSync(process.execPath, [script], { env: { HOME: root, ENSO_DATA: data, PATH: "/usr/bin:/bin" }, encoding: "utf8" });
+    writeFileSync(script, `import ${JSON.stringify(pathToFileURL(path.join(here, "..", "lib", "boot-log.mjs")).href)};\nsetTimeout(() => { throw new Error("kaboom in a timer"); }, 10);\n`);
+    const r = spawnSync(process.execPath, [script], { env: { ...(WIN ? process.env : {}), HOME: root, USERPROFILE: root, ENSO_DATA: data, PATH: WIN ? process.env.PATH : "/usr/bin:/bin" }, encoding: "utf8" });
     assert.equal(r.status, 1);
     const crash = readFileSync(logFile({ ENSO_DATA: data }), "utf8");
-    assert.match(crash, /INFO  Ensō helper \S+ starting: Node v[\d.]+ at .+, darwin|linux/);
+    assert.match(crash, /INFO  Ensō helper \S+ starting: Node v[\d.]+ at .+, (darwin|linux|win32)/);
     assert.match(crash, /FATAL Uncaught exception: Error: kaboom in a timer\n {4}\s+at /);
     assert.match(crash, /INFO  exiting \(code 1\)/);
     console.log("ok - uncaught exceptions are logged with their stack before the helper exits");
   }
 
+  if (WIN) {
+    console.log("skip - enso doctor against fake run.sh installs (macOS and Linux; Windows: windows.test.mjs)");
+    console.log("doctor checks passed");
+    process.exit(0);
+  }
   // ---------- enso doctor ----------
   const write = (f, text, mode) => { mkdirSync(path.dirname(f), { recursive: true }); writeFileSync(f, text); if (mode) chmodSync(f, mode); };
   const support = home => path.join(home, "Library", "Application Support");
   const manifest = (home, runSh, ids = ["enso@wicker.life"]) => {
-    for (const dir of ["zen", "Mozilla"]) write(path.join(support(home), dir, "NativeMessagingHosts", "enso.json"), JSON.stringify({ name: "enso", description: "Ensō helper", path: runSh, type: "stdio", allowed_extensions: ids }));
+    for (const m of manifestPaths(home)) write(m.file, JSON.stringify({ name: "enso", description: "Ensō helper", path: runSh, type: "stdio", allowed_extensions: ids }));
   };
+  // The manifest that must be right (macOS: Firefox's folder; Linux: ~/.mozilla, read by both).
+  const firefoxManifest = home => manifestPaths(home).find(m => /Firefox/.test(m.label)).file;
+  const FF = MAC ? "Firefox manifest" : "Zen\\/Firefox manifest";
   const runShText = node => `#!/bin/bash\nNODE="${node}"\nHOST="${HOST}"\nexec "$NODE" "$HOST" "$@"\n`;
   async function doctor(home, extra = {}) {
     const lines = [];
@@ -91,8 +103,9 @@ try {
     write(log, Array.from({ length: 40 }, (_, i) => `2026-11-10T10:00:${String(i).padStart(2, "0")}.000Z [1] INFO  old line ${i}`).join("\n") + "\n2026-11-10T10:01:00.000Z [1] ERROR token=hunter2hunter2 failed\n");
     const r = await doctor(home);
     assert.equal(r.ok, true, r.text);
-    assert.match(r.text, /✓ Zen manifest +~\/Library\/Application Support\/zen\/NativeMessagingHosts\/enso\.json → /);
-    assert.match(r.text, /✓ Firefox manifest/);
+    if (MAC) assert.match(r.text, /✓ Zen manifest +~\/Library\/Application Support\/zen\/NativeMessagingHosts\/enso\.json → /);
+    else assert.match(r.text, /✓ Zen\/Firefox manifest +~\/\.mozilla\/native-messaging-hosts\/enso\.json → /);
+    assert.match(r.text, new RegExp(`✓ ${FF}`));
     assert.match(r.text, /✓ Node +Node \d+\.\d+\.\d+ at /);
     assert.match(r.text, /✓ Helper +\S+ started and answered hello in \d+\.\d s/);
     assert.match(r.text, /· MCP port \d+ +free/);
@@ -108,9 +121,9 @@ try {
     mkdirSync(home, { recursive: true });
     const r = await doctor(home);
     assert.equal(r.ok, false);
-    assert.match(r.text, /✗ Zen manifest +missing/);
-    assert.match(r.text, /✗ Firefox manifest +missing/);
-    assert.match(r.text, /Fix: Run the installer again \(Terminal\): curl -fsSL https:\/\/enso\.wicker\.life\/install\.sh \| bash/);
+    assert.match(r.text, MAC ? /✗ Zen manifest +missing/ : /· Zen manifest +missing.*written for later/);
+    assert.match(r.text, new RegExp(`✗ ${FF} +missing`));
+    assert.match(r.text, /Fix: Run the installer again \((Terminal|a terminal)\): curl -fsSL https:\/\/enso\.wicker\.life\/install\.sh \| bash/);
     assert.match(r.text, /✗ Helper +not checked/);
     assert.match(r.text, /No .*helper\.log yet/);
     console.log("ok - enso doctor with nothing installed: ✗ for each manifest, with the installer as the fix");
@@ -124,11 +137,12 @@ try {
     const runSh = path.join(support(home), "Enso", "helper", "run.sh");
     write(runSh, runShText(fakeNode), 0o755);
     manifest(home, runSh);
-    write(path.join(support(home), "Mozilla", "NativeMessagingHosts", "enso.json"), JSON.stringify({ name: "enso", path: runSh, type: "stdio", allowed_extensions: ["someone-else@example.com"] }));
+    write(firefoxManifest(home), JSON.stringify({ name: "enso", path: runSh, type: "stdio", allowed_extensions: ["someone-else@example.com"] }));
     const r = await doctor(home);
     assert.equal(r.ok, false);
-    assert.match(r.text, /✓ Zen manifest/);
-    assert.match(r.text, /✗ Firefox manifest +allowed_extensions \["someone-else@example\.com"\] doesn't include enso@wicker\.life/);
+    if (MAC) assert.match(r.text, /✓ Zen manifest/);
+    assert.match(r.text, new RegExp(`✗ ${FF} +allowed_extensions`));
+    assert.match(r.text, /allowed_extensions \["someone-else@example\.com"\] doesn't include enso@wicker\.life/);
     assert.match(r.text, /✗ Node +Node 16\.20\.2 at .* is too old \(Ensō needs 18 or newer\)/);
     assert.match(r.text, /ENSO_NODE=private/);
     assert.match(r.text, /✗ Helper +exited before answering hello \(exit code 1\): SyntaxError/);
@@ -149,22 +163,22 @@ try {
     assert.equal((await checkPort(ensoLike.address().port)).state, "enso");
     const busy = await checkPort(other.address().port);
     assert.equal(busy.state, "other");
-    assert.match(busy.fix, /lsof -nP -iTCP:\d+ -sTCP:LISTEN/);
+    assert.match(busy.fix, MAC ? /lsof -nP -iTCP:\d+ -sTCP:LISTEN/ : /ss -ltnp 'sport = :\d+'/);
     const r = await doctor(path.join(root, "missing"), { port: other.address().port });
     assert.match(r.text, /✗ MCP port \d+ +busy: another program answers on it \(HTTP 200\)/);
     ensoLike.close();
     other.close();
-    console.log("ok - MCP port: Ensō's helper (401 asking for a token) vs another program (✗ with lsof)");
+    console.log("ok - MCP port: Ensō's helper (401 asking for a token) vs another program (✗ with lsof / ss)");
   }
 
-  // Linux and Windows: one plain line, no checks that can't apply.
+  // A system outside SUPPORTED_PLATFORMS: one plain line, no checks that can't apply.
   {
     const lines = [];
-    const r = await runDoctor({ home: path.join(root, "missing"), platform: "linux", out: l => lines.push(l) });
+    const r = await runDoctor({ home: path.join(root, "missing"), env: { HOME: path.join(root, "missing"), ENSO_DATA: path.join(root, "missing", "data") }, platform: "freebsd", out: l => lines.push(l) });
     assert.equal(r.ok, false);
-    assert.match(lines.join("\n"), /✗ Ensō's helper runs on macOS only for now\. Windows and Linux support is planned\.\n.*docs\/install#requirements/);
+    assert.match(lines.join("\n"), /✗ Ensō's helper runs on macOS, Linux and Windows; this system \(freebsd\) isn't supported\.\n.*docs\/install#requirements/);
     assert.ok(!lines.some(l => /manifest|Node/.test(l)));
-    console.log("ok - enso doctor on Linux says the helper is macOS-only, plainly");
+    console.log("ok - enso doctor on an unsupported system says so, plainly (supported list from lib/platform.mjs)");
   }
 
   // The CLI itself.
@@ -172,7 +186,7 @@ try {
     const home = path.join(root, "missing");
     const r = spawnSync(process.execPath, [path.join(here, "..", "bin", "enso.mjs"), "doctor"], { env: { HOME: home, ENSO_DATA: path.join(home, "data"), ENSO_MCP_PORT: String(await freePort()), PATH: "/usr/bin:/bin" }, encoding: "utf8", timeout: 30_000 });
     assert.equal(r.status, 1);
-    assert.match(r.stdout, /^Ensō doctor\n✗ Zen manifest/);
+    assert.match(r.stdout, MAC ? /^Ensō doctor\n✗ Zen manifest/ : /^Ensō doctor\n✗ Zen\/Firefox manifest/);
     console.log("ok - `enso doctor` exits 1 when something needs fixing");
   }
 } finally {

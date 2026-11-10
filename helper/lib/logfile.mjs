@@ -1,4 +1,6 @@
-// The helper's own log file: ~/Library/Logs/Enso/helper.log, rotated at ~1 MB
+// The helper's own log file: helper.log in the log folder (lib/platform.mjs:
+// ~/Library/Logs/Enso on macOS, ~/.local/state/enso on Linux,
+// %LOCALAPPDATA%\Enso\Logs on Windows), rotated at ~1 MB
 // (helper.log and helper.log.1, so at most ~2 MB on disk). Zen shows the
 // helper's stderr only in the Browser Console, which nobody has open when it
 // crashes; this file is what `enso doctor` and Copy diagnostics point at.
@@ -15,11 +17,11 @@
 // log lines are written once (to the file), not echoed to stderr as well.
 //
 // Location: ENSO_LOG_DIR, else the folder of run.sh's ENSO_STDERR_LOG, else
-// <ENSO_DATA>/logs when ENSO_DATA is set (tests), else ~/Library/Logs/Enso.
+// <ENSO_DATA>/logs when ENSO_DATA is set (tests), else the OS's log folder.
 
 import { closeSync, existsSync, fstatSync, mkdirSync, openSync, readFileSync, renameSync, statSync, writeSync } from "node:fs";
-import { homedir } from "node:os";
 import path from "node:path";
+import { logDir as platformLogDir } from "./platform.mjs";
 
 export const MAX_BYTES = 1_000_000;
 const MAX_ENTRY = 8_000;
@@ -27,9 +29,7 @@ const MAX_ENTRY = 8_000;
 export function logDir(env = process.env) {
   if (env.ENSO_LOG_DIR) return env.ENSO_LOG_DIR;
   if (env.ENSO_STDERR_LOG) return path.dirname(env.ENSO_STDERR_LOG); // run.sh's choice
-  const data = env.ENSO_DATA || env.ZEN_CHAT_DATA;
-  if (data) return path.join(data, "logs");
-  return path.join(env.HOME || homedir(), "Library", "Logs", "Enso");
+  return platformLogDir({ env });
 }
 
 export const logFile = (env = process.env) => path.join(logDir(env), "helper.log");
