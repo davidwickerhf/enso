@@ -3,12 +3,14 @@
 // dashboard, and runs each chat turn on the subscription or API engine.
 // Message contract: ../docs/PROTOCOL.md.
 
+import "./lib/boot-log.mjs"; // first: the log file and crash handlers (lib/logfile.mjs)
 import { readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { refreshDashboard, dashboardStale } from "./lib/dashboard.mjs";
 import { apiKey, clearApiKeyCache, connectMcp, keychain, runApiTurn } from "./lib/engine-api.mjs";
 import { claudeCli, prewarm, runSubscriptionTurn, subscriptionAvailable, subscriptionStatus } from "./lib/engine-sub.mjs";
-import { log, onMessage, send } from "./lib/native.mjs";
+import { log, logError, onMessage, send } from "./lib/native.mjs";
+import { helperLog, logFile, tailLines } from "./lib/logfile.mjs";
 import { pageActionNeedsApproval } from "./lib/pagetools.mjs";
 import { turnContext } from "./lib/prompt.mjs";
 import { deleteSkill, expandSkill, listSkills, saveSkill } from "./lib/skills.mjs";
@@ -26,6 +28,19 @@ import { appBundle, createT3 } from "./lib/t3.mjs";
 import { addLink, createSender, normalizeLinks, removeLink } from "./lib/screenshots.mjs";
 import { createSetup, keychainApiKeyStore } from "./lib/setup.mjs";
 import { augmentedPath, clientConfigPaths, openUrl } from "./lib/platform.mjs";
+
+// `enso doctor` starts a second copy to check that it answers hello: it must not
+// take the MCP port, clean up the running helper's headless Zen, or start Claude.
+const DOCTOR = process.env.ENSO_DOCTOR === "1";
+const helperVersion = () => {
+  for (const f of ["VERSION", "package.json"]) {
+    try {
+      const raw = readFileSync(new URL(f, import.meta.url), "utf8");
+      return f === "VERSION" ? raw.trim() : JSON.parse(raw).version;
+    } catch {}
+  }
+  return null;
+};
 
 store.setDefaults(config.defaults);
 if (configError) log(configError);
@@ -354,7 +369,7 @@ async function chat(msg) {
         : await runSubscriptionTurn(ctx, { prompt, events, servers: await externalServers(), disallowed: disallowedTools() });
   } catch (err) {
     if (!ctx.abortController.signal.aborted) {
-      log("turn failed:", err.stack ?? err);
+      logError("turn failed:", err.stack ?? err);
       ctx.emit({ kind: "error", text: String(err.message ?? err).slice(0, 600), ...(err.code ? { code: err.code } : {}) });
     }
   } finally {
@@ -622,10 +637,17 @@ async function handle(msg) {
         agents: agentsPayload().sessions,
         connectedAgents: agentsPayload().connected,
       });
+      if (DOCTOR) break; // `enso doctor` only checks that we answer: no MCP servers, Claude, dashboard or GitHub
       if (settings.engine === "api") connectMcp(await externalServers(), setServers);
       else if (await subscriptionAvailable()) prewarm({ settings, config, servers: await externalServers(), disallowed: disallowedTools() });
       dashboard(false);
       refreshGithub();
+      break;
+    }
+    case "helper.log": {
+      // Copy diagnostics in the extension: versions and the log's last lines (redacted; no message contents are logged).
+      const n = Math.min(200, Math.max(1, Number(msg.lines) || 40));
+      send({ type: "helper.log", version: helperVersion(), node: { version: process.version, path: process.execPath }, platform: `${process.platform} ${process.arch}`, file: helperLog()?.file ?? logFile(), lines: tailLines(helperLog()?.file ?? logFile(), n) });
       break;
     }
     case "conversation.new":
@@ -889,18 +911,26 @@ async function handle(msg) {
   }
 }
 
-onMessage(msg => handle(msg).catch(err => log("handler failed:", err.stack ?? err)));
+onMessage(msg => handle(msg).catch(err => logError(`handler for ${String(msg?.type).slice(0, 40)} failed:`, err.stack ?? err)));
 
-// Headless Zen leftovers from a helper that crashed.
-cleanupStale();
+if (!DOCTOR) {
+  // Headless Zen leftovers from a helper that crashed.
+  cleanupStale();
 
-// Let other Claude sessions (Claude Code, T3 Code) use Zen through MCP.
-startMcpServer({
-  browserRequest,
-  onReports: () => send({ type: "reports", reports: store.listReports() }),
-  onAction: action => send({ type: "actions.added", action }), // live Activity and agent card
-});
+  // Let other Claude sessions (Claude Code, T3 Code) use Zen through MCP.
+  startMcpServer({
+    browserRequest,
+    onReports: () => send({ type: "reports", reports: store.listReports() }),
+    onAction: action => send({ type: "actions.added", action }), // live Activity and agent card
+  });
+}
 // Agent sessions to every UI and to background.js (page pill, title prefix, toolbar badge).
 agentSessions.subscribe(() => pushAgents());
-process.stdin.on("end", () => process.exit(0));
-process.on("SIGTERM", () => process.exit(0));
+process.stdin.on("end", () => {
+  log("Zen closed the connection (stdin ended)");
+  process.exit(0);
+});
+process.on("SIGTERM", () => {
+  log("stopped by SIGTERM");
+  process.exit(0);
+});

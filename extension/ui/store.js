@@ -6,9 +6,19 @@
 // (external agents' live sessions), agents-focus (the page pill was clicked),
 // shot (the screenshot send sheet), t3 (T3 Code connection), toast,
 // helper (is the native helper installed and running: the first-run guide),
-// setup (Settings → Setup checklist).
+// setup (Settings → Setup checklist), helperLog (the helper's log tail for
+// Copy diagnostics), waits (a request to the helper went
+// unanswered for too long: views show "Couldn't load" with Retry).
+//
+// Waiting for the helper: every request whose answer a view shows a spinner for
+// is registered with wait(key, resend) and settled by its answer. A view asks
+// loadState(key): "down" (the helper isn't running: show views/helperstate.js's
+// card), "timeout" (no answer within WAIT_MS: "Couldn't load" + Retry) or
+// "loading". So nothing shows "Loading…" forever.
 
-export function createStore() {
+export const WAIT_MS = 8000;
+
+export function createStore({ waitMs = WAIT_MS } = {}) {
   const listeners = new Set();
   let pending = new Set();
   let scheduled = false;
@@ -61,7 +71,10 @@ export function createStore() {
     shot: null,              // { image, mode, tab, consoleErrors, capturing, error, targets, target, picker, sending, includePage, includeErrors, message, remember }
     t3: { status: null, busy: null, done: null }, // T3 Code connection (Settings), from the helper's `t3` messages
     // The native helper as background.js sees it (`helper.status`): connecting | connected | missing | failed | stopped | restarting.
-    helper: { state: "connecting", reason: null, at: 0, everConnected: false },
+    helper: { state: "connecting", reason: null, at: 0, everConnected: false, lastError: null, failures: 0, connectedAt: null },
+    platform: null,          // runtime.getPlatformInfo().os ("mac", "linux", "win"…); the helper runs on macOS only for now
+    helperLog: null,         // last `helper.log` answer (Copy diagnostics): { version, node, platform, file, lines, at }
+    waits: new Map(),        // key → { since, timedOut, resend }: requests the UI shows a spinner for (see wait())
     setup: { status: null, busy: null, done: null, loading: false }, // Settings → Setup (`setup` messages)
     toast: null,             // { text, kind, action?: { label, run } }
     ui: { view: "home", currentId: null, includePage: true, pendingSend: null, notice: null, scope: "space" },
@@ -81,6 +94,23 @@ export function createStore() {
 
   function send(msg) {
     transport?.send(msg);
+  }
+
+  /** A request whose answer a view waits for. resend() asks again (Retry, or when the helper is back). */
+  function wait(key, resend) {
+    const entry = { since: Date.now(), timedOut: false, resend };
+    s.waits.set(key, entry);
+    setTimeout(() => {
+      if (s.waits.get(key) !== entry) return;
+      entry.timedOut = true;
+      emit("waits");
+    }, waitMs);
+  }
+  function settle(key) {
+    const w = s.waits.get(key);
+    if (!w) return;
+    s.waits.delete(key);
+    if (w.timedOut) emit("waits");
   }
 
   function conv(id) {
@@ -195,6 +225,7 @@ export function createStore() {
   function receive(msg) {
     switch (msg.type) {
       case "state": {
+        settle("state");
         const first = !s.ready;
         s.ready = true;
         s.settings = msg.settings ?? s.settings;
@@ -251,6 +282,7 @@ export function createStore() {
         emit("conversations");
         return;
       case "conversation.loaded": {
+        settle(`conv:${msg.id}`);
         if (msg.conversation) upsertSummary(msg.conversation);
         const old = s.convs.get(msg.id);
         const fresh = { events: [], ids: new Set(), loaded: true, loading: false, running: s.running.has(msg.id) };
@@ -301,6 +333,7 @@ export function createStore() {
       }
       case "history.results":
         if (msg.query === s.history.query) {
+          settle("history");
           s.history.results = msg.results ?? [];
           s.history.loading = false;
           emit("history");
@@ -309,7 +342,7 @@ export function createStore() {
       case "actions.results": {
         const who = actionRequests.shift() ?? (s.actions.filter ? null : "log");
         if (who === "recent") { s.recentActions = msg.actions ?? []; emit("dashboard"); }
-        if (who === "log") { s.actions.results = msg.actions ?? []; s.actions.loading = false; emit("actions"); }
+        if (who === "log") { settle("actions"); s.actions.results = msg.actions ?? []; s.actions.loading = false; emit("actions"); }
         return;
       }
       case "actions.added": {
@@ -365,11 +398,13 @@ export function createStore() {
         return;
       case "helper.status": {
         const was = s.helper.state;
-        s.helper = { state: msg.state, reason: msg.reason ?? null, at: msg.at ?? Date.now(), everConnected: s.helper.everConnected || msg.state === "connected" };
-        // Back after being away (installed just now, restarted after an update): fetch everything again.
+        s.helper = { state: msg.state, reason: msg.reason ?? null, at: msg.at ?? Date.now(), everConnected: s.helper.everConnected || msg.state === "connected", lastError: msg.lastError ?? s.helper.lastError ?? null, failures: msg.failures ?? 0, connectedAt: msg.connectedAt ?? null };
+        // Back after being away (installed just now, restarted after an update): fetch everything again,
+        // including whatever a view was still waiting for.
         if (msg.state === "connected" && was !== "connected" && was !== "connecting") {
           actions.hello();
-          if (s.setup.status || s.ui.view === "setup") send({ type: "setup.status" });
+          for (const [key, w] of [...s.waits]) if (key !== "state") w.resend?.();
+          if (!s.waits.has("setup") && (s.setup.status || s.ui.view === "setup")) send({ type: "setup.status" });
         }
         if (msg.state === "connected" && s.globalError?.code === "host_disconnected") { s.globalError = null; emit("banner"); }
         emit("helper");
@@ -379,7 +414,13 @@ export function createStore() {
         s.helper = { ...s.helper, state: "restarting" };
         emit("helper");
         return;
+      case "helper.log":
+        settle("helperLog");
+        s.helperLog = { version: msg.version ?? null, node: msg.node ?? null, platform: msg.platform ?? null, file: msg.file ?? null, lines: Array.isArray(msg.lines) ? msg.lines : [], at: Date.now() };
+        emit("helperLog");
+        return;
       case "setup":
+        settle("setup");
         s.setup = { status: msg.status ?? s.setup.status, busy: msg.done ? null : s.setup.busy, done: msg.done ?? s.setup.done, loading: false };
         emit("setup");
         return;
@@ -399,6 +440,7 @@ export function createStore() {
         emit("agents-focus");
         return;
       case "dashboard":
+        settle("dashboard");
         if (msg.loading) s.dashboard = { ...s.dashboard, loading: true, error: null };
         else s.dashboard = { data: msg.data ?? s.dashboard.data, loading: false, error: msg.error ?? null };
         emit("dashboard");
@@ -499,6 +541,7 @@ export function createStore() {
         emit("servers");
         return;
       case "memory":
+        settle(msg.spaceId ? `memory:${msg.spaceId}` : "memory");
         if (msg.spaceId) {
           if (msg.spaceId !== (s.space?.id ?? null)) return;
           s.spaceMemory = { ...s.spaceMemory, spaceId: msg.spaceId, text: msg.text ?? "", loaded: true, saving: false, savedAt: s.spaceMemory.saving ? new Date() : s.spaceMemory.savedAt };
@@ -534,6 +577,7 @@ export function createStore() {
     attach(t) { transport = t; s.transportKind = t.kind; },
     setConnection(status) { s.connection = status; emit("connection"); },
     hello() {
+      wait("state", () => actions.hello());
       send({ type: "hello" });
       send({ type: "page.current" });
       send({ type: "reports.list" });
@@ -543,7 +587,7 @@ export function createStore() {
       s.ui.view = view;
       if (view !== "chat") s.ui.currentId = view === "home" ? null : s.ui.currentId;
       if (view === "activity" && !s.actions.results) actions.listActions(s.actions.filter);
-      if (view === "settings" && !s.memory.loaded) send({ type: "memory.get" });
+      if (view === "settings" && !s.memory.loaded) actions.loadMemory();
       syncHash();
       emit("ui");
     },
@@ -557,7 +601,10 @@ export function createStore() {
       s.ui.currentId = id;
       s.ui.view = "chat";
       const c = conv(id);
-      if (!c.loaded) c.loading = true;
+      if (!c.loaded) {
+        c.loading = true;
+        wait(`conv:${id}`, () => send({ type: "conversation.open", id }));
+      }
       send({ type: "conversation.open", id });
       syncHash();
       emit("ui", `conv:${id}`);
@@ -647,17 +694,19 @@ export function createStore() {
       s.history.query = query;
       if (!query.trim()) { s.history.results = null; s.history.loading = false; emit("history"); return; }
       s.history.loading = true;
+      wait("history", () => actions.search(s.history.query));
       const scoped = s.ui.scope === "space" && s.space;
       send({ type: "history.search", query, ...(scoped && { spaceId: s.space.id }) });
       emit("history");
     },
     listActions(filter = null, who = "log") {
-      if (who === "log") { s.actions.filter = filter; s.actions.loading = true; emit("actions"); }
+      if (who === "log") { s.actions.filter = filter; s.actions.loading = true; wait("actions", () => actions.listActions(s.actions.filter)); emit("actions"); }
       actionRequests.push(who);
       send({ type: "actions.list", ...(filter?.host && { host: filter.host }), limit: who === "recent" ? 8 : 200 });
     },
     refreshDashboard() {
       s.dashboard = { ...s.dashboard, loading: true, error: null };
+      wait("dashboard", () => actions.refreshDashboard());
       send({ type: "dashboard.refresh" });
       emit("dashboard");
     },
@@ -709,7 +758,10 @@ export function createStore() {
       send({ type: "profile.save", skip: true });
       emit("profile");
     },
-    loadMemory(spaceId = null) { send({ type: "memory.get", ...(spaceId && { spaceId }) }); },
+    loadMemory(spaceId = null) {
+      wait(spaceId ? `memory:${spaceId}` : "memory", () => actions.loadMemory(spaceId));
+      send({ type: "memory.get", ...(spaceId && { spaceId }) });
+    },
     saveMemory(text, spaceId = null) {
       if (spaceId) s.spaceMemory = { ...s.spaceMemory, saving: true };
       else s.memory = { ...s.memory, saving: true };
@@ -799,8 +851,33 @@ export function createStore() {
     dismissToast() { s.toast = null; emit("toast"); },
     // First-run guide: ask background.js to try the helper again now.
     helperRetry() { send({ type: "helper.retry" }); },
+    /** Which system this is (Ensō's helper is macOS-only for now). os: for the mock's ?platform=. */
+    async detectPlatform(os) {
+      try { os = os ?? (await globalThis.browser?.runtime?.getPlatformInfo?.())?.os; } catch { /* not in the extension */ }
+      if (os && os !== s.platform) { s.platform = os; emit("helper", "waits"); }
+    },
+    // "Try again" on the helper-not-running card and on "Couldn't load": reconnect, then ask again.
+    retryLoad(key) {
+      if (store.helperDown()) { send({ type: "helper.retry" }); return; }
+      const w = s.waits.get(key);
+      if (w?.resend) w.resend();
+      else actions.hello();
+      emit("waits");
+    },
+    // Copy diagnostics: the helper's version and the end of its log (redacted there). Resolves null without an answer.
+    requestHelperLog(timeout = 2500) {
+      if (s.helper.state !== "connected") return Promise.resolve(null);
+      const asked = Date.now();
+      return new Promise(resolve => {
+        const off = subscribe(topics => {
+          if (topics.has("helperLog") && s.helperLog && s.helperLog.at >= asked) { off(); clearTimeout(t); resolve(s.helperLog); }
+        });
+        const t = setTimeout(() => { off(); resolve(null); }, timeout);
+        send({ type: "helper.log", lines: 40 });
+      });
+    },
     // Settings → Setup. setupRun options may carry a key or token: it goes to the helper only, and is never kept here.
-    setupStatus(fresh = false) { s.setup = { ...s.setup, loading: !s.setup.status }; emit("setup"); send({ type: "setup.status", fresh }); },
+    setupStatus(fresh = false) { s.setup = { ...s.setup, loading: !s.setup.status }; wait("setup", () => actions.setupStatus(fresh)); emit("setup"); send({ type: "setup.status", fresh }); },
     setupRun(step, options = {}) { s.setup = { ...s.setup, busy: step, busyFor: typeof options.client === "string" ? options.client : null, done: null }; emit("setup"); send({ type: "setup.run", step, options }); },
     clearSetupDone() { s.setup = { ...s.setup, done: null }; emit("setup"); },
   };
@@ -860,7 +937,27 @@ export function createStore() {
     return s.conversations.filter(c => c.space?.id === s.space.id);
   }
 
-  return {
+  function subscribe(fn) { listeners.add(fn); return () => listeners.delete(fn); }
+
+  /** True on a system the helper doesn't run on yet (anything but macOS). */
+  const unsupported = () => !!s.platform && s.platform !== "mac";
+
+  /**
+   * The helper as background.js last saw it, when it isn't running (missing | failed | stopped); else null.
+   * On Linux and Windows it can't run at all: down (with unsupported: true) unless it somehow connected.
+   */
+  function helperDown() {
+    if (unsupported() && s.helper.state !== "connected") return { ...s.helper, unsupported: true };
+    return ["missing", "failed", "stopped"].includes(s.helper.state) ? s.helper : null;
+  }
+
+  /** What a view waiting on `key` shows: "down" | "timeout" | "loading". */
+  function loadState(key) {
+    if (helperDown()) return "down";
+    return s.waits.get(key)?.timedOut ? "timeout" : "loading";
+  }
+
+  const store = {
     state: s,
     visibleConversations,
     receive,
@@ -868,7 +965,11 @@ export function createStore() {
     summary,
     conv: id => s.convs.get(id) ?? null,
     targetInfo,
-    subscribe(fn) { listeners.add(fn); return () => listeners.delete(fn); },
+    subscribe,
     emit,
+    helperDown,
+    loadState,
+    unsupported,
   };
+  return store;
 }

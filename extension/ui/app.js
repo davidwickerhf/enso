@@ -21,6 +21,7 @@ import { createOnboarding } from "./views/onboarding.js";
 import { createAgentsPanel } from "./views/agents.js";
 import { createSendSheet, SCREENSHOT_SHORTCUT } from "./views/send.js";
 import { createHelperGuide, createSetupPage } from "./views/setup.js";
+import { helperDownCard } from "./views/helperstate.js";
 
 const root = document.documentElement;
 const MODES = ["sidebar", "newtab", "full", "report"];
@@ -41,6 +42,8 @@ async function start() {
   const transport = await connect({ onMessage: store.receive, onStatus: st => actions.setConnection(st) });
   actions.attach(transport);
   root.dataset.transport = transport.kind;
+  // The helper is macOS-only for now; the mock fakes another system with ?platform=linux.
+  actions.detectPlatform(transport.kind === "mock" ? new URLSearchParams(location.search).get("platform") || "mac" : undefined);
   actions.hello();
 }
 
@@ -114,7 +117,14 @@ function bootApp() {
   const guide = createHelperGuide(store);
   let firstRun = false; // the guide or onboarding was shown in this page: end on Setup
   function renderGuide() {
-    const due = s.helper.state === "missing" || s.helper.state === "failed";
+    // Not on Linux or Windows: the install command can't help there (the banner says why instead).
+    const due = (s.helper.state === "missing" || s.helper.state === "failed") && !store.unsupported();
+    if (store.unsupported() && guide.el.isConnected && !guide.closing) {
+      guide.el.remove();
+      app.inert = false;
+      renderOnboarding();
+      return;
+    }
     if (due && !guide.el.isConnected) {
       firstRun = true;
       onboarding.el.remove();
@@ -213,7 +223,8 @@ function bootApp() {
         iconButton("plus", `New chat (${MOD}N)`, newChat),
         iconButton("history", "History", () => actions.go("history"), { aria: { pressed: String(v === "history") } }),
         iconButton("sliders", "Settings", () => actions.go("settings"), { aria: { pressed: String(v === "settings") } }),
-        inExtension || s.transportKind === "mock" ? iconButton("expand", "Open as full page", () => openFullPage(v === "chat" && s.ui.currentId ? `#conversation=${encodeURIComponent(s.ui.currentId)}` : "")) : null);
+        // (Element.append would print a null as the text "null".)
+        inExtension || s.transportKind === "mock" ? iconButton("expand", "Open as full page", () => openFullPage(v === "chat" && s.ui.currentId ? `#conversation=${encodeURIComponent(s.ui.currentId)}` : "")) : "");
     } else if (mode === "newtab") {
       if (v !== "home") right.append(iconButton("plus", `New chat (${MOD}N)`, newChat));
       if (v === "home") {
@@ -259,7 +270,10 @@ function bootApp() {
     const items = [];
     if (s.connection === "reconnecting") items.push(h("div", { class: "banner warn" }, h("span", { class: "spinner" }), h("span", null, "Reconnecting to Ensō…")));
     if (s.helper.state === "restarting") items.push(h("div", { class: "banner info", role: "status" }, h("span", { class: "spinner" }), h("span", null, "Restarting the helper after the update…")));
-    const g = s.helper.state === "restarting" ? null : s.globalError;
+    // The helper stopped (or can't start, behind the first-run guide): why, and what to do.
+    const down = store.helperDown();
+    if (down) items.push(helperDownCard(store));
+    const g = s.helper.state === "restarting" || (down && s.globalError?.code === "host_disconnected") ? null : s.globalError;
     if (g) {
       const disconnected = g.code === "host_disconnected";
       items.push(h("div", { class: `banner ${g.kind === "error" ? "bad" : "info"}`, role: "alert" },

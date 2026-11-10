@@ -8,6 +8,7 @@ import { relTime, hostOf, describeAction, actionIcon, fullDate } from "../format
 import { renderMarkdown } from "../markdown.js";
 import { openReport } from "../transport.js";
 import { favicon, MOD } from "./composer.js";
+import { loadingOr } from "./helperstate.js";
 
 export function createNav(store, ctx) {
   const { state: s, actions } = store;
@@ -115,7 +116,7 @@ export function createContext(store, ctx) {
     const text = s.memory.text ?? "";
     const preview = text.split("\n").slice(0, 14).join("\n");
     clear(memEl, head("bookmark", "Memory", h("button", { type: "button", class: "link-btn", onclick: () => ctx.editMemory() }, "Edit")),
-      !s.memory.loaded ? h("div", { class: "skel w75" }) : text.trim() ? h("div", { class: "ctx-memory md small" }, renderMarkdown(preview)) : h("p", { class: "muted small" }, "Nothing remembered yet."));
+      !s.memory.loaded ? loadingOr(store, "memory", null, { placeholder: h("div", { class: "skel w75" }), tiny: true }) : text.trim() ? h("div", { class: "ctx-memory md small" }, renderMarkdown(preview)) : h("p", { class: "muted small" }, "Nothing remembered yet."));
   }
 
   function renderAll() { renderPage(); renderConv(); renderActs(); renderMem(); }
@@ -126,7 +127,7 @@ export function createContext(store, ctx) {
       if (topics.has("tab") || topics.has("ui")) renderPage();
       if (topics.has("ui") || topics.has("conversations")) renderConv();
       if (topics.has("ui") || topics.has("dashboard") || topics.has(`conv:${s.ui.currentId}`)) renderActs();
-      if (topics.has("memory")) renderMem();
+      if (topics.has("memory") || (!s.memory.loaded && (topics.has("waits") || topics.has("helper")))) renderMem();
     },
   };
 }
