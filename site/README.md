@@ -38,3 +38,7 @@ docker stop enso-site-pg
 | `/api/health` | Health check |
 
 The sync protocol and client-side encryption scheme are documented at `/docs/sync-api` (`content/docs/sync-api.md`).
+
+## Licence
+
+All rights reserved; see [LICENSE](LICENSE). The extension and helper elsewhere in this repository are MIT.
