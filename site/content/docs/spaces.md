@@ -9,6 +9,10 @@ group: Using Ensō
 
 Zen spaces keep different parts of your life apart: work, personal, study. Each space can have its own **container**, so its tabs have their own cookies and logins. Ensō follows the space you are in.
 
+## Chats follow the space
+
+The chat open in the sidebar belongs to the space it was started in. Switch spaces and Ensō puts it away and brings back the last chat you had open in the new space, or a new chat if there isn't one. Switch back and your chat is there again. A chat that's still answering keeps running while it's out of sight. History shows this space's chats first; choose **All spaces** to see the rest.
+
 ## What changes per space
 
 | | In a space |
