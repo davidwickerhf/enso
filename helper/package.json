@@ -1,9 +1,9 @@
 {
   "name": "enso-helper",
-  "version": "0.5.2",
+  "version": "0.5.3",
   "private": true,
   "type": "module",
-  "description": "Ens\u014d helper: the native messaging host for the Ens\u014d extension (Claude + your MCP servers)",
+  "description": "Ensō helper: the native messaging host for the Ensō extension (Claude + your MCP servers)",
   "main": "host.mjs",
   "bin": {
     "enso": "bin/enso.mjs"
@@ -21,5 +21,8 @@
     "@modelcontextprotocol/sdk": "^1.32.2",
     "zod": "^4.6.7"
   },
-  "license": "MIT"
+  "license": "MIT",
+  "devDependencies": {
+    "playwright-core": "^1.65.0"
+  }
 }
