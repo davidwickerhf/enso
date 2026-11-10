@@ -25,6 +25,18 @@
 //
 // Typed text is never kept in full: page_type records at most 40 characters,
 // and nothing typed into a password field.
+//
+// Tab leases keep two agents from acting on one tab at once. The first agent
+// session to perform an action on a tab (LEASE_TOOLS: click, type, upload,
+// navigate, back, press, select, scroll, eval) holds the tab; every action
+// renews it, and it ends with session_end, Stop, the session ending, or
+// LEASE_MS without an action (never while the holder runs a tool or is
+// paused: a paused agent may be resumed). Another session's actions on that
+// tab (and tabs_close of it) are refused with LEASE text naming the holder and
+// its task; reads stay open to everyone. The refused session shows as
+// "waiting for the tab". The user can hand the tab over to another session or
+// let every agent act on it ("shared"). tabs_open by an agent claims the new
+// tabs for it. The user's own clicks and typing never take a lease.
 
 import { randomBytes } from "node:crypto";
 
@@ -42,7 +54,18 @@ export const AGENT_TTL_MS = 12 * 3600_000; // a launcher not heard from in 12 h 
 export const MAX_INBOX = 5; // screenshots waiting per session (each up to a few MB in memory)
 export const PAUSED_TEXT = "The user paused you on this tab. Wait, then call session_status or retry later; don't work around it (no other tabs, no other tools for this step).";
 export const STOPPED_TEXT = "The user stopped this task in Ensō. Don't continue in the browser; tell the user you stopped.";
+export const HAND_OVER_TEXT = "Note from Ensō: the user handed this tab over to you. Another agent worked on it before; call page_read again before your next action.";
+export const LEASE_MS = 90_000;
+/** Tools that act on one tab and so need its lease. Reads (page_read, tab_read, screenshots, devtools, page_query, page_inspect, page_wait) don't. */
+export const LEASE_TOOLS = new Set(["page_click", "page_type", "page_upload", "page_navigate", "page_back", "page_press", "page_select", "page_scroll", "page_eval"]);
+export const SHARED_RISK_TEXT = "Every agent on this tab can act on it at once; they may overwrite or undo each other's changes.";
 export const HAND_BACK_TEXT = "Note from Ensō: the user paused you and has now resumed. They may have changed the page meanwhile; call page_read again before your next action.";
+
+/** The refusal an agent gets when another session holds the tab. */
+export function leaseText({ client, task, sameClient }) {
+  const who = sameClient ? `another ${client} session` : client;
+  return `This tab is being used by ${who}${task ? ` (${task})` : ""}. Open your own tab with tabs_open, use headless_*, or ask the user. The user can hand the tab over to you in Ensō.`;
+}
 
 const clean = (s, max) => String(s ?? "").replace(/[\u0000-\u0008\u000b-\u001f\u007f]/g, "").replace(/\s+/g, " ").trim().slice(0, max);
 
@@ -79,6 +102,8 @@ export function createAgentSessions({ now = Date.now, onChange = () => {}, idleM
   const sessions = new Map(); // `${key}#${tabId ?? "-"}` -> session
   const stopped = new Map(); // client key -> stoppedAt
   const tasks = new Map(); // client key -> task (from session_start), applies to new tabs too
+  const leases = new Map(); // tabId -> { key, client, at }: the agent session that may act on the tab
+  const sharedTabs = new Set(); // tabIds the user let every agent act on
   const listeners = new Set([onChange]);
   let scheduled = false;
 
@@ -110,6 +135,59 @@ export function createAgentSessions({ now = Date.now, onChange = () => {}, idleM
     return true;
   }
 
+  /**
+   * The live lease on a tab, or null (no side effects: sweep() drops dead ones).
+   * Alive while its holder isn't stopped and (runs a tool, is paused, or acted within LEASE_MS).
+   */
+  function leaseOf(tabId) {
+    if (tabId == null) return null;
+    const l = leases.get(tabId);
+    if (!l || isStopped(l.key)) return null;
+    const s = sessions.get(slot(l.key, tabId));
+    if (s && !s.ended && (s.running > 0 || s.paused)) return l;
+    return now() - l.at <= LEASE_MS ? l : null;
+  }
+
+  /** The holder's label and task, for the refusal and the UI. */
+  function holderInfo(l, tabId) {
+    const s = sessions.get(slot(l.key, tabId));
+    const live = s && !s.ended ? s : null;
+    return { id: live?.id ?? null, client: live?.client ?? l.client, task: live?.task || tasks.get(l.key) || "" };
+  }
+
+  function release(key, tabId = null) {
+    let any = false;
+    for (const [t, l] of leases)
+      if (l.key === key && (tabId == null || t === tabId)) {
+        leases.delete(t);
+        any = true;
+      }
+    return any;
+  }
+
+  /** Shared mode ends when no agent session is left on the tab. */
+  function dropShared() {
+    let any = false;
+    for (const t of sharedTabs)
+      if (![...sessions.values()].some(s => s.tabId === t && !s.ended)) {
+        sharedTabs.delete(t);
+        any = true;
+      }
+    return any;
+  }
+
+  /** Who may act on a tab: null when this client may (and takes or renews the lease), else the refusal text. */
+  function acquire(client, key, tabId) {
+    const l = leaseOf(tabId);
+    if (l && l.key !== key && !sharedTabs.has(tabId)) {
+      const h = holderInfo(l, tabId);
+      return leaseText({ client: h.client, task: h.task, sameClient: h.client === (client.label ?? "An MCP client") });
+    }
+    if (!l) leases.set(tabId, { key, client: client.label ?? "An MCP client", at: now() });
+    else l.at = now(); // in shared mode the holder stays; any action keeps the tab alive
+    return null;
+  }
+
   /** The session of this client on this tab, created when missing. Tab-less calls use the latest tab session. */
   function ensure(client, tabId, { url, title } = {}) {
     const key = clientKey(client);
@@ -121,7 +199,7 @@ export function createAgentSessions({ now = Date.now, onChange = () => {}, idleM
     if (s && s.ended) s = null;
     if (!s) {
       const t = now();
-      s = { id: sid(), key, client: client.label ?? "An MCP client", clientName: client.name ?? "", via: client.via ?? "http", task: tasks.get(key) ?? "", tabId: tabId ?? null, url: url ?? "", title: title ?? "", startedAt: t, lastAt: t, running: 0, paused: false, pausedAt: null, stopped: isStopped(key), handBack: false, actions: [], notes: [], ended: false, explicit: false, t3ThreadId: client.t3Thread ?? null, agentPid: client.agentPid ?? null };
+      s = { id: sid(), key, client: client.label ?? "An MCP client", clientName: client.name ?? "", via: client.via ?? "http", task: tasks.get(key) ?? "", tabId: tabId ?? null, url: url ?? "", title: title ?? "", startedAt: t, lastAt: t, running: 0, paused: false, pausedAt: null, stopped: isStopped(key), handBack: false, handedOver: false, waitingAt: null, waitingTool: null, actions: [], notes: [], ended: false, explicit: false, t3ThreadId: client.t3Thread ?? null, agentPid: client.agentPid ?? null };
       // A tab-less session (tabs_list, GitHub…) folds into the first tab session.
       const loose = tabId != null ? sessions.get(slot(key, null)) : null;
       if (loose && !loose.ended) {
@@ -149,6 +227,10 @@ export function createAgentSessions({ now = Date.now, onChange = () => {}, idleM
       if (s.handBack && (tabId == null || s.tabId === tabId || s.tabId == null)) {
         out.push(HAND_BACK_TEXT);
         s.handBack = false;
+      }
+      if (s.handedOver && (tabId == null || s.tabId === tabId)) {
+        out.push(HAND_OVER_TEXT);
+        s.handedOver = false;
       }
       for (const n of s.notes) {
         if (n.deliveredAt) continue;
@@ -205,7 +287,7 @@ export function createAgentSessions({ now = Date.now, onChange = () => {}, idleM
      * Before a tool runs. { tool, kind, tabId } → { refuse?: text, messages: [text] }.
      * Notes are collected here, so a refused call still carries them.
      */
-    before(client, { tool, kind = "act", tabId = null }) {
+    before(client, { tool, kind = "act", tabId = null, tabIds = null }) {
       const key = clientKey(client);
       if (tool === "session_status") return { messages: [] };
       if (isStopped(key)) return { refuse: STOPPED_TEXT, messages: collect(key, tabId) };
@@ -216,7 +298,54 @@ export function createAgentSessions({ now = Date.now, onChange = () => {}, idleM
         const tabLessAct = tabId == null && kind !== "read";
         if (onPausedTab || tabLessAct) return { refuse: PAUSED_TEXT, messages: collect(key, tabId) };
       }
+      // Tab leases: an action on a tab another session holds is refused; otherwise it takes or renews the lease.
+      if (LEASE_TOOLS.has(tool) && tabId != null) {
+        const refuse = acquire(client, key, tabId);
+        const s = ensure(client, tabId);
+        if (refuse) {
+          s.waitingAt = now();
+          s.waitingTool = tool;
+          changed();
+          return { refuse, lease: true, messages: collect(key, tabId) };
+        }
+        s.waitingAt = null;
+        changed();
+      }
+      if (tool === "tabs_close" && Array.isArray(tabIds)) {
+        for (const t of tabIds) {
+          const l = leaseOf(t);
+          if (l && l.key !== key && !sharedTabs.has(t)) {
+            const h = holderInfo(l, t);
+            return { refuse: leaseText({ client: h.client, task: h.task, sameClient: h.client === (client.label ?? "An MCP client") }), lease: true, messages: collect(key, tabId) };
+          }
+        }
+      }
       return { messages: collect(key, tabId) };
+    },
+
+    /**
+     * session_start on a tab another session holds: a warning for the reply
+     * (the session starts anyway: reads are open to everyone), else "".
+     */
+    leaseWarning(client, tabId) {
+      const l = leaseOf(tabId);
+      if (!l || l.key === clientKey(client) || sharedTabs.has(tabId)) return "";
+      const h = holderInfo(l, tabId);
+      const sameClient = h.client === (client.label ?? "An MCP client");
+      return `Warning: tab ${tabId} is being used by ${sameClient ? `another ${h.client} session` : h.client}${h.task ? ` (${h.task})` : ""}. You can read it, but your actions on it will be refused. Prefer your own tab (tabs_open), headless_*, or ask the user; the user can hand the tab over to you in Ensō.`;
+    },
+
+    /** tabs_open by an agent: the new tabs are its own (taken only when free). */
+    claim(client, tabIds = []) {
+      const key = clientKey(client);
+      let any = false;
+      for (const t of tabIds) {
+        if (!Number.isInteger(t) || leaseOf(t)) continue;
+        leases.set(t, { key, client: client.label ?? "An MCP client", at: now() });
+        any = true;
+      }
+      if (any) changed();
+      return any;
     },
 
     /** A tool starts running: the session shows as live. Returns a handle for finish(). */
@@ -231,6 +360,8 @@ export function createAgentSessions({ now = Date.now, onChange = () => {}, idleM
     /** A tool finished. entry: { ok, target, url, pageTitle, error, irreversible, typed } */
     finish(handle, entry = {}) {
       const { s, tool, title } = handle;
+      const l = LEASE_TOOLS.has(tool) && !entry.refused ? leaseOf(s.tabId) : null; // looked up while the tool still counts as running
+      if (l && (l.key === s.key || sharedTabs.has(s.tabId))) l.at = now(); // a long action renews it when it ends, too
       s.running = Math.max(0, s.running - 1);
       s.lastAt = now();
       if (entry.url) s.url = entry.url;
@@ -277,7 +408,9 @@ export function createAgentSessions({ now = Date.now, onChange = () => {}, idleM
         n++;
       }
       if (tabId == null) tasks.delete(key);
+      release(key, tabId);
       for (const [k, s] of sessions) if (s.ended) sessions.delete(k);
+      dropShared();
       changed();
       return n;
     },
@@ -310,6 +443,8 @@ export function createAgentSessions({ now = Date.now, onChange = () => {}, idleM
     resume(id) {
       const s = api.get(id);
       if (!s || !s.paused) return !!s;
+      const l = leaseOf(s.tabId); // while still paused, so a kept lease counts as live
+      if (l && l.key === s.key) l.at = now(); // a fresh lease window
       s.paused = false;
       s.pausedAt = null;
       s.handBack = true;
@@ -321,6 +456,7 @@ export function createAgentSessions({ now = Date.now, onChange = () => {}, idleM
       const s = api.get(id);
       if (!s) return false;
       stopped.set(s.key, now());
+      release(s.key); // a stopped agent lets go of every tab
       for (const x of ofClient(s.key)) {
         x.stopped = true;
         x.paused = false;
@@ -329,6 +465,35 @@ export function createAgentSessions({ now = Date.now, onChange = () => {}, idleM
       changed();
       return true;
     },
+    /** The user gives the tab of session `id` to that session (Ensō: "Hand over to …"). Ends shared mode there. */
+    handOver(id) {
+      const s = api.get(id);
+      if (!s || s.tabId == null || s.stopped || isStopped(s.key)) return false;
+      leases.set(s.tabId, { key: s.key, client: s.client, at: now() });
+      sharedTabs.delete(s.tabId);
+      s.waitingAt = null;
+      s.handedOver = true;
+      s.lastAt = now();
+      changed();
+      return true;
+    },
+    /** The user lets every agent on a tab act on it (on) or goes back to one at a time (off; the last to act keeps it). */
+    share(tabId, on) {
+      if (!Number.isInteger(tabId)) return false;
+      if (on) sharedTabs.add(tabId);
+      else sharedTabs.delete(tabId);
+      for (const s of sessions.values()) if (s.tabId === tabId && on) s.waitingAt = null;
+      changed();
+      return true;
+    },
+    /** The lease on a tab as the UI and tests see it: { holderId, client, task, shared, endsAt } or null. */
+    lease(tabId) {
+      const l = leaseOf(tabId);
+      if (!l) return sharedTabs.has(tabId) ? { holderId: null, client: null, task: "", shared: true, endsAt: null } : null;
+      const h = holderInfo(l, tabId);
+      return { holderId: h.id, client: h.client, task: h.task, shared: sharedTabs.has(tabId), endsAt: new Date(l.at + LEASE_MS).toISOString() };
+    },
+
     note(id, text) {
       const s = api.get(id);
       const t = clean(text, MAX_NOTE_CHARS);
@@ -404,6 +569,8 @@ export function createAgentSessions({ now = Date.now, onChange = () => {}, idleM
       if (!s) return false;
       s.ended = true;
       sessions.delete(slot(s.key, s.tabId));
+      if (s.tabId != null) release(s.key, s.tabId);
+      dropShared();
       changed();
       return true;
     },
@@ -433,6 +600,13 @@ export function createAgentSessions({ now = Date.now, onChange = () => {}, idleM
           any = true;
         }
       }
+      for (const [tabId, l] of leases) {
+        const s = sessions.get(slot(l.key, tabId));
+        if (leaseOf(tabId) && !(s?.ended)) continue;
+        leases.delete(tabId);
+        any = true;
+      }
+      if (dropShared()) any = true;
       for (const [k, at] of stopped) if (t - at > STOP_TTL_MS) stopped.delete(k);
       for (const [k, a] of agents)
         if (t - a.lastAt > AGENT_TTL_MS || !alive(a.agentPid)) {
@@ -472,7 +646,24 @@ export function createAgentSessions({ now = Date.now, onChange = () => {}, idleM
         notes: s.notes.map(n => ({ ...n })),
         t3ThreadId: s.t3ThreadId ?? null, // the T3 Code thread this agent runs in, when its launcher said so
         agentId: agents.get(s.key)?.id ?? null, // the connected agent (target for screenshots)
+        ...control(s),
       }));
+  }
+
+  /**
+   * The session's part in its tab's lease: control "holder" (in control),
+   * "shared" (the user let every agent act), "waiting" (its last action was
+   * refused and the tab is still held by another), or null.
+   */
+  function control(s) {
+    if (s.tabId == null) return { control: null, holderId: null, leaseEndsAt: null, waitingSince: null };
+    const l = leaseOf(s.tabId);
+    const h = l ? holderInfo(l, s.tabId) : null;
+    const base = { holderId: h?.id ?? null, leaseEndsAt: l ? new Date(l.at + LEASE_MS).toISOString() : null, waitingSince: null };
+    if (sharedTabs.has(s.tabId)) return { ...base, control: "shared" };
+    if (l && l.key === s.key) return { ...base, control: "holder" };
+    if (l && s.waitingAt) return { ...base, control: "waiting", waitingSince: new Date(s.waitingAt).toISOString(), waitingTool: s.waitingTool ?? null };
+    return { ...base, control: null };
   }
 
   if (timers) {

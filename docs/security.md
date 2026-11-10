@@ -16,6 +16,7 @@ the limits you set. Privacy (what leaves the computer) is in [privacy.md](privac
 - [The MCP server](#the-mcp-server)
 - [Files to pages (`page_upload`)](#files-to-pages-page_upload)
 - [Notes to agents, Pause and Stop](#notes-to-agents)
+- [Tab leases](#tab-leases)
 - [Screenshots to agents and T3 Code](#screenshots-to-agents-and-t3-code)
 - [Secrets](#secrets)
 - [OAuth sign-in](#oauth-sign-in)
@@ -332,6 +333,37 @@ Since 0.5.3 the user can steer an external agent from Ensō's agent card
 - **Typed text** is never kept in full in a session: page_type steps show at
   most 40 characters, and nothing typed into a password field ("••••••").
 
+## Tab leases
+
+One agent session acts on a tab at a time (`lib/agentsessions.mjs`,
+[mcp.md](mcp.md#tab-leases-one-agent-acts-on-a-tab-at-a-time)). The first
+session to act on a tab (click, type, upload, navigate, back, press, select,
+scroll, `page_eval`) holds it; every action renews the lease, which ends with
+`session_end`, Stop, the session ending or 90 seconds without an action, and
+never while the holder is paused or running a tool. Other sessions' actions on
+the tab, and `tabs_close` of it, are refused in the helper before anything
+reaches the page; their reads still pass.
+
+- **What it protects against:** two well-behaved agents undoing or overwriting
+  each other's work, or one navigating away from a document the other is
+  typing into. A refused agent is told who holds the tab and that it should
+  open its own tab, use the headless browser or ask the user.
+- **What it doesn't:** a hostile local program. Any process that can read
+  `mcp-token` can call the server with a fresh `X-Enso-Session` id, or with the
+  holder's id if it learns it. Leases are coordination between agents, not a
+  security boundary; external control (Read, Off), `--read-only` and Pause are
+  the user's controls.
+- **Only the user moves a lease.** "Hand over to …" and "Let both act" are UI
+  messages (`agents.handover`, `agents.share`), accepted like notes only from
+  Ensō's own extension pages. No tool lets an agent take, give or share a tab;
+  `tabs_open` only claims tabs nobody holds.
+- **The user's own interaction never takes a lease** and is never refused.
+- **Attribution ids are not secrets.** Page requests carry the session's
+  random id from the `agents` list (`agentSession`), never the launcher's
+  `X-Enso-Session` value, so the page and the extension can't learn a key that
+  identifies an agent to the server.
+- Leases live in memory only and are gone when the helper restarts.
+
 ## Screenshots to agents and T3 Code
 
 "Send screenshot" (⌘⇧2 on macOS, Ctrl+Shift+2 on Linux and Windows) captures what the user sees, so a screenshot can hold
@@ -394,6 +426,9 @@ anything on the page: mail, documents, tokens printed in a console.
   only gate. Use `--read-only` or set external control to Read for clients you
   don't want acting.
 - Any program running as your user can read `mcp-token` and call the server.
+- Tab leases keep cooperating agents apart; a program calling the server
+  directly can present itself as any agent, so they are not a security
+  boundary.
 - Redaction is pattern-based. A credential with an unusual name and format can
   pass through, and the `document.cookie` check in `page_eval` is a guard
   against accidents, not a sandbox: code in the page world can reach whatever

@@ -1252,6 +1252,26 @@ html[data-mode="sidebar"] .tr-head .tp-status { font-size: 0; gap: 0; }
 .agent-tab.running .agent-tab-state { color: var(--accent-text); }
 .agent-tab.paused .agent-tab-state { color: var(--warn); }
 .agent-stack.tabbed .agent-card { animation: none; }
+/* Tab leases: who may act on the tab (lib/agentsessions.mjs) */
+.agent-who-line { display: flex; align-items: center; gap: 6px; min-width: 0; flex-wrap: wrap; }
+.agent-control[hidden] { display: none; }
+.agent-control.in-control { background: var(--accent-soft); color: var(--accent-text); }
+.agent-control.waiting { background: rgba(183, 121, 31, 0.14); color: var(--warn); }
+.agent-control.shared { background: var(--surface-2); color: var(--text-2); }
+.agent-card.waiting { border-color: rgba(183, 121, 31, 0.4); }
+.agent-lease { display: grid; grid-template-columns: minmax(0, 1fr); min-width: 0; gap: 6px; padding: 7px 8px; border-radius: var(--r-sm); background: var(--surface-2); font-size: 12.5px; }
+.agent-lease[hidden] { display: none; }
+.agent-card.waiting .agent-lease { background: rgba(183, 121, 31, 0.1); }
+.agent-lease-text, .agent-lease-risk { margin: 0; color: var(--text-2); line-height: 1.4; }
+.agent-lease-risk { color: var(--warn); font-weight: 600; }
+.agent-lease-risk[hidden] { display: none; }
+.agent-lease-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.agent-lease-actions:empty { display: none; }
+.agent-lease-actions { min-width: 0; }
+.agent-lease-actions .btn { max-width: 100%; min-width: 0; }
+.agent-lease-actions .btn-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.agent-tab-control { flex: none; font-size: 10.5px; font-weight: 600; padding: 1px 6px; border-radius: 999px; background: var(--accent-soft); color: var(--accent-text); }
+.agent-tab.waiting .agent-tab-state { color: var(--warn); }
 .agents-row-wrap { border: 1px solid var(--line); border-radius: var(--r); background: var(--bg-elev); overflow: hidden; }
 .agents-toggle { display: flex; align-items: center; gap: 8px; width: 100%; padding: 7px 10px; font-size: 12.5px; font-weight: 500; color: var(--text-2); text-align: left; }
 .agents-toggle:hover { color: var(--text); background: var(--surface-2); }

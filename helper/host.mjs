@@ -195,10 +195,12 @@ function setServers(list) {
 
 const pending = new Map();
 let reqSeq = 0;
-function browserRequest(type, action, args, tabId, agent) {
+function browserRequest(type, action, args, tabId, agent, agentSession) {
   const reqId = `r${++reqSeq}`;
   try {
-    send({ type, reqId, action, args, tabId, agent }); // agent: who is acting (MCP client label), shown on the page ribbon; large requests go in chunks
+    // agent: who is acting (MCP client label); agentSession: the exact agent session (lib/agentsessions.mjs id),
+    // so the page's flash and pill name that session; large requests go in chunks
+    send({ type, reqId, action, args, tabId, agent, ...(agentSession ? { agentSession } : {}) });
   } catch (err) {
     return Promise.reject(err); // too large to send (MessageTooLargeError): a clear error, nothing sent
   }
@@ -901,6 +903,12 @@ async function handle(msg) {
       break;
     case "agents.dismiss":
       agentSessions.dismiss(msg.id);
+      break;
+    case "agents.handover": // "Hand over to …": the tab of session `id` goes to it
+      agentSessions.handOver(msg.id);
+      break;
+    case "agents.share": // "Let both act" (on) / "One at a time" (off) on a tab
+      agentSessions.share(Number(msg.tabId), !!msg.on);
       break;
     case "agents.note": {
       const note = agentSessions.note(msg.id, msg.text);

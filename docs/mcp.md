@@ -23,6 +23,7 @@ Why it is local and why there is a launcher: [records/001-local-mcp-server.md](r
 - [Other clients](#other-clients)
 - [Controls in Ensō](#controls-in-ensō)
 - [Sessions and steering](#sessions-and-steering)
+- [Tab leases: one agent acts on a tab at a time](#tab-leases-one-agent-acts-on-a-tab-at-a-time)
 - [Tool reference](#tool-reference)
 - [Files, waiting, timeouts and limits](#files-waiting-timeouts-and-limits)
 - [Etiquette for agents](#etiquette-for-agents)
@@ -187,7 +188,7 @@ clients can't connect.
 | Settings → Advanced | Developer tools and Headless browser switches. |
 | Settings → Privacy & safety → Session access | The sites where a client may use your session. |
 | Activity (full page) | Every action, with the client's name, updated live. |
-| The agent card (sidebar and full page) | The agent on the active tab: task, steps, Pause/Resume, Stop, "Tell the agent…". The Agents row lists sessions in other tabs and spaces. |
+| The agent card (sidebar and full page) | The agent on the active tab: task, steps, Pause/Resume, Stop, "Tell the agent…". With several agents on the tab: which one is **In control**, which is **Waiting for the tab**, **Hand over to …** and **Let both act** ([tab leases](#tab-leases-one-agent-acts-on-a-tab-at-a-time)). The Agents row lists sessions in other tabs and spaces. |
 | Settings → Agents & screenshots → Mark the tab an agent uses | The "✦ " title prefix (default on). |
 
 MCP clients are never shown an approval: there is nobody to ask. Tools that
@@ -227,6 +228,49 @@ everything arrives with the agent's next tool call:
 | **Stop** | Every further call of that agent session, including `session_start`, returns "The user stopped this task in Ensō. Don't continue in the browser; tell the user you stopped." for 30 minutes. A new agent process isn't affected. |
 
 Refused calls still carry pending notes, and show in the card as "refused".
+
+## Tab leases: one agent acts on a tab at a time
+
+Two agents on one tab can want different things: one types into a document
+while the other navigates away, or both fill in the same form. The helper
+gives each tab to one agent session at a time (`agentsessions.mjs`).
+
+| Rule | What happens |
+|---|---|
+| Getting a tab | The first session to perform an **action** on a tab holds it: `page_click`, `page_type`, `page_upload`, `page_navigate`, `page_back`, `page_press`, `page_select`, `page_scroll`, `page_eval`. `session_start` alone doesn't take it. |
+| Reads | Never need the lease and are open to every agent: `page_read`, `tab_read`, `page_screenshot`, `page_query`, `page_inspect`, `page_wait`, `page_storage`, `devtools_*`. |
+| Keeping it | Every action renews it. It ends with `session_end`, Stop, the session ending, or 90 seconds without an action. It never lapses while the holder runs a tool (a long `page_upload`) or is **paused**: the user may resume it. |
+| Another session acting | Refused, with nothing sent to the page: "This tab is being used by Codex (Find why CI fails). Open your own tab with tabs_open, use headless_*, or ask the user. The user can hand the tab over to you in Ensō." Two sessions of the same client read "another Claude Code session (…)". `tabs_close` of a held tab is refused the same way. The refused session shows in the card as **Waiting for the tab**, with the refused step. |
+| `session_start` on a held tab | Succeeds, and its reply warns: "Warning: tab 42 is being used by … You can read it, but your actions on it will be refused. …" |
+| `tabs_open` | The new tabs belong to the agent that opened them (if nobody holds them). |
+| The user | Your own clicks and typing never take a lease; Pause is how you take a tab from an agent. |
+
+In Ensō's card, with several agents on the tab:
+
+- **In control** marks the holder; **Waiting for the tab** marks a refused agent.
+- **Hand over to <agent>** moves the lease to that session. Its next tool result
+  starts with "Note from Ensō: the user handed this tab over to you. Another
+  agent worked on it before; call page_read again before your next action." The
+  previous holder's actions are refused from then on.
+- **Let both act** (or "Let all act") switches the tab to shared mode: every
+  agent may act on it, and the card says in one line that they may overwrite or
+  undo each other's changes. **One at a time** ends it; the last holder keeps the
+  tab. Shared mode ends by itself when no agent is left on the tab.
+
+Leases are keyed like sessions: launcher clients by their `X-Enso-Session`
+process id, plain-http clients by label and clientInfo name (two plain-http
+windows of one app count as one agent). They live in memory only. They protect
+against agents interfering with each other, not against a hostile local
+process, which could call the server as any client it likes
+([security.md](security.md#tab-leases)).
+
+**Attribution.** Every page request the helper sends to the extension for a
+call inside a session carries the session's id (`agentSession`, the same
+opaque id as in the `agents` list) and the client's label. The extension uses
+it for the outline flash's label and colour and for the pill's rows, so two
+sessions of one client on one tab are told apart exactly. Requests outside a
+session (a plain-http client's lone read) carry only the label, and the page
+falls back to the client's name.
 
 ### Screenshots from the user
 
@@ -297,7 +341,7 @@ tool also takes `tabId?` (from `tabs_list`; default: the active tab).
 | `tabs_list` | Open tabs in the current Zen space (id, title, URL, group); `allSpaces` adds the other spaces' tabs. | read | yes | `allSpaces?` |
 | `tab_read` | Text of another open tab, without switching to it. | read | yes | `tabId` |
 | `history_search` | Browsing history by words in the title or URL, last N days (default 30). | read | yes | `text`, `days?`, `max?` |
-| `tabs_open` | Open up to 20 URLs in new tabs, in the current space's container. | read | no | `urls`, `background?` |
+| `tabs_open` | Open up to 20 URLs in new tabs, in the current space (its container, so its logins). Replies with each tab's id. For MCP clients the tabs open in the background unless `background: false`, so the user's tab keeps focus; the new tabs are the opener's ([leases](#tab-leases-one-agent-acts-on-a-tab-at-a-time)). | read | no | `urls`, `background?` |
 | `tabs_group` | Put tabs in a tab group (a folder in Zen's sidebar), optionally named and coloured, or add them to a group. | read | no | `tabIds`, `title?`, `color?`, `groupId?` |
 | `tabs_ungroup` | Take tabs out of their group. | read | no | `tabIds` |
 | `group_update` | Rename, recolour, collapse or expand a group. | read | no | `groupId`, `title?`, `color?`, `collapsed?` |
@@ -470,6 +514,11 @@ In short:
   instead of trying other tabs or tools; if stopped, stop and say so.
 - Start with `tabs_list` (current space) and `page_read`; pass `tabId` to act on
   a specific tab instead of the active one.
+- Prefer your own tab: open one with `tabs_open` (background, current space)
+  and pass its `tabId`, rather than acting in the tab the user is looking at.
+- If a tab is being used by another agent, open your own tab, use `headless_*`,
+  or ask the user. Don't retry, work around it or fight over the tab; the user
+  can hand it over to you.
 - Set `requested_by_user: true` only when the user asked for that exact action,
   and `irreversible: true` for sending, submitting, paying, deleting or
   publishing.

@@ -12,7 +12,10 @@
 // ?agents=running | paused | delivered | idle | stopped | list | t3 | sametab shows external
 // agents (Claude Code, Codex) working in tabs: the agent card and the Agents row
 // (t3: Claude Code running inside a T3 Code thread; sametab: two Claude Code
-// sessions on the active tab, one card with a tab each, and Codex elsewhere).
+// sessions on the active tab, one card with a tab each, the first "In control"
+// of the tab and the second "waiting for the tab" after a refused click, with
+// Hand over / Let both act; sametab-shared: the same two sharing the tab;
+// Codex elsewhere).
 // Send screenshot: ?shot=sheet | picker | agent | fallback opens the send sheet with a
 // fake capture; ?t3=off | down | revoked | fallback sets the T3 Code connection;
 // ?links=1 adds linked threads (Settings → Agents & screenshots).
@@ -770,7 +773,15 @@ Want me to draft the reply to Jonas, or open the [Vercel deployment](https://ver
       url: docs.url, title: docs.title, startedAt: ago(60), lastAt: ago(14), endsAt: iso(now() + 106_000), running: false, paused: true, pausedAt: ago(14), stopped: false, explicit: true, idleMs: 14000,
       actions: [step(58, "session_start", "Start a session", ""), step(40, "page_click", "Click", 'menuitem "File"'), step(15, "page_click", "Click", 'menuitem "Download"')], notes: [],
     };
-    if (agentPreset === "sametab") {
+    if (agentPreset === "sametab" || agentPreset === "sametab-shared") {
+      // Tab leases: docs holds tab 16; docs2's click was refused, so it waits for the tab.
+      Object.assign(docs, { control: "holder", holderId: docs.id, leaseEndsAt: iso(now() + 88_000) });
+      Object.assign(docs2, {
+        paused: false, pausedAt: null, running: false, control: "waiting", holderId: docs.id, waitingSince: ago(6), waitingTool: "page_click",
+        actions: [...docs2.actions, step(6, "page_click", "Click", 'menuitem "PDF document (.pdf)"', { ok: false, refused: true, error: "This tab is being used by another Claude Code session (Draft the methods section of the Assignment 3 brief)" })],
+      });
+      if (agentPreset === "sametab-shared") for (const a of [docs, docs2]) Object.assign(a, { control: "shared", waitingSince: null });
+      Object.assign(codex, { control: "holder", holderId: codex.id });
       agents = [docs, docs2, codex];
     } else agents = agentPreset === "list" ? [docs, codex, cursor] : agentPreset === "idle" || agentPreset === "t3" ? [docs] : [docs, codex];
   }
@@ -1032,6 +1043,20 @@ Want me to draft the reply to Jonas, or open the [Vercel deployment](https://ver
         agents = agents.filter(a => a.id !== msg.id);
         sendAgents();
         return;
+      case "agents.handover": {
+        // Tab leases: the tab goes to that session; nobody waits any more, sharing ends.
+        const to = agents.find(a => a.id === msg.id);
+        if (!to) return;
+        agents = agents.map(a => (a.tabId !== to.tabId ? a : { ...a, control: a.id === to.id ? "holder" : null, holderId: to.id, waitingSince: null }));
+        sendAgents();
+        return;
+      }
+      case "agents.share": {
+        const holder = agents.find(a => a.tabId === msg.tabId && a.control === "holder") ?? agents.find(a => a.tabId === msg.tabId);
+        agents = agents.map(a => (a.tabId !== msg.tabId ? a : msg.on ? { ...a, control: "shared", waitingSince: null } : { ...a, control: a.id === holder?.id ? "holder" : null }));
+        sendAgents();
+        return;
+      }
       case "agents.switch":
         activeTabId = msg.tabId;
         out({ type: "page.current", tab: tabOut(activeTab()), space: spaceRef(currentSpaceId()) });

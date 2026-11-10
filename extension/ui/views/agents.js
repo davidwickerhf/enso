@@ -7,6 +7,11 @@
 //     With several sessions on the tab, one card with a tab per agent (its
 //     shade, as on the page pill and flashes, and its state); the page pill
 //     picks the tab of the agent clicked;
+//   - tab leases (lib/agentsessions.mjs): with several agents on the tab, the
+//     one allowed to act wears "In control"; a refused one shows "Waiting for
+//     the tab". The card offers "Hand over to <agent>" (the lease moves to that
+//     session) and "Let both act" (shared: everyone may act, with the risk in
+//     one line), and "One at a time" to end sharing;
 //   - the Agents row: every live session across tabs and spaces; a row
 //     switches to that tab, Stop stops it.
 //
@@ -71,7 +76,39 @@ function stateLabel(a) {
   if (a.stopped) return "Stopped";
   if (a.paused) return "Paused";
   if (a.running) return "Working";
+  if (a.control === "waiting") return "Waiting";
   return "Idle";
+}
+
+/** "Claude Code", or "Claude Code · Export the brief…" when another agent on the tab has the same name. */
+export function agentName(a, here = []) {
+  const twin = here.some(x => x.id !== a.id && x.client === a.client);
+  if (!twin || !a.task) return a.client;
+  return `${a.client} · ${a.task.length > 22 ? `${a.task.slice(0, 21).trimEnd()}…` : a.task}`;
+}
+
+/**
+ * The tab-lease line and actions for the card of `a` (several agents on its tab, or `a` waiting).
+ * → { text, risk, handOver: [session], share: "on" | "off" | null, badge }
+ */
+export function leaseView(a, here) {
+  const live = here.filter(x => !x.stopped);
+  const holder = here.find(x => x.control === "holder");
+  const shared = here.some(x => x.control === "shared");
+  const badge = a.stopped ? null : shared && here.length > 1 ? "Shared" : a.control === "holder" && here.length > 1 ? "In control" : a.control === "waiting" ? "Waiting for the tab" : null;
+  if (here.length < 2 && a.control !== "waiting") return { text: "", risk: "", handOver: [], share: null, badge };
+  const both = live.length > 2 ? "every agent" : "both agents";
+  if (shared) return { text: `You let ${both} act on this tab.`, risk: "They may overwrite or undo each other's changes.", handOver: live, share: "off", badge };
+  const handOver = live.filter(x => x.id !== holder?.id);
+  const others = live.length > 2 ? "The other agents" : "The other agent";
+  const text = !holder
+    ? "No agent is in control of this tab; the next one to act takes it."
+    : holder.id === a.id
+      ? `This agent is in control of the tab. ${others} can read it but not act.`
+      : a.control === "waiting"
+        ? `${agentName(holder, here)} is in control, so this agent's actions here are refused.`
+        : `${agentName(holder, here)} is in control of this tab.`;
+  return { text, risk: "", handOver, share: live.length > 1 ? "on" : null, badge };
 }
 
 // The same shades as the page (pageagent.js SHADES): each session keeps the
@@ -128,15 +165,20 @@ export function createAgentsPanel(store) {
     const t3Open = h("button", { type: "button", class: "linklike agent-t3-open", onclick: () => { const x = current(); if (x?.t3?.threadId) actions.openT3(x.t3.threadId); } }, "Open in T3", icon("arrowUpRight"));
     const t3Line = h("p", { class: "agent-t3", hidden: true }, h("span", { class: "tag" }, "T3"), t3Title, t3Open);
     const live = h("div", { class: "sr-only", aria: { live: "polite" } });
+    const controlBadge = h("span", { class: "badge agent-control", hidden: true });
+    const leaseText = h("p", { class: "agent-lease-text" });
+    const leaseRisk = h("p", { class: "agent-lease-risk", hidden: true });
+    const leaseActions = h("div", { class: "agent-lease-actions" });
+    const lease = h("div", { class: "agent-lease", role: "group", aria: { label: "Who may act on this tab" }, hidden: true }, leaseText, leaseRisk, leaseActions);
     const root = h("section", { class: "agent-card", tabindex: "-1", aria: { label: `${a.client} is working on this tab` } },
       h("header", { class: "agent-head" },
         h("span", { class: "agent-mark", aria: { hidden: "true" } }, "✦"),
-        h("div", { class: "agent-who" }, who, task),
+        h("div", { class: "agent-who" }, h("span", { class: "agent-who-line" }, who, controlBadge), task),
         h("div", { class: "agent-meta" }, stateEl, time)),
-      t3Line, steps, status, notes,
+      t3Line, lease, steps, status, notes,
       h("div", { class: "agent-actions" }, form, h("div", { class: "agent-controls" }, pauseBtn, stopBtn, dismissBtn)),
       live);
-    return { id: a.id, root, steps, notes, input, form, pauseBtn, stopBtn, dismissBtn, who, task, stateEl, time, status, live, t3Line, t3Title, t3Open, stepIds: "" };
+    return { id: a.id, root, steps, notes, input, form, pauseBtn, stopBtn, dismissBtn, who, task, stateEl, time, status, live, t3Line, t3Title, t3Open, controlBadge, lease, leaseText, leaseRisk, leaseActions, leaseSig: "", stepIds: "" };
   }
 
   function fillCard(a) {
@@ -146,6 +188,26 @@ export function createAgentsPanel(store) {
     c.root.classList.toggle("running", !!a.running && !a.paused && !a.stopped);
     c.root.setAttribute("aria-label", `${a.client}${a.task ? `: ${a.task}` : ""}. ${stateLabel(a)}.`);
     c.who.textContent = a.client;
+    // Tab leases: who may act here, and the user's hand-over / shared controls.
+    const here = onTab();
+    const lv = leaseView(a, here);
+    c.controlBadge.hidden = !lv.badge;
+    c.controlBadge.textContent = lv.badge ?? "";
+    c.controlBadge.className = ["badge", "agent-control", lv.badge === "In control" && "in-control", lv.badge === "Waiting for the tab" && "waiting", lv.badge === "Shared" && "shared"].filter(Boolean).join(" ");
+    c.root.classList.toggle("waiting", a.control === "waiting" && !a.stopped);
+    c.lease.hidden = !lv.text;
+    const lsig = JSON.stringify([lv.text, lv.risk, lv.share, lv.handOver.map(x => [x.id, agentName(x, here)])]);
+    if (lsig !== c.leaseSig) {
+      c.leaseSig = lsig;
+      c.leaseText.textContent = lv.text;
+      c.leaseRisk.textContent = lv.risk;
+      c.leaseRisk.hidden = !lv.risk;
+      const tabId = a.tabId;
+      clear(c.leaseActions,
+        lv.share === "off" ? [] : lv.handOver.map(x => h("button", { type: "button", class: "btn small", dataset: { fk: `handover-${x.id}` }, title: `Let ${x.client}${x.task ? ` (${x.task})` : ""} act on this tab; the others' actions are refused`, onclick: () => actions.handOverAgent(x.id) }, icon("arrowRight"), h("span", { class: "btn-label" }, x.id === a.id ? "Hand the tab to this agent" : `Hand over to ${agentName(x, here)}`))),
+        lv.share === "on" ? h("button", { type: "button", class: "btn small ghost", dataset: { fk: "share-on" }, title: "Every agent on this tab may act on it at once", onclick: () => actions.shareTab(tabId, true) }, here.filter(x => !x.stopped).length > 2 ? "Let all act" : "Let both act") : null,
+        lv.share === "off" ? h("button", { type: "button", class: "btn small", dataset: { fk: "share-off" }, title: "Back to one agent at a time: the last one to act keeps the tab", onclick: () => actions.shareTab(tabId, false) }, "One at a time") : null);
+    }
     c.task.textContent = a.task || (a.explicit ? "" : "Working in Zen (no task given)");
     c.task.classList.toggle("muted", !a.task);
     // A T3 Code agent: the thread it runs in (screenshots of this tab go there).
@@ -215,10 +277,10 @@ export function createAgentsPanel(store) {
     };
     return h("div", { class: "agent-tabs", role: "tablist", aria: { label: `${list.length} agents on this tab` }, onkeydown }, list.map(a => {
       const sel = a.id === selId;
-      return h("button", { type: "button", role: "tab", class: ["agent-tab", sel && "selected", a.paused && "paused", a.stopped && "stopped", a.running && !a.paused && !a.stopped && "running"], tabindex: sel ? "0" : "-1", dataset: { fk: `tab-${a.id}` }, aria: { selected: String(sel), controls: "agent-card-panel" }, title: `${a.client}${a.task ? `: ${a.task}` : ""} · ${stateLabel(a)}`, onclick: () => pick(a.id) },
+      return h("button", { type: "button", role: "tab", class: ["agent-tab", sel && "selected", a.paused && "paused", a.stopped && "stopped", a.running && !a.paused && !a.stopped && "running", a.control === "waiting" && !a.stopped && "waiting"], tabindex: sel ? "0" : "-1", dataset: { fk: `tab-${a.id}` }, aria: { selected: String(sel), controls: "agent-card-panel" }, title: `${a.client}${a.task ? `: ${a.task}` : ""} · ${stateLabel(a)}`, onclick: () => pick(a.id) },
         h("span", { class: "agent-tab-dot", style: `background:${shadeOf(a)}`, aria: { hidden: "true" } }),
         h("span", { class: "agent-tab-text" }, h("strong", null, a.client), a.task ? h("span", { class: "agent-tab-task" }, a.task) : null),
-        h("span", { class: "agent-tab-state" }, stateLabel(a)));
+        a.control === "holder" && !a.stopped ? h("span", { class: "agent-tab-control" }, "In control") : h("span", { class: "agent-tab-state" }, stateLabel(a)));
     }));
   }
 
@@ -239,7 +301,7 @@ export function createAgentsPanel(store) {
           host ? hostBadge(host) : h("span", { class: "agent-mark small", aria: { hidden: "true" } }, "✦"),
           h("span", { class: "agents-main" },
             h("span", { class: "agents-who" }, h("strong", null, a.client), a.task ? ` · ${a.task}` : ""),
-            h("span", { class: "agents-sub" }, [stateLabel(a), tab?.space || null, a.title || host || null, last ? stepText(last) : null].filter(Boolean).join(" · ")))),
+            h("span", { class: "agents-sub" }, [a.control === "waiting" && !a.stopped ? "Waiting for the tab" : stateLabel(a), tab?.space || null, a.title || host || null, last ? stepText(last) : null].filter(Boolean).join(" · ")))),
         a.stopped ? iconButton("x", `Dismiss ${a.client}`, () => actions.dismissAgent(a.id), { class: "small", dataset: { fk: `x-${a.id}` } }) : iconButton("stop", `Stop ${a.client}`, () => actions.stopAgent(a.id), { class: "small danger-icon", dataset: { fk: `stop-${a.id}` } }));
     })) : null;
     return h("div", { class: "agents-row-wrap" }, toggle, list);
@@ -264,7 +326,7 @@ export function createAgentsPanel(store) {
     if (card) fillCard(a);
     // Several agents on this tab: a tab for each above the card.
     const here = onTab();
-    const tsig = JSON.stringify([a?.id, here.map(x => [x.id, x.client, x.task, x.paused, x.stopped, x.running])]);
+    const tsig = JSON.stringify([a?.id, here.map(x => [x.id, x.client, x.task, x.paused, x.stopped, x.running, x.control])]);
     if (tsig !== tabsSig) {
       tabsSig = tsig;
       const focused = tabsHost.contains(document.activeElement) ? document.activeElement.dataset.fk : null;
@@ -281,7 +343,7 @@ export function createAgentsPanel(store) {
     // The card node (and the note being typed) stays in place; only the list is rebuilt.
     const hereIds = here.map(x => x.id);
     const others = s.agents.filter(x => !hereIds.includes(x.id));
-    const sig = JSON.stringify([listOpen, hereIds, others.map(x => [x.id, x.task, x.paused, x.stopped, x.running, x.title, x.actions.at(-1)?.id]), listOpen ? s.tabs.map(t => [t.tabId, t.space]) : 0]);
+    const sig = JSON.stringify([listOpen, hereIds, others.map(x => [x.id, x.task, x.paused, x.stopped, x.running, x.control, x.title, x.actions.at(-1)?.id]), listOpen ? s.tabs.map(t => [t.tabId, t.space]) : 0]);
     let list = listHost.firstChild;
     if (sig !== listSig) {
       listSig = sig;

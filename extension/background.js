@@ -122,7 +122,8 @@ async function ensureAgent(tabId) {
 }
 
 // `who`: the external agent acting (e.g. "Codex"), shown on the page ribbon; Ensō's own turns leave it unset ("Claude").
-async function agent(tabId, action, args, who) {
+// `sessionId`: the exact agent session acting, when the helper named it (every zen-browser call inside a session).
+async function agent(tabId, action, args, who, sessionId) {
   if (action === "eval" && !PAGE_EVAL) throw new Error(PAGE_EVAL_UNAVAILABLE);
   const tab = await browser.tabs.get(tabId);
   if (!isWeb(tab.url)) throw new Error("This tab isn't a web page, so it can't be read or operated.");
@@ -133,7 +134,7 @@ async function agent(tabId, action, args, who) {
   } catch (err) {
     throw new Error(`Could not reach this page (${err?.message || "it may still be loading or be a restricted page"}).`);
   }
-  const session = who ? actingSession(tabId, who) : undefined;
+  const session = who ? (typeof sessionId === "string" && sessionId ? sessionId : actingSession(tabId, who)) : undefined;
   const res = await browser.tabs.sendMessage(tabId, { enso: true, action, args, ...(who ? { agent: who } : {}), ...(session ? { session } : {}) });
   if (!res?.ok) throw new Error(res?.error ?? "The page did not answer.");
   return res.result;
@@ -351,7 +352,7 @@ const waitFor = globalThis.EnsoWaits.createWaiter({
 const UPLOAD_PART_BYTES = 8 * 1024 * 1024; // bytes per message to the page agent
 
 /** page_upload, after the helper staged the files: hand them to the page agent, which attaches or drops them. */
-async function uploadToPage(tabId, args, who) {
+async function uploadToPage(tabId, args, who, sessionId) {
   const files = await uploads.take(args.uploadId, args.sha256);
   for (let index = 0; index < files.length; index++) {
     const f = files[index];
@@ -377,7 +378,7 @@ async function uploadToPage(tabId, args, who) {
     }
     await flush(true);
   }
-  const r = await agent(tabId, "upload", { uploadId: args.uploadId, ref: args.ref ?? null, selector: args.selector ?? "", mode: args.mode ?? null }, who);
+  const r = await agent(tabId, "upload", { uploadId: args.uploadId, ref: args.ref ?? null, selector: args.selector ?? "", mode: args.mode ?? null }, who, sessionId);
   return { ...r, target: `${files.map(f => f.name).join(", ")} → ${r.description}`.slice(0, 300) }; // for the activity log
 }
 
@@ -477,7 +478,7 @@ async function siteCookies(hosts) {
 
 // ---------- page and browser actions for the helper ----------
 
-async function pageAction(tabId, action, args, who) {
+async function pageAction(tabId, action, args, who, sessionId) {
   tabId ??= (await activeTab())?.id; // external callers (Claude Code via MCP) may omit the tab
   if (!tabId) throw new Error("No tab to act on; open a web page first.");
   if (action === "console") return consoleRead(tabId, args);
@@ -492,13 +493,13 @@ async function pageAction(tabId, action, args, who) {
     return waitForLoad(tabId, clampMs(args.timeoutMs, 25_000));
   }
   if (action === "wait") return waitFor(tabId, args);
-  if (action === "upload") return uploadToPage(tabId, args, who);
+  if (action === "upload") return uploadToPage(tabId, args, who, sessionId);
   if (action === "screenshot") {
     const tab = await browser.tabs.get(tabId);
     if (isSensitive(tab.url)) throw new Error("This is a private page; screenshots are off here.");
     return { dataUrl: await browser.tabs.captureVisibleTab(tab.windowId, { format: "png" }) };
   }
-  return agent(tabId, action, args, who);
+  return agent(tabId, action, args, who, sessionId);
 }
 
 async function browserAction(action, args) {
@@ -588,7 +589,7 @@ function setAgentBadge(tabId, list) {
   ba.setBadgeText({ tabId, text: !live.length ? "" : live.length > 1 ? `AI${live.length}` : "AI" }).catch?.(() => {});
   ba.setBadgeBackgroundColor({ tabId, color: live.length && live.every(s => s.paused) ? AGENT_BADGE_PAUSED : AGENT_BADGE }).catch?.(() => {});
   ba.setBadgeTextColor?.({ tabId, color: "#ffffff" })?.catch?.(() => {});
-  const line = s => `${s.client}${s.task ? `: ${s.task}` : " is working on this tab"}${s.stopped ? " (stopped)" : s.paused ? " (paused)" : ""}`;
+  const line = s => `${s.client}${s.task ? `: ${s.task}` : " is working on this tab"}${s.stopped ? " (stopped)" : s.paused ? " (paused)" : ""}${list.length > 1 && s.control === "holder" ? " · in control" : s.control === "waiting" ? " · waiting for the tab" : ""}`;
   ba.setTitle({ tabId, title: list.length > 1 ? `Ensō · ${list.length} agents\n${list.map(line).join("\n")}` : `Ensō · ${line(list[0])}` }).catch?.(() => {});
 }
 function clearAgentBadge(tabId) {
@@ -599,7 +600,7 @@ function clearAgentBadge(tabId) {
 
 // Every session on a tab goes to the page together (newest first): one pill, one title prefix.
 function presenceFor(list) {
-  return { agents: list.map(s => ({ id: s.id, label: s.client, task: s.task, startedAt: s.startedAt ?? "", running: !!s.running, paused: !!s.paused, stopped: !!s.stopped })), titlePrefix: titlePrefixOn };
+  return { agents: list.map(s => ({ id: s.id, label: s.client, task: s.task, startedAt: s.startedAt ?? "", running: !!s.running, paused: !!s.paused, stopped: !!s.stopped, control: s.control ?? null })), titlePrefix: titlePrefixOn };
 }
 
 async function syncPresence() {
@@ -626,9 +627,10 @@ async function syncPresence() {
 }
 
 /**
- * Which session of `who` is acting on a tab, so the page flashes in its shade.
- * The helper names only the client; with two sessions of the same client on
- * one tab, the one running a tool (else the most recent) is the best guess.
+ * Which session of `who` is acting on a tab, for requests that don't name one
+ * (plain-http clients outside a session, older helpers): with two sessions of
+ * the same client on one tab, the one running a tool (else the most recent).
+ * Calls inside a session carry the exact id (`agentSession`), so no guessing.
  */
 function actingSession(tabId, who) {
   const mine = agentSessions.filter(s => s.tabId === tabId && s.client === who);
@@ -852,7 +854,7 @@ function connectNative() {
     if (msg.type === "page.request" || msg.type === "browser.request") {
       const reply = { type: msg.type.replace("request", "response"), reqId: msg.reqId };
       try {
-        reply.result = msg.type === "page.request" ? await pageAction(msg.tabId, msg.action, msg.args ?? {}, typeof msg.agent === "string" ? msg.agent : undefined) : await browserAction(msg.action, msg.args ?? {});
+        reply.result = msg.type === "page.request" ? await pageAction(msg.tabId, msg.action, msg.args ?? {}, typeof msg.agent === "string" ? msg.agent : undefined, typeof msg.agentSession === "string" ? msg.agentSession.slice(0, 64) : undefined) : await browserAction(msg.action, msg.args ?? {});
         reply.ok = true;
       } catch (err) {
         reply.ok = false;

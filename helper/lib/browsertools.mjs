@@ -44,12 +44,18 @@ export const BROWSER_TOOLS = [
   {
     name: "tabs_open",
     title: "Open tabs",
-    description: "Open one or more URLs in new tabs, in the user's current Zen space.",
-    shape: { urls: z.array(z.string().url()).min(1).max(20), background: z.boolean().optional() },
+    description: "Open one or more URLs in new tabs, in the user's current Zen space (its container, so its logins). Replies with each new tab's tabId: pass it to page tools to work in that tab. For external agents the tabs open in the background (the user's tab keeps focus) unless background is false, and they are yours: other agents can read them but not act on them.",
+    shape: { urls: z.array(z.string().url()).min(1).max(20), background: z.boolean().optional().describe("Open without switching to the tab (default: true for external agents, false in Ensō's own chat)") },
     kind: "read",
     async run(args, ctx) {
-      const opened = await ctx.browser("tabs_open", args);
-      return text(`Opened ${opened.length} tab(s).`);
+      // An external agent shouldn't pull the user away from what they are doing.
+      const background = args.background ?? (ctx.external ? true : false);
+      const opened = (await ctx.browser("tabs_open", { ...args, background })) ?? [];
+      const ids = opened.map(o => o.tabId).filter(Number.isInteger);
+      if (ctx.external && ids.length) ctx.claimTabs?.(ids);
+      if (!opened.length) return text("Opened no tabs (only http(s) URLs can be opened).");
+      const lines = opened.map(o => `- tab ${o.tabId}: ${o.url}`);
+      return text(`Opened ${opened.length} tab(s)${background ? " in the background" : ""}:\n${lines.join("\n")}${ctx.external ? "\nPass tabId to page tools to work in these tabs (without it they act on the user's active tab)." : ""}`);
     },
   },
   {
