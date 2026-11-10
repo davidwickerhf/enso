@@ -4,8 +4,10 @@
 // Outside the extension (the dev mock) it lives in localStorage and the engines are fake.
 
 import "./route.js";
+import "./nudge.js";
 
 export const R = globalThis.ensoRoute;
+export const N = globalThis.ensoNudge;
 const ext = globalThis.browser?.storage?.local ? globalThis.browser : null;
 const LS_KEY = "enso.addressBar";
 
@@ -25,11 +27,16 @@ export async function setPrefs(patch) {
   return next;
 }
 
-/** browser.search.get(): [{ name, isDefault }]. The mock makes Ensō default unless enso.mockEnsoDefault is "0". */
+/**
+ * browser.search.get(): [{ name, isDefault }]. The mock makes Ensō default unless
+ * enso.mockEnsoDefault is "0" (?ensoDefault=0 on the page, or __ensoMock.setEnsoDefault(false)).
+ */
 export async function listEngines() {
   if (ext?.search?.get) return ext.search.get().catch(() => []);
   let ensoDefault = true;
   try { ensoDefault = localStorage.getItem("enso.mockEnsoDefault") !== "0"; } catch { /* ignore */ }
+  const param = new URLSearchParams(location.search).get("ensoDefault"); // the page's ?ensoDefault=0|1 wins until the hook changes it
+  if (param != null && !globalThis.__ensoMockEnsoDefaultSet) ensoDefault = param !== "0";
   return MOCK_ENGINES.map(name => ({ name, isDefault: ensoDefault ? name === R.ENGINE_NAME : name === "Google" }));
 }
 
@@ -42,6 +49,39 @@ export async function addressBarState() {
     engines: all.filter(e => e.name !== R.ENGINE_NAME).map(e => e.name),
     ensoIsDefault: all.find(e => e.isDefault)?.name === R.ENGINE_NAME,
   };
+}
+
+/** Whether Ensō is Zen's default engine: true, false, or null when search.get fails. */
+export async function ensoIsDefault() {
+  try {
+    const all = await listEngines();
+    if (!all.length) return null;
+    return all.find(e => e.isDefault)?.name === R.ENGINE_NAME;
+  } catch { return null; }
+}
+
+// ---- the "make Ensō the default" card (views/defaultengine.js, rules in ./nudge.js)
+
+const NUDGE_LS = "enso.searchNudge";
+
+export async function getNudge() {
+  if (ext) return (await ext.storage.local.get("searchNudge").catch(() => ({}))).searchNudge ?? null;
+  try { return JSON.parse(localStorage.getItem(NUDGE_LS) || "null"); } catch { return null; }
+}
+
+export async function setNudge(value) {
+  if (ext) await ext.storage.local.set({ searchNudge: value }).catch(() => {});
+  else try { localStorage.setItem(NUDGE_LS, JSON.stringify(value)); } catch { /* ignore */ }
+}
+
+/**
+ * Try to open Zen's search settings. Firefox refuses privileged about: pages from
+ * add-ons (tabs.create rejects "Illegal URL: about:preferences#search"), so this
+ * returns false there and the card shows the steps instead.
+ */
+export async function openSearchSettings() {
+  if (!ext?.tabs?.create) return false;
+  try { await ext.tabs.create({ url: N.SETTINGS_PATH }); return true; } catch { return false; }
 }
 
 /** Search the web in this tab with the chosen engine (never Ensō). */

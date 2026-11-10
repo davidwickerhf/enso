@@ -34,3 +34,38 @@
 .ab-engine { display: inline-flex; align-items: center; gap: 8px; }
 #settings-addressbar .setting-text p .icon { width: 14px; height: 14px; vertical-align: -2px; color: var(--ok); }
 #settings-addressbar .setting-text strong { color: var(--text-2); font-weight: 500; }
+
+/* "Make the address bar Ensō's box" (views/defaultengine.js): new tab, Settings, onboarding. */
+.de-card[hidden] { display: none; }
+.de-card { box-sizing: border-box; display: grid; gap: 10px; padding: 14px 14px 12px; border-radius: var(--r-lg); border: 1px solid var(--line); background: var(--surface); text-align: left; animation: rise var(--dur) var(--ease); }
+.de-newtab { margin-top: 18px; box-shadow: var(--shadow-card); }
+.de-settings { margin: 4px 0 14px; border-color: color-mix(in srgb, var(--accent) 40%, var(--line)); background: var(--accent-softer); }
+.de-onboarding { background: var(--bg-elev); }
+.de-card.is-done { border-color: color-mix(in srgb, var(--ok) 45%, var(--line)); background: color-mix(in srgb, var(--ok) 8%, var(--surface)); }
+.de-head { display: flex; align-items: flex-start; gap: 12px; min-width: 0; }
+.de-glyph { flex: none; width: 32px; height: 32px; border-radius: 10px; display: grid; place-items: center; background: var(--accent); color: #fff; }
+.de-glyph .icon { width: 16px; height: 16px; }
+.de-glyph.ok { background: var(--ok); }
+.de-text { flex: 1; min-width: 0; }
+.de-title { display: block; font-size: 14px; font-weight: 600; color: var(--text); }
+.de-text p { margin: 2px 0 0; font-size: 13px; line-height: 1.45; color: var(--text-2); }
+.de-x { flex: none; margin: -4px -4px 0 0; }
+.de-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; padding-left: 44px; }
+.de-actions:empty { display: none; }
+.de-never { font-size: 12.5px; color: var(--text-3); }
+.de-foot { margin: 0; padding-left: 44px; font-size: 12px; color: var(--text-3); }
+.de-guide { margin-left: 44px; padding: 10px 12px; border-radius: var(--r); background: var(--surface-2); display: grid; gap: 8px; font-size: 13px; }
+.de-why { margin: 0; color: var(--text-2); }
+.de-steps { margin: 0; padding-left: 20px; display: grid; gap: 4px; color: var(--text); line-height: 1.45; }
+.de-steps code { overflow-wrap: anywhere; }
+.de-copyrow { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; }
+.de-copy .icon { width: 14px; height: 14px; }
+.de-copy.copied { color: var(--ok); }
+.de-wait { margin: 0; }
+@media (max-width: 520px) {
+  .de-actions, .de-foot { padding-left: 0; }
+  .de-guide { margin-left: 0; }
+}
+/* Sidebar Settings (drill): the row is stacked, so its text keeps its height and the controls start on the left. */
+.settings-view #settings-addressbar .setting.stacked .setting-text { flex: none; }
+.settings-view #settings-addressbar .ab-controls .segmented { margin-left: 0; }

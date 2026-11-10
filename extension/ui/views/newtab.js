@@ -4,6 +4,7 @@
 import { h, icon, clear, iconButton, hostBadge } from "../dom.js";
 import { createWidgets } from "./widgets.js";
 import { sortTools, labelOf, statusOf, toolGlyph, openToolPopover } from "./tools.js";
+import { createDefaultEngineCard } from "./defaultengine.js";
 
 const TOOLS_KEY = "enso.tools.hidden";
 
@@ -12,6 +13,8 @@ export function createNewtabHome(store, ctx) {
   const heroSlot = h("div", { class: "hero-slot" });
   const tools = h("div", { class: "tools-strip", role: "group", aria: { label: "Your tools" } });
   const mark = h("div", { class: "enso-mark", aria: { hidden: "true" } }, icon("enso"));
+  // "Make the address bar Ensō's box" under the box, while Ensō isn't Zen's default engine (dismissible).
+  const engineCard = createDefaultEngineCard({ place: "newtab" });
   // "Edit widgets" under the grid and right-click on a widget open edit mode too.
   const widgets = createWidgets(store, ctx, { onEdit: () => { if (!widgets.editing) customize(); } });
   const addHint = h("button", { type: "button", class: "add-widgets-hint", onclick: () => customize() }, icon("plus"), "Add widgets");
@@ -19,7 +22,7 @@ export function createNewtabHome(store, ctx) {
     h("span", null, "Editing widgets: drag to reorder, S/M to resize"),
     h("button", { type: "button", class: "btn small primary", onclick: () => done() }, "Done"));
   const el = h("section", { class: "nt-home", aria: { label: "New tab" } },
-    h("div", { class: "nt-center" }, mark, h("h1", { class: "visually-hidden" }, "Ensō"), heroSlot, tools, addHint, editBar, widgets.el));
+    h("div", { class: "nt-center" }, mark, h("h1", { class: "visually-hidden" }, "Ensō"), heroSlot, tools, engineCard.el, addHint, editBar, widgets.el));
 
   function sync() {
     const editing = widgets.editing;
@@ -77,6 +80,6 @@ export function createNewtabHome(store, ctx) {
       widgets.update(topics);
       sync();
     },
-    show() { renderTools(); sync(); },
+    show() { renderTools(); sync(); engineCard.check(); },
   };
 }

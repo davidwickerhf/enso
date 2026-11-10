@@ -4,10 +4,16 @@
 // folder). Everything can be changed later in Settings → You & memory; "Skip for
 // now" just marks onboarding as done.
 //
-// The last step also offers the daily brief, off for new installs: one click
+// The profile steps end with the daily brief, off for new installs: one click
 // sets Settings → General → Refresh the brief to "Once a day".
+//
+// If Ensō isn't Zen's default search engine when the card opens (the user said
+// No to Firefox's prompt at install, or installed an older version), an optional
+// last step offers it: the same card as on the new tab (./defaultengine.js).
 
 import { h, clear, spaceIcon } from "../dom.js";
+import { ensoIsDefault } from "../addressbar.js";
+import { createDefaultEngineCard } from "./defaultengine.js";
 
 const ABOUT_PLACEHOLDER = "What you do, where you're based, the projects and tools you use, and how you like answers. For example:\n- Product designer at a small studio, based in Lisbon\n- Mail in Gmail, work chat in Slack\n- Short answers; tables when comparing things";
 
@@ -47,8 +53,10 @@ export function createOnboarding(store) {
   let step = 0;
   let error = "";
   let seeded = false;
+  let offerEngine = false; // decided once per show(), so steps don't come and go
+  let engineCard = null;
 
-  const steps = () => (s.spaces?.length ? ["you", "spaces"] : ["you"]);
+  const steps = () => [...(s.spaces?.length ? ["you", "spaces"] : ["you"]), ...(offerEngine ? ["addressbar"] : [])];
 
   function next() {
     if (steps()[step] === "you" && !draft.name.trim()) {
@@ -77,7 +85,13 @@ export function createOnboarding(store) {
     const all = steps();
     const which = all[Math.min(step, all.length - 1)];
     const dots = all.length > 1 ? h("ol", { class: "ob-steps", aria: { label: `Step ${step + 1} of ${all.length}` } }, all.map((_, i) => h("li", { class: [i === step && "on", i < step && "done"] }))) : null;
-    const body = which === "you"
+    const body = which === "addressbar"
+      ? [
+          h("h1", { id: "ob-title", class: "ob-title" }, "Ask from the address bar"),
+          h("p", { class: "ob-lede" }, "Optional: make Ensō Zen's default search engine, and a question typed in the address bar opens here. Web addresses still open as usual, and you can switch back any time in Zen's settings."),
+          (engineCard ??= createDefaultEngineCard({ place: "onboarding" })).el,
+        ]
+      : which === "you"
       ? [
           h("h1", { id: "ob-title", class: "ob-title" }, "Welcome to Ensō"),
           h("p", { class: "ob-lede" }, "Tell Ensō a little about yourself, so its answers fit you. This stays on this computer, and you can change it any time in Settings → You & memory."),
@@ -89,8 +103,10 @@ export function createOnboarding(store) {
           spaceHintFields(s.spaces, draft, { idPrefix: "ob-sh" }),
         ];
     const last = step === all.length - 1;
+    // The brief goes with the last profile step (before the optional address-bar step).
+    const briefStep = all.filter(x => x !== "addressbar").length - 1;
     const briefOn = !!s.settings?.dashboard?.autoRefreshMinutes;
-    const briefCard = last && s.settings ? h("div", { class: ["ob-brief", briefOn && "on"] },
+    const briefCard = step === briefStep && s.settings ? h("div", { class: ["ob-brief", briefOn && "on"] },
       h("div", { class: "ob-brief-text" },
         h("strong", null, briefOn ? "Daily brief is on" : "A brief each morning?"),
         h("p", null, "Once a day, Ensō asks Claude (Anthropic) to sum up your calendar, mail and tasks from the tools you connect. Nothing is sent until you turn it on; change it in Settings → General.")),
@@ -110,7 +126,16 @@ export function createOnboarding(store) {
 
   return {
     el,
-    show() { step = 0; error = ""; render(); focusFirst(); },
+    show() {
+      step = 0; error = ""; offerEngine = false; render(); focusFirst();
+      ensoIsDefault().then(d => {
+        if (d !== false || offerEngine) return;
+        offerEngine = true;
+        const focused = el.contains(document.activeElement) ? document.activeElement.id : null;
+        render();
+        if (focused) document.getElementById(focused)?.focus({ preventScroll: true });
+      }, () => {});
+    },
     update(topics) {
       if (topics.has("space") || topics.has("profile")) return render();
       // Settings (the brief card): not while someone is typing in a field.

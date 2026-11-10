@@ -99,6 +99,9 @@ Step by step, with what each permission is for: [site/content/docs/install.md](s
    **Add widgets** for your calendar, tasks, mail or GitHub at a glance.
 4. Optional: let other agents use Zen, in **Settings → Agents & screenshots**
    (or `enso mcp install`).
+5. Optional: make Ensō Zen's default search engine, so a question typed in the
+   address bar (or the ⌘T bar) goes to Ensō. Zen asks when you install Ensō;
+   if you said No, the card on the new tab shows the three clicks.
 
 ## Features
 
@@ -106,7 +109,7 @@ Step by step, with what each permission is for: [site/content/docs/install.md](s
 |---|---|---|
 | Sidebar chat | Claude next to the page, with the page, mentioned tabs (`@`), files (up to 25 MB) and screenshots as context; slash commands (`/summarize`, `/reply`, your own). | [help](site/content/docs/sidebar.md) |
 | New tab | One box that opens sites, searches with your default engine, or asks Ensō; widgets you add and arrange. | [help](site/content/docs/new-tab.md) |
-| Address bar | Ensō is also a search engine: make it Zen's default and what you type in the address bar (or Zen's floating bar) goes to Ensō, to your web search engine, or to a two-button chooser, as you set it. `e` asks Ensō, `g` searches the web. | [help](site/content/docs/new-tab.md#the-address-bar) |
+| Address bar | Ensō is also a search engine: make it Zen's default and what you type in the address bar (or Zen's floating bar) goes to Ensō, to your web search engine, or to a two-button chooser, as you set it. `e` asks Ensō, `g` searches the web. Zen asks once when you install Ensō; later, a card on the new tab shows the three clicks (Zen Settings → Search → Default Search Engine → Ensō). `@enso` and a question reaches Ensō without changing the default. | [help](site/content/docs/new-tab.md#the-address-bar) |
 | Widgets | Next up, Due soon, Tasks (from task apps such as Commonfold), Mail, Practice, GitHub, Clock, Recent chats, Quick links, Note, Ask. | [help](site/content/docs/widgets.md) |
 | Acting on pages | Read, click, type, select, press keys, scroll, navigate, go back, screenshot. What you ask for runs; steps Claude proposes and anything irreversible ask first. | [help](site/content/docs/acting-on-pages.md) |
 | Tools | claude.ai connectors and Claude Code's MCP servers (subscription engine), MCP servers Ensō signs in to itself (OAuth), and built-in GitHub across all your orgs. | [help](site/content/docs/tools.md) |

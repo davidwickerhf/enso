@@ -2,6 +2,7 @@
 // Linux and Windows (Windows skips the ones built on bash fakes, marked *).
 //   unit, hello, tasks, monday always
 //   route                      always (address-bar routing, extension/ui/route.js)
+//   nudge                      always (when the "make Ensō the default engine" card shows: extension/ui/nudge.js)
 //   build-extension            always (scripts/build-extension.mjs: the listed build has no page_eval; new-install defaults)
 //   platform                   always (lib/platform.mjs for all three OSes, the secrets file fallback)
 //   windows                    Windows (run.cmd starts host.mjs through cmd.exe, registry value, enso.cmd + Cursor entry)
@@ -34,7 +35,7 @@ import { fileURLToPath } from "node:url";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const POSIX_ONLY = new Set(["mcp.test.mjs", "t3.test.mjs", "setup.test.mjs", "install.test.mjs"]); // fake CLIs are bash scripts
-const all = ["unit.test.mjs", "platform.test.mjs", "secrets-store.test.mjs", "hello.test.mjs", "tasks.test.mjs", "monday.test.mjs", "route.test.mjs", "build-extension.test.mjs", "mcp.test.mjs", "agents.test.mjs", "leases.test.mjs", "access.test.mjs", "background-access.test.mjs", "t3.test.mjs", "setup.test.mjs", "install.test.mjs", "windows.test.mjs", "doctor.test.mjs", "ui-loading.test.mjs", "pageagent.test.mjs", "transfer.test.mjs", "upload-host.test.mjs", "pageupload.test.mjs", "upload-firefox.test.mjs"];
+const all = ["unit.test.mjs", "platform.test.mjs", "secrets-store.test.mjs", "hello.test.mjs", "tasks.test.mjs", "monday.test.mjs", "route.test.mjs", "nudge.test.mjs", "build-extension.test.mjs", "mcp.test.mjs", "agents.test.mjs", "leases.test.mjs", "access.test.mjs", "background-access.test.mjs", "t3.test.mjs", "setup.test.mjs", "install.test.mjs", "windows.test.mjs", "doctor.test.mjs", "ui-loading.test.mjs", "pageagent.test.mjs", "transfer.test.mjs", "upload-host.test.mjs", "pageupload.test.mjs", "upload-firefox.test.mjs"];
 const tests = all.filter(t => !(process.platform === "win32" && POSIX_ONLY.has(t)));
 for (const t of all.filter(t => !tests.includes(t))) console.log(`skip - ${t} (bash fakes; runs on macOS and Linux)`);
 if ((process.platform === "darwin" && process.env.ENSO_SKIP_KEYCHAIN !== "1") || process.env.ENSO_TEST_REAL_SECRETS === "1") tests.push("connections.test.mjs", "host-connect.test.mjs");

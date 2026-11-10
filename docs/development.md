@@ -111,6 +111,11 @@ message.
 - `?helper=missing` or `?helper=failed` shows the first-run install guide (no
   helper, or one that can't start); add `&connectAfter=6` to have it connect
   after 6 seconds, or call `__ensoMock.connectHelper()`.
+- `?ensoDefault=0` makes Ensō not Zen's default search engine: the new tab and
+  Settings → General show the "Make the address bar Ensō's box" card, and
+  `?onboarding=1&ensoDefault=0` adds its step to the first-run card.
+  `__ensoMock.setEnsoDefault(true)` turns it into "Done";
+  `localStorage.removeItem("enso.searchNudge")` undoes "Not now" or "Don't ask again".
 - `?setup=ready | mixed | fresh` sets the Settings → Setup checklist (default
   `ready`); `#setup` opens it. Its buttons change the mock's state.
 - Messages to try: anything (a Gmail and calendar answer with a table), "fill
@@ -125,6 +130,7 @@ message.
   __ensoMock.githubConnected(false)    // the GitHub token box
   __ensoMock.disconnect()              // the "helper stopped" banner
   __ensoMock.connectHelper()           // the helper appears (first-run guide → connected)
+  __ensoMock.setEnsoDefault(false)     // Ensō isn't Zen's default engine (the address-bar card)
   ```
 
 Keep the mock fictional: no real names, addresses, hostnames or accounts. The
