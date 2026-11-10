@@ -94,7 +94,7 @@ Claude never to enter passwords, payment details or one-time codes.
 Each approval card offers **Allow** (this once), **Always allow** and **Deny**.
 "Always allow" on a third-party tool adds its full name
 (`mcp__<server>__<tool>`) to `alwaysAllowedTools`; it is per tool, so allowing
-a draft tool doesn't allow a send tool. Settings → Always allowed lists and
+a draft tool doesn't allow a send tool. Settings → Privacy & safety → Always allowed lists and
 removes them. For session requests the button reads "Always allow on this site"
 and writes to `sessionAccess` instead. Stopping a turn denies any open approval.
 
@@ -152,15 +152,15 @@ tab of that site, in the right container) and `headless_start` with `sites`.
   the same scheme; for headless sites given as bare hostnames (`localhost`) the
   scheme is ignored. The most specific matching entry wins.
 - Missing means "ask": Ensō asks each time, MCP clients are refused.
-- Entries are added with "Always allow on this site" or in Settings → Developer
+- Entries are added with "Always allow on this site" or in Settings → Privacy & safety
   → Session access, and removed there.
 - `session_fetch` strips `Cookie`, `Authorization` and `Proxy-Authorization`
   from the headers Claude passes; the session supplies them.
 
 ## External control
 
-`settings.externalControl` sets what MCP clients may do (Settings → "Claude Code
-can use Zen"):
+`settings.externalControl` sets what MCP clients may do (Settings → Agents & screenshots
+→ Access):
 
 | Value | Effect |
 |---|---|
@@ -322,8 +322,8 @@ anything on the page: mail, documents, tokens printed in a console.
 - **Context is opt-in.** The page URL and title are sent only when ticked
   (default on); console errors only when ticked (default off), and only from
   console capture that was already running on that tab.
-- **The T3 token.** `enso t3 connect` (or Settings → Send screenshots →
-  Connect T3) runs `t3 auth session issue --scope orchestration:read --scope
+- **The T3 token.** `enso t3 connect` (or Settings → Connections → T3 Code →
+  Connect) runs `t3 auth session issue --scope orchestration:read --scope
   orchestration:operate --label Ensō --ttl 30d --json`: a bearer session that can
   read threads and send messages, and nothing else (no settings, terminal,
   filesystem, source-control or access scopes). The helper reads the CLI's

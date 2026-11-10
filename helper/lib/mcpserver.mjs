@@ -101,7 +101,7 @@ export function buildServer({ browserRequest, onReports, onAction, sessions = ag
     browser: (action, args) => browserRequest("browser.request", action, args, tabId ?? null, client.label),
     async act(action, bridgeArgs) {
       if (readOnlyScope) throw new Error(READ_SCOPE_ERROR);
-      if (mode() !== "full") throw new Error(`Ensō only lets ${client.label} read Zen right now. The user can allow actions in Ensō → Settings → External control.`);
+      if (mode() !== "full") throw new Error(`Ensō only lets ${client.label} read Zen right now. The user can allow actions in Ensō → Settings → Agents & screenshots → Access.`);
       const r = await browserRequest("page.request", action, bridgeArgs, tabId ?? null, client.label);
       const target = r.description ?? bridgeArgs.url ?? bridgeArgs.key ?? "";
       call.last = { action, url: r.url, title: r.title, target };

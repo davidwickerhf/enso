@@ -49,7 +49,8 @@ installed first. It asks no questions, needs no `sudo` and never touches your da
 
 A WebExtension can't install or start a native program (native messaging needs
 the host's manifest on disk first), so that one command is the only manual step.
-Everything after it is a button in **Settings → Setup**, run by the helper:
+Everything after it is a button in **Settings** (Setup, Connections, Agents &
+screenshots), run by the helper:
 updating the helper, installing and signing in to Claude Code or storing an API
 key in the Keychain, letting Claude Code, Codex, Cursor or OpenCode use Zen,
 connecting T3 Code and GitHub, and rotating the agent token. The same checks and
@@ -67,8 +68,8 @@ Step by step, with what each permission is for: [site/content/docs/install.md](s
    form with my address". The page is attached by default (the page chip).
 3. Open a new tab. Type a site, a search or a question in the box; choose
    **Add widgets** for your calendar, tasks, mail or GitHub at a glance.
-4. Optional: let other agents use Zen, in **Settings → Setup → Use Zen from
-   your agents** (or `enso mcp install`).
+4. Optional: let other agents use Zen, in **Settings → Agents & screenshots**
+   (or `enso mcp install`).
 
 ## Features
 
@@ -76,6 +77,7 @@ Step by step, with what each permission is for: [site/content/docs/install.md](s
 |---|---|---|
 | Sidebar chat | Claude next to the page, with the page, mentioned tabs (`@`), files (up to 25 MB) and screenshots as context; slash commands (`/summarize`, `/reply`, your own). | [help](site/content/docs/sidebar.md) |
 | New tab | One box that opens sites, searches with your default engine, or asks Ensō; widgets you add and arrange. | [help](site/content/docs/new-tab.md) |
+| Address bar | Ensō is also a search engine: make it Zen's default and what you type in the address bar (or Zen's floating bar) goes to Ensō, to your web search engine, or to a two-button chooser, as you set it. `e` asks Ensō, `g` searches the web. | [help](site/content/docs/new-tab.md#the-address-bar) |
 | Widgets | Next up, Due soon, Tasks (from task apps such as Commonfold), Mail, Practice, GitHub, Clock, Recent chats, Quick links, Note, Ask. | [help](site/content/docs/widgets.md) |
 | Acting on pages | Read, click, type, select, press keys, scroll, navigate, go back, screenshot. What you ask for runs; steps Claude proposes and anything irreversible ask first. | [help](site/content/docs/acting-on-pages.md) |
 | Tools | claude.ai connectors and Claude Code's MCP servers (subscription engine), MCP servers Ensō signs in to itself (OAuth), and built-in GitHub across all your orgs. | [help](site/content/docs/tools.md) |

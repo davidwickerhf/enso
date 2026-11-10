@@ -47,7 +47,7 @@ export function createSendSheet(store) {
     const t = sh.target;
     const t3 = sh.targets?.t3;
     if (t?.kind === "t3" && t3?.connected && t3.route === "path") return h("p", { class: "shot-note" }, icon("info"), "This T3 Code can't take image attachments from Ensō, so the PNG is saved in Ensō's folder and its path is sent as text. Claude Code and Codex open it from there.");
-    if (t?.kind === "t3" && t3 && t3.connected && t3.tokenValid === false) return h("p", { class: "shot-note bad" }, icon("alert"), t3.error ?? "Reconnect T3 Code in Settings.");
+    if (t?.kind === "t3" && t3 && t3.connected && t3.tokenValid === false) return h("p", { class: "shot-note bad" }, icon("alert"), t3.error ?? "Reconnect T3 Code in Settings → Connections.");
     if (t?.kind === "agent") {
       const a = store.targetInfo(t)?.agent;
       return h("p", { class: "shot-note" }, icon("info"), a?.active ? `${a.client} gets the image with its next step in Zen.` : `${a?.client ?? "The agent"} is idle: it gets the image with its next step, when it calls inbox_read, or with your next message if the Claude Code hook is on.`);
@@ -146,7 +146,7 @@ export function createSendSheet(store) {
           selected ? icon("check") : null)));
     });
     const t3 = tg?.t3;
-    const t3Line = !tg ? null : !t3?.connected ? h("p", { class: "shot-note" }, icon("info"), "T3 Code isn't connected: connect it in Settings → Send screenshots to see its threads here.") : !t3.reachable ? h("p", { class: "shot-note" }, icon("info"), "T3 Code isn't running, so its threads aren't listed.") : t3.tokenValid === false ? h("p", { class: "shot-note bad" }, icon("alert"), t3.error) : null;
+    const t3Line = !tg ? null : !t3?.connected ? h("p", { class: "shot-note" }, icon("info"), "T3 Code isn't connected: connect it in Settings → Connections to see its threads here.") : !t3.reachable ? h("p", { class: "shot-note" }, icon("info"), "T3 Code isn't running, so its threads aren't listed.") : t3.tokenValid === false ? h("p", { class: "shot-note bad" }, icon("alert"), t3.error) : null;
     const empty = tg && !items.length ? h("p", { class: "muted shot-empty" }, query ? "Nothing matches." : "No agents are connected and no T3 threads are listed. Copy the image instead, or connect one in Settings.") : null;
     const view = h("section", { class: "shot-sheet shot-picker", role: "dialog", aria: { modal: "true", label: "Choose where to send the screenshot" } },
       h("header", { class: "shot-head" },
