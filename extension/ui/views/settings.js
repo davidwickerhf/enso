@@ -9,6 +9,7 @@ import { sortTools, labelOf, statusOf, toolGlyph, openToolPopover } from "./tool
 import { profileFields, spaceHintFields } from "./onboarding.js";
 import { SCREENSHOT_SHORTCUT } from "./send.js";
 import { setupSummary } from "./setup.js";
+import { loadingOr } from "./helperstate.js";
 
 const MODELS = [
   ["claude-opus-5-5", "Claude Opus 5.5"],
@@ -97,7 +98,7 @@ export function createSettings(store, ctx) {
 
   function renderGeneral() {
     const st = s.settings;
-    if (!st) { clear(general, h("div", { class: "list-loading" }, h("span", { class: "spinner" }), "Loading settings…")); return; }
+    if (!st) { clear(general, loadingOr(store, "state", "Loading settings…")); return; }
     const eng = s.engines ?? {};
     const models = MODELS.some(([v]) => v === st.model) ? MODELS : [[st.model, st.model], ...MODELS];
     const modelSelect = h("select", { class: "select", aria: { label: "Model" }, onchange: e => actions.updateSettings({ model: e.target.value }) }, models.map(([v, l]) => h("option", { value: v, selected: v === st.model }, l)));
@@ -219,6 +220,7 @@ export function createSettings(store, ctx) {
   }
 
   function renderServers() {
+    if (!s.ready) { clear(servers); return; } // "Loading settings…" above covers it
     const list = sortTools(s.servers ?? []);
     const on = list.filter(x => x.enabled !== false);
     const auth = list.filter(x => x.status === "needs-auth" && x.enabled !== false);
@@ -250,6 +252,7 @@ export function createSettings(store, ctx) {
   }
 
   function renderSkills() {
+    if (!s.ready) { clear(skills); return; }
     const list = s.skills ?? [];
     clear(skills, block("Skills", "Slash commands for the composer. Type / at the start of a message.",
       h("ul", { class: "skill-list" }, list.map(k => skillUi.editing === k.name ? h("li", { class: "editing" }, skillForm(k)) : h("li", null,
@@ -273,7 +276,7 @@ export function createSettings(store, ctx) {
       renderMemory();
     })) : null;
     const desc = scoped ? `What the assistant knows only in ${space.name}, added to the global memory there.` : "What the assistant knows about you everywhere, in Markdown. It reads this at the start of every conversation.";
-    if (!src.loaded) { clear(memory, block("Memory", desc, tabs, h("div", { class: "list-loading" }, h("span", { class: "spinner" }), "Loading memory…"))); return; }
+    if (!src.loaded) { clear(memory, block("Memory", desc, tabs, loadingOr(store, scoped ? `memory:${space.id}` : "memory", "Loading memory…"))); return; }
     if (!mem.dirty) mem.draft = src.text;
     const area = h("textarea", { class: "memory-editor", spellcheck: "true", aria: { label: scoped ? `Memory for ${space.name} (Markdown)` : "Memory (Markdown)" }, hidden: mem.preview, placeholder: scoped ? `Notes for ${space.name}: projects, people, preferences…` : "" });
     area.value = mem.draft;
@@ -301,12 +304,13 @@ export function createSettings(store, ctx) {
     update(topics) {
       if (topics.has("setup") || topics.has("settings") || topics.has("state")) renderSetup();
       if (topics.has("profile") || topics.has("state") || (topics.has("space") && !prof.dirty)) renderProfile();
-      if (topics.has("settings") || topics.has("state") || topics.has("dashboard")) renderGeneral();
+      const waiting = topics.has("waits") || topics.has("helper");
+      if (topics.has("settings") || topics.has("state") || topics.has("dashboard") || (waiting && !s.settings)) renderGeneral();
       if (topics.has("settings") || topics.has("state")) renderDeveloper();
       if (topics.has("settings") || topics.has("state") || topics.has("t3") || topics.has("agents")) renderSend();
       if (topics.has("servers") || topics.has("state")) renderServers();
-      if (topics.has("skills")) renderSkills();
-      if (topics.has("memory") || topics.has("space")) renderMemory();
+      if (topics.has("skills") || topics.has("state")) renderSkills();
+      if (topics.has("memory") || topics.has("space") || (waiting && !(mem.scope === "space" ? s.spaceMemory : s.memory).loaded)) renderMemory();
     },
     show() { if (!s.memory.loaded) actions.loadMemory(); actions.t3Status(); actions.setupStatus(); renderAll(); },
     focusMemory() { memory.scrollIntoView({ block: "start" }); memory.querySelector("textarea")?.focus({ preventScroll: true }); },

@@ -203,6 +203,28 @@ img.favicon { width: 16px; height: 16px; border-radius: 4px; flex: none; object-
 .banner.warn > .icon { color: var(--warn); }
 .banner-text { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 .banner-text span { color: var(--text-2); overflow-wrap: anywhere; }
+/* Ensō's helper isn't running (views/helperstate.js): in the banner slot, and compact inside sections. */
+.helper-down { display: flex; gap: 12px; padding: 12px 14px; border-radius: var(--r); background: var(--bad-soft); border: 1px solid color-mix(in srgb, var(--bad) 22%, transparent); font-size: 13px; line-height: 1.5; animation: rise var(--dur) var(--ease); }
+.helper-down > .icon { color: var(--bad); flex: none; width: 18px; height: 18px; margin-top: 1px; }
+.helper-down.unsupported { background: var(--surface-2); border-color: var(--line); }
+.helper-down.unsupported > .icon { color: var(--text-2); }
+.helper-down .hd-body { flex: 1; min-width: 0; display: grid; gap: 4px; }
+.helper-down strong { font-size: 14px; font-weight: 600; }
+.helper-down p { margin: 0; }
+.helper-down .hd-reason { color: var(--text-2); overflow-wrap: anywhere; }
+.helper-down .hd-kind { color: var(--text); font-weight: 500; }
+.helper-down .hd-hint { font-size: 12px; }
+.helper-down .hd-hint code { font-size: 11.5px; }
+.helper-down .hd-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.helper-down.compact { margin: 8px 0; padding: 10px 12px; }
+.helper-down.compact strong { font-size: 13px; }
+.load-failed { display: grid; grid-template-columns: auto 1fr; align-items: start; column-gap: 8px; row-gap: 8px; padding: 16px 0; color: var(--text-2); font-size: 13px; line-height: 1.45; }
+.load-failed > .btn { grid-column: 2; justify-self: start; }
+.load-failed > .icon { color: var(--warn); width: 16px; height: 16px; margin-top: 1px; }
+.load-tiny { margin: 0; color: var(--text-2); font-size: 12.5px; line-height: 1.45; }
+.load-tiny > .icon { display: inline-block; width: 14px; height: 14px; margin-right: 5px; vertical-align: -2px; color: var(--text-3); }
+.brief-body > .load-tiny { padding: 18px 0; border-top: 1px solid var(--line); font-size: 14px; }
+.hg-diag { margin: -4px 0 14px; }
 
 .scroller { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; scrollbar-gutter: stable; scroll-padding-bottom: 24px; }
 .scroller::-webkit-scrollbar { width: 10px; }

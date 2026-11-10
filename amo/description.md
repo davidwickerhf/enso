@@ -1,3 +1,5 @@
+**Requires macOS.** Ensō's helper runs on macOS only for now. Windows and Linux support is planned; on other systems the add-on installs but chat and the other features that need the helper don't work.
+
 Ensō puts Claude in your browser. It is made for Zen (and runs in Firefox 139 or later), on macOS.
 
 **Sidebar chat.** Ask about the page you're on, mention other tabs with @, attach files or screenshots. Claude can read the page and, when you ask, click, type and fill forms for you. Actions it starts on its own ask first, and sending, paying or deleting always asks.

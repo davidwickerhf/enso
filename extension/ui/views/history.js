@@ -3,6 +3,7 @@
 
 import { h, icon, clear, hostBadge, iconButton, spaceIcon } from "../dom.js";
 import { relTime, dayLabel, hostOf, describeAction, actionIcon, fullDate, plural } from "../format.js";
+import { loadingOr } from "./helperstate.js";
 
 export function createHistory(store, ctx) {
   const { state: s, actions } = store;
@@ -77,7 +78,7 @@ export function createHistory(store, ctx) {
     clear(scopeEl, s.space ? scopeToggle(store) : null);
     const q = s.history.query;
     if (q.trim()) {
-      if (s.history.loading && !s.history.results) { clear(listEl, h("div", { class: "list-loading" }, h("span", { class: "spinner" }), "Searching…")); return; }
+      if (s.history.loading && !s.history.results) { clear(listEl, loadingOr(store, "history", "Searching…")); return; }
       const results = s.history.results ?? [];
       clear(listEl, results.length
         ? h("ul", { class: "result-list" }, results.map(r => h("li", null, h("button", { type: "button", class: "result", onclick: () => actions.open(r.conversationId) },
@@ -87,6 +88,7 @@ export function createHistory(store, ctx) {
       return;
     }
     if (!list.length) {
+      if (!s.ready) { clear(listEl, loadingOr(store, "state", "Loading conversations…")); return; }
       if (s.conversations.length) { clear(listEl, h("div", { class: "empty-state" }, icon("chat"), h("p", null, `No conversations in ${s.space?.name ?? "this space"} yet.`), h("button", { type: "button", class: "btn", onclick: () => store.actions.setScope("all") }, "Show all spaces"))); return; }
       clear(listEl, h("div", { class: "empty-state" }, icon("chat"), h("p", null, "No conversations yet."), h("button", { type: "button", class: "btn", onclick: () => ctx.focusComposer() }, "Start one")));
       return;
@@ -103,7 +105,7 @@ export function createHistory(store, ctx) {
   render();
   return {
     el,
-    update(topics) { if (["history", "conversations", "approvals", "ui", "space"].some(t => topics.has(t))) render(); },
+    update(topics) { if (["history", "conversations", "approvals", "ui", "space", "waits", "helper"].some(t => topics.has(t))) render(); },
     show() { render(); },
     focus() { input.focus(); },
   };
@@ -133,7 +135,7 @@ export function createActivity(store) {
     clear(filterEl,
       h("button", { type: "button", class: ["filter-chip", !current && "on"], aria: { pressed: String(!current) }, onclick: () => actions.listActions(null) }, "All sites"),
       knownHosts.map(host => h("button", { type: "button", class: ["filter-chip", current === host && "on"], aria: { pressed: String(current === host) }, onclick: () => actions.listActions({ host }) }, hostBadge(host), host)));
-    if (!results) { clear(listEl, h("div", { class: "list-loading" }, h("span", { class: "spinner" }), "Loading…")); return; }
+    if (!results) { clear(listEl, loadingOr(store, "actions", "Loading…")); return; }
     if (!results.length) { clear(listEl, h("div", { class: "empty-state" }, icon("cursor"), h("p", null, current ? `No actions on ${current} yet.` : "No page actions yet. Ask it to fill a form or click through a site."))); return; }
     const groups = new Map();
     for (const a of results) {
@@ -154,7 +156,7 @@ export function createActivity(store) {
   render();
   return {
     el,
-    update(topics) { if (topics.has("actions")) render(); },
+    update(topics) { if (topics.has("actions") || (!s.actions.results && (topics.has("waits") || topics.has("helper")))) render(); },
     show() { if (!s.actions.results && !s.actions.loading) actions.listActions(null); render(); },
   };
 }

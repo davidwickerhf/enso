@@ -18,6 +18,10 @@
 // but its server failing (HTTP 500), or not connected.
 // ?helper=missing | failed: no helper yet (the first-run install guide) or one that
 // can't start; &connectAfter=6 connects it after 6 seconds (or __ensoMock.connectHelper()).
+// ?helper=crashed: it ran, then exited (the helper-not-running banner, every section
+// shows it instead of "Loading…"); ?helper=noanswer: connected, but memory and Setup
+// requests go unanswered ("Couldn't load" + Retry after 8 s).
+// ?platform=linux (or win): not macOS, where the helper can't run yet (add &helper=missing).
 // ?setup=ready | mixed | fresh: the Settings → Setup checklist (default ready); #setup opens it.
 
 const MIN = 60_000;
@@ -809,8 +813,11 @@ Want me to draft the reply to Jonas, or open the [Vercel deployment](https://ver
 
   // ---- the native helper (first-run guide) and Settings → Setup ----
   const helperPreset = params.get("helper");
-  let helperState = helperPreset === "missing" || helperPreset === "failed" ? helperPreset : "connected";
-  out({ type: "helper.status", state: helperState, reason: helperState === "failed" ? "exit code 127" : null, at: now() });
+  let helperState = helperPreset === "missing" || helperPreset === "failed" ? helperPreset : helperPreset === "crashed" ? "stopped" : "connected";
+  const crashError = { message: "An unexpected error occurred", state: "stopped", at: now() - 4000, ranMs: 2300 };
+  const helperStatus = () => ({ type: "helper.status", state: helperState, reason: helperState === "failed" ? "exit code 127" : helperState === "stopped" ? crashError.message : helperState === "missing" ? "No such native application enso" : null, at: now() - 4000, failures: helperState === "stopped" ? 3 : 0, lastError: helperState === "stopped" ? crashError : null });
+  out(helperStatus());
+  if (helperPreset === "crashed") out({ type: "event", conversationId: null, event: { kind: "error", code: "host_disconnected", text: "Lost Ensō's helper: An unexpected error occurred. Reconnecting by itself…", at: iso(now()) } });
   function connectHelper() {
     if (helperState === "connected") return;
     helperState = "connected";
@@ -916,12 +923,17 @@ Want me to draft the reply to Jonas, or open the [Vercel deployment](https://ver
   function handle(msg) {
     // No helper: background.js answers nothing but helper.retry.
     if (helperState !== "connected") {
-      if (msg.type === "helper.retry") out({ type: "helper.status", state: helperState, reason: helperState === "failed" ? "exit code 127" : null, at: now() });
+      if (msg.type === "helper.retry") out({ ...helperStatus(), at: now() });
       return;
     }
+    // Connected, but some requests never get an answer.
+    if (helperPreset === "noanswer" && (msg.type === "memory.get" || msg.type === "setup.status")) return;
     switch (msg.type) {
       case "helper.retry":
         out({ type: "helper.status", state: "connected", at: now() });
+        return;
+      case "helper.log":
+        out({ type: "helper.log", version: "0.5.5", node: { version: "v22.12.0", path: "/opt/homebrew/bin/node" }, platform: "darwin arm64", file: "/Users/maya/Library/Logs/Enso/helper.log", lines: [`${iso(now() - 60_000)} [4242] INFO  Ensō helper 0.5.5 starting (started by run.sh): Node v22.12.0 at /opt/homebrew/bin/node, darwin arm64, macOS 15.1`, `${iso(now() - 59_000)} [4242] INFO  MCP server on http://127.0.0.1:47823/mcp`] });
         return;
       case "setup.status":
         setTimeout(() => out({ type: "setup", status: setupStatus() }), msg.fresh ? 500 : 250);
