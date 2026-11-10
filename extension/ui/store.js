@@ -6,7 +6,7 @@
 // (external agents' live sessions), agents-focus (the page pill was clicked),
 // shot (the screenshot send sheet), t3 (T3 Code connection), toast,
 // helper (is the native helper installed and running: the first-run guide),
-// setup (Settings → Setup checklist).
+// setup (the checks behind Settings → Setup, Connections and Agents).
 
 export function createStore() {
   const listeners = new Set();
@@ -64,7 +64,7 @@ export function createStore() {
     helper: { state: "connecting", reason: null, at: 0, everConnected: false },
     setup: { status: null, busy: null, done: null, loading: false }, // Settings → Setup (`setup` messages)
     toast: null,             // { text, kind, action?: { label, run } }
-    ui: { view: "home", currentId: null, includePage: true, pendingSend: null, notice: null, scope: "space" },
+    ui: { view: "home", currentId: null, includePage: true, pendingSend: null, notice: null, scope: "space", settingsSection: null },
   };
 
   function emit(...topics) {
@@ -369,7 +369,7 @@ export function createStore() {
         // Back after being away (installed just now, restarted after an update): fetch everything again.
         if (msg.state === "connected" && was !== "connected" && was !== "connecting") {
           actions.hello();
-          if (s.setup.status || s.ui.view === "setup") send({ type: "setup.status" });
+          if (s.setup.status || s.ui.view === "settings") send({ type: "setup.status" });
         }
         if (msg.state === "connected" && s.globalError?.code === "host_disconnected") { s.globalError = null; emit("banner"); }
         emit("helper");
@@ -517,15 +517,22 @@ export function createStore() {
 
   function syncHash() {
     const { view, currentId } = s.ui;
-    const hash = view === "chat" && currentId && currentId !== "draft" ? `#conversation=${encodeURIComponent(currentId)}` : view === "home" || view === "chat" ? "" : `#${view}`;
+    const hash = view === "chat" && currentId && currentId !== "draft" ? `#conversation=${encodeURIComponent(currentId)}`
+      : view === "home" || view === "chat" ? ""
+      : view === "settings" && s.ui.settingsSection ? `#settings/${s.ui.settingsSection}`
+      : `#${view}`;
     if (location.hash !== hash) history.replaceState(null, "", hash || location.pathname + location.search);
   }
 
   function readHash() {
     const m = location.hash.match(/^#conversation=(.+)$/);
     if (m) return { view: "chat", id: decodeURIComponent(m[1]) };
+    // #settings/<section> opens one section; #setup (the old Setup page) is Settings → Setup now.
+    const st = location.hash.match(/^#settings(?:\/([a-z-]+))?$/);
+    if (st) return { view: "settings", section: st[1] ?? null };
     const view = location.hash.slice(1);
-    return ["history", "activity", "settings", "reports", "tools", "setup"].includes(view) ? { view } : { view: "home" };
+    if (view === "setup") return { view: "settings", section: "setup" };
+    return ["history", "activity", "reports", "tools"].includes(view) ? { view } : { view: "home" };
   }
 
   // ---- actions (UI → host) ----------------------------------------------
@@ -539,7 +546,10 @@ export function createStore() {
       send({ type: "reports.list" });
     },
 
-    go(view) {
+    /** go("settings", { section: "agents" }) opens one section of Settings; go("setup") is Settings → Setup. */
+    go(view, { section = null } = {}) {
+      if (view === "setup") { view = "settings"; section = "setup"; }
+      if (view === "settings") s.ui.settingsSection = section;
       s.ui.view = view;
       if (view !== "chat") s.ui.currentId = view === "home" ? null : s.ui.currentId;
       if (view === "activity" && !s.actions.results) actions.listActions(s.actions.filter);
@@ -565,7 +575,7 @@ export function createStore() {
     restoreFromHash() {
       const r = readHash();
       if (r.view === "chat") actions.open(r.id);
-      else actions.go(r.view);
+      else actions.go(r.view, { section: r.section ?? null });
     },
 
     /**
@@ -698,7 +708,7 @@ export function createStore() {
       send({ type: "settings.update", patch });
       emit("settings");
     },
-    /** Onboarding and Settings → Profile: name, about, and { spaceId: hint } (empty text removes a hint). */
+    /** Onboarding and Settings → You & memory: name, about, and { spaceId: hint } (empty text removes a hint). */
     saveProfile({ name, about, spaceHints }) {
       s.profileSaving = true;
       send({ type: "profile.save", name, about, ...(spaceHints && { spaceHints }) });

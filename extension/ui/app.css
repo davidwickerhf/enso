@@ -1111,7 +1111,7 @@ html[data-mode="sidebar"] .tr-head .tp-status { font-size: 0; gap: 0; }
 .cat-tile.add-server .field { margin-top: 2px; }
 .cat-tile.add-server .tp-auth { margin: 0; }
 
-/* ---------- first run (onboarding) and Settings → Profile ---------- */
+/* ---------- first run (onboarding) and Settings → You & memory ---------- */
 .onboarding {
   position: fixed; inset: 0; z-index: 50; display: grid; place-items: center; padding: 24px 16px; overflow-y: auto;
   background: color-mix(in srgb, var(--bg) 82%, transparent); backdrop-filter: blur(14px);
@@ -1394,3 +1394,129 @@ kbd { display: inline-block; min-width: 20px; padding: 0 5px; border-radius: 5px
 }
 .hint .link-btn, .setting-text p .link-btn { display: inline; padding: 0; font-size: inherit; color: var(--accent-text); text-decoration: underline; text-underline-offset: 2px; }
 .setup-item .si-head h3 { color: var(--text); }
+
+/* ---------- Settings (views/settings.js): sections, nav, search ---------- */
+.settings-view.split { max-width: 1040px; container-type: inline-size; }
+.set-layout { display: grid; grid-template-columns: 196px minmax(0, 1fr); gap: 36px; align-items: start; }
+.set-side { position: sticky; top: 0; display: grid; gap: 12px; padding-top: 2px; }
+.set-title { margin: 0; font-family: var(--font-display); font-weight: 500; font-size: 22px; letter-spacing: -0.01em; }
+.set-searchbox { margin: 0; height: 34px; border-radius: 10px; }
+.set-searchbox .icon { width: 15px; height: 15px; }
+.set-search { font-size: 13px; }
+.set-nav-list, .set-root-list { list-style: none; margin: 0; padding: 0; }
+.set-nav-list { display: grid; gap: 1px; }
+.set-nav-item { display: flex; align-items: center; gap: 9px; height: 32px; padding: 0 9px; border-radius: 8px; color: var(--text-2); font-size: 13.5px; text-decoration: none; }
+.set-nav-item .icon { width: 16px; height: 16px; flex: none; }
+.set-nav-item span:not(.attn-dot):not(.sr-only) { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.set-nav-item:hover { background: var(--surface-2); color: var(--text); }
+.set-nav-item.on { background: var(--surface-2); color: var(--text); font-weight: 500; }
+.set-nav-item.on .icon { color: var(--accent-text); }
+.set-nav-item.quiet { color: var(--text-3); }
+.set-main { min-width: 0; position: relative; }
+.set-top { display: flex; align-items: center; gap: 10px; min-height: 0; }
+.settings-view.split .set-top { position: absolute; right: 0; top: 4px; z-index: 1; }
+.set-saved { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; color: var(--ok); opacity: 0; transition: opacity var(--dur) var(--ease); white-space: nowrap; }
+.set-saved .icon { width: 13px; height: 13px; stroke-width: 2; }
+.set-saved.on { opacity: 1; }
+.set-section + .set-section { margin-top: 28px; }
+.set-head { margin: 0 0 14px; padding-right: 64px; }
+.set-head h2 { margin: 0; font-family: var(--font-display); font-weight: 500; font-size: 20px; letter-spacing: -0.01em; }
+.set-head h2:focus { outline: none; }
+.set-desc { margin: 3px 0 0; color: var(--text-3); font-size: 13px; line-height: 1.5; }
+.set-learn { display: inline-flex; align-items: center; gap: 1px; color: var(--accent-text); font-weight: 500; text-decoration: none; white-space: nowrap; }
+.set-learn:hover { text-decoration: underline; text-underline-offset: 2px; }
+.set-learn .icon { width: 12px; height: 12px; }
+.set-links { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 12.5px; flex: none; }
+.set-group { margin-top: 18px; }
+.set-group:first-child { margin-top: 0; }
+.set-group-title { margin: 0 0 6px 2px; font-size: 11.5px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--text-3); }
+.set-card { border: 1px solid var(--line); border-radius: var(--r-lg); background: var(--surface); }
+.set-card > .set-row, .set-card > .setup-list > .set-row { padding: 11px 14px; border-top: 1px solid var(--line); }
+.set-card > :first-child, .set-card > .setup-list:first-child > .set-row:first-child { border-top: 0; }
+.set-card > [hidden] + .set-row { border-top: 0; }
+.set-card .setup-list.bare { border: 0; border-radius: 0; background: none; }
+.set-card > .setup-list.bare + .set-row, .set-card > .set-row + .setup-list.bare { border-top: 1px solid var(--line); }
+.set-row.setting { gap: 16px; }
+.set-row .setting-text { flex: 1; }
+.set-label, .set-row .setting-text label { font-weight: 500; font-size: 13.5px; }
+.set-row .setting-text p { line-height: 1.45; }
+.set-row.stacked { gap: 8px; }
+.set-row.stacked > .tool-list { margin-top: 2px; }
+.set-row.set-block { display: grid; gap: 10px; }
+.set-row .set-tool-icons { flex-basis: 100%; order: 3; }
+.set-row:has(.set-tool-icons) { flex-wrap: wrap; row-gap: 10px; }
+.set-row .tools-summary-icons .tool-icon { width: 28px; height: 28px; }
+.set-note { margin: 0; color: var(--text-3); font-size: 12.5px; line-height: 1.45; }
+.set-sub { display: block; margin-top: 2px; }
+.set-controls { display: flex; align-items: center; gap: 6px; flex: none; }
+.set-path { width: 220px; }
+.set-code { font: 12px var(--mono); background: var(--surface-2); padding: 4px 7px; border-radius: 6px; overflow-wrap: anywhere; color: var(--text-2); }
+.set-actions { margin: 10px 0 0; }
+.set-loading { display: flex; align-items: center; gap: 8px; color: var(--text-3); font-size: 13px; }
+.set-skill { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.set-skill .skill-desc { flex: 1; min-width: 0; color: var(--text-2); font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.set-skill .row-actions { padding: 0; display: flex; gap: 2px; }
+.set-memory .memory-editor { min-height: 220px; }
+.set-mem-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 12px; }
+.set-mem-tabs { display: flex; flex-wrap: wrap; gap: 6px; }
+.set-memory .memory-preview { border: 1px solid var(--line); border-radius: var(--r); padding: 10px 14px; }
+.set-glance { display: flex; align-items: center; gap: 12px; }
+.si-mark.small { width: 20px; height: 20px; }
+.si-mark.small .icon { width: 12px; height: 12px; }
+.set-glance.good .si-mark { background: var(--ok); color: #fff; }
+.set-glance.warn .si-mark { background: var(--accent); color: #fff; }
+.set-card .setup-item { padding: 12px 14px; }
+.set-card .setup-item .si-head h4 { margin: 0; font-size: 13.5px; font-weight: 600; }
+.set-section .setup-summary { align-items: center; margin-bottom: 18px; }
+.setup-summary-text { flex: 1; min-width: 0; }
+.set-foot { margin-top: 12px; }
+.set-empty { margin: 8px 0 0; font-size: 13px; }
+.set-attn-slot:empty { display: none; }
+.set-attn-slot { margin: -4px 0 14px; }
+.set-callout { display: flex; align-items: center; gap: 10px; width: 100%; text-align: left; padding: 10px 12px; border-radius: var(--r); background: var(--accent-softer); box-shadow: inset 0 0 0 1px var(--accent-soft); font-size: 13px; color: var(--text); }
+.set-callout > .icon:first-child { width: 16px; height: 16px; color: var(--accent-text); flex: none; }
+.set-callout > span { flex: 1; min-width: 0; }
+.set-callout .chev { width: 15px; height: 15px; color: var(--text-3); }
+button.set-callout:hover { background: var(--accent-soft); }
+.set-nav-item .attn-dot, .set-root-item .attn-dot, .nav-item .attn-dot { margin-left: auto; }
+.icon-btn.has-attn { position: relative; }
+.attn-badge { position: absolute; top: 5px; right: 5px; width: 7px; height: 7px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 2px var(--bg); }
+/* Sidebar: a list of sections, then one section at a time. */
+.settings-view.drill .set-top { margin-bottom: 12px; }
+.settings-view.drill .set-searchbox { flex: 1; }
+.settings-view.drill .set-saved { position: absolute; right: 0; top: -2px; }
+.settings-view.drill .set-head h2 { display: none; }
+.settings-view.drill .set-head { padding-right: 0; margin-bottom: 12px; }
+.settings-view.drill.searching .set-head h2 { display: block; font-size: 17px; }
+.settings-view.drill.searching .set-head .set-desc { display: none; }
+.set-root { display: grid; gap: 10px; }
+.set-root-list { border: 1px solid var(--line); border-radius: var(--r-lg); background: var(--surface); }
+.set-root-list li + li { border-top: 1px solid var(--line); }
+.set-root-item { display: flex; align-items: center; gap: 12px; padding: 11px 12px; color: var(--text); text-decoration: none; border-radius: var(--r-lg); }
+.set-root-item:hover { background: var(--surface-2); }
+.set-root-list li:not(:first-child):not(:last-child) .set-root-item { border-radius: 0; }
+.set-root-icon { width: 30px; height: 30px; border-radius: 9px; display: grid; place-items: center; background: var(--surface-2); color: var(--accent-text); flex: none; }
+.set-root-icon .icon { width: 16px; height: 16px; }
+.set-root-text { flex: 1; min-width: 0; display: grid; gap: 1px; }
+.set-root-text strong { font-weight: 500; font-size: 13.5px; }
+.set-root-text span { color: var(--text-3); font-size: 12px; line-height: 1.4; }
+.set-root-item.quiet .set-root-icon { color: var(--text-3); }
+.set-root-item .chev { width: 15px; height: 15px; color: var(--text-3); flex: none; }
+.settings-view.drill .set-row.setting:not(.stacked):not(.set-glance) { flex-wrap: wrap; }
+.settings-view.drill .set-row .setting-text { flex: 1 1 180px; }
+.settings-view.drill .set-row .segmented { margin-left: auto; }
+.settings-view.drill .set-path { width: 100%; }
+/* The full page with the context panel open can be narrow: put the nav on top. */
+@container (max-width: 640px) {
+  .set-layout { grid-template-columns: 1fr; gap: 16px; }
+  .set-side { position: static; }
+  .set-nav-list { display: flex; flex-wrap: wrap; gap: 4px; }
+  .set-nav-item { height: 30px; padding: 0 10px; background: var(--surface-2); }
+  .set-nav-item.on { background: var(--accent-soft); color: var(--accent-text); }
+  .set-nav-item span:not(.attn-dot):not(.sr-only) { flex: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .set-saved, .switch, .switch .knob { transition: none; }
+}
+.settings-view .set-row.stacked .setting-text { flex: none; }
+.settings-view.searching .set-attn-slot, .settings-view.searching .setup-summary, .settings-view.searching .set-foot { display: none; }

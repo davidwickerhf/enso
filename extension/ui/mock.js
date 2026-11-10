@@ -13,12 +13,13 @@
 // (t3: Claude Code running inside a T3 Code thread).
 // Send screenshot: ?shot=sheet | picker | agent | fallback opens the send sheet with a
 // fake capture; ?t3=off | down | revoked | fallback sets the T3 Code connection;
-// ?links=1 adds linked threads (Settings → Send screenshots).
+// ?links=1 adds linked threads (Settings → Agents & screenshots).
 // ?monday=ok | down | off: monday.com signed in and working (default), signed in
 // but its server failing (HTTP 500), or not connected.
 // ?helper=missing | failed: no helper yet (the first-run install guide) or one that
 // can't start; &connectAfter=6 connects it after 6 seconds (or __ensoMock.connectHelper()).
-// ?setup=ready | mixed | fresh: the Settings → Setup checklist (default ready); #setup opens it.
+// ?setup=ready | mixed | fresh: what the helper reports for Settings → Setup, Connections and Agents
+// (default ready; mixed: an update, Claude Code signed out, Cursor on the old setup). #settings/setup opens it.
 
 const MIN = 60_000;
 const HOUR = 60 * MIN;
@@ -749,7 +750,7 @@ Want me to draft the reply to Jonas, or open the [Vercel deployment](https://ver
   const params = new URLSearchParams(globalThis.location?.search ?? "");
   const t3Preset = params.get("t3");
   const shotPreset = params.get("shot");
-  const t3Status = () => ({ cli: true, origin: "http://127.0.0.1:3773", reachable: t3Preset !== "down", connected: t3Preset !== "off", tokenValid: t3Preset === "revoked" ? false : t3Preset === "off" ? null : true, environmentId: "env-maya", serverVersion: "0.1.9-nightly", label: "Maya’s MacBook Pro", route: t3Preset === "fallback" ? "path" : "attachment", attachments: t3Preset !== "fallback", expiresAt: iso(now() + 29 * 86_400_000), error: t3Preset === "revoked" ? "T3 Code no longer accepts Ensō's token (it expired or was revoked). Connect again in Settings → T3 Code." : t3Preset === "down" ? "T3 Code isn't running. Open T3 Code and try again." : null });
+  const t3Status = () => ({ cli: true, origin: "http://127.0.0.1:3773", reachable: t3Preset !== "down", connected: t3Preset !== "off", tokenValid: t3Preset === "revoked" ? false : t3Preset === "off" ? null : true, environmentId: "env-maya", serverVersion: "0.1.9-nightly", label: "Maya’s MacBook Pro", route: t3Preset === "fallback" ? "path" : "attachment", attachments: t3Preset !== "fallback", expiresAt: iso(now() + 29 * 86_400_000), error: t3Preset === "revoked" ? "T3 Code no longer accepts Ensō's token (it expired or was revoked). Connect again in Settings → Connections → T3 Code." : t3Preset === "down" ? "T3 Code isn't running. Open T3 Code and try again." : null });
   let t3State = t3Status();
   const T3_THREADS = [
     { id: "th-legend", title: "Launch dashboard: legend overlaps the chart", projectId: "p-atlas", projectTitle: "atlas-web", status: "running", running: true, waiting: false, activeAt: ago(40) },
@@ -825,7 +826,7 @@ Want me to draft the reply to Jonas, or open the [Vercel deployment](https://ver
     claudeFound: setupPreset !== "fresh",
     loggedIn: setupPreset === "ready",
     apiStored: false,
-    clients: setupPreset === "ready" ? { claude: "launcher", codex: "launcher", cursor: null, opencode: null } : setupPreset === "mixed" ? { claude: "launcher", codex: null, cursor: null, opencode: null } : { claude: null, codex: null, cursor: null, opencode: null },
+    clients: setupPreset === "ready" ? { claude: "launcher", codex: "launcher", cursor: null, opencode: null } : setupPreset === "mixed" ? { claude: "launcher", codex: null, cursor: "http", opencode: null } : { claude: null, codex: null, cursor: null, opencode: null },
     detected: setupPreset === "fresh" ? { claude: false, codex: true, cursor: false, opencode: false } : { claude: true, codex: true, cursor: true, opencode: false },
     hook: setupPreset === "ready",
     t3Installed: setupPreset !== "fresh",

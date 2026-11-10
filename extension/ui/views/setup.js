@@ -9,9 +9,10 @@
 // x-man-page:// only open a man page window), so the card says how. It then
 // waits: background.js retries every 2 seconds and the card moves on by itself.
 //
-// createSetupPage: Settings → Setup. Every item is checked by the helper
-// (`setup.status`) and its buttons run there (`setup.run`), with the same code
-// as the `enso` command. Secrets typed here go straight to the helper, which
+// createSetupKit: the setup items that Settings shows in its sections (Setup,
+// Connections, Agents & screenshots, Advanced). Every item is checked by the
+// helper (`setup.status`) and its buttons run there (`setup.run`), with the
+// same code as the `enso` command. Secrets typed here go straight to the helper, which
 // puts them in the Keychain; they are not kept in the UI.
 
 import { h, icon, clear, iconButton } from "../dom.js";
@@ -70,7 +71,7 @@ export function createHelperGuide(store) {
         h("div", { class: "hg-done" }, h("span", { class: "hg-check" }, icon("check")),
           h("div", null,
             h("h1", { id: "hg-title", class: "ob-title" }, "Ensō is connected"),
-            h("p", { class: "ob-lede" }, "The helper is running. Claude, your agents and the rest are one button each in Settings → Setup."))),
+            h("p", { class: "ob-lede" }, "The helper is running. Claude, your agents and the rest are one button each in Settings."))),
         h("div", { class: "ob-actions end" }, h("button", { type: "button", class: "btn primary", onclick: () => close() }, "Continue", icon("chevronRight")))));
       return;
     }
@@ -139,9 +140,8 @@ export function createHelperGuide(store) {
     update(topics) { if (topics.has("helper") && phase === "waiting") render(); },
   };
 }
-
 // ---------------------------------------------------------------------------
-// Setup checklist
+// Setup items, shared by the Settings sections (views/settings.js)
 
 const PLAN = { max: "Max", pro: "Pro", team: "Team", enterprise: "Enterprise" };
 
@@ -174,26 +174,26 @@ function engineState(st, settings) {
 const shortVersion = v => String(v ?? "").replace(/\s*\(Claude Code\)\s*/, "").trim();
 
 let sw = 0;
-function switchRow(label, desc, checked, onChange, { disabled = false, busy = false } = {}) {
+/** A settings row with a switch: label and one line on the left, the switch on the right. */
+export function switchRow(label, desc, checked, onChange, { disabled = false, busy = false, keys = "" } = {}) {
   const id = `su-sw-${++sw}`;
-  return h("div", { class: "setting" },
+  return h("div", { class: "setting set-row", dataset: { search: `${label} ${desc ?? ""} ${keys}`.toLowerCase() } },
     h("div", { class: "setting-text" }, h("label", { for: id }, label), desc ? h("p", { id: `${id}-d` }, desc) : null),
     busy ? h("span", { class: "spinner" }) : null,
     h("button", { type: "button", role: "switch", class: "switch", id, aria: { checked: String(!!checked), describedby: desc ? `${id}-d` : null }, disabled: disabled || busy, onclick: () => onChange(!checked) }, h("span", { class: "knob" })));
 }
 
-export function createSetupPage(store, ctx) {
+/**
+ * The helper-backed setup steps (`setup.status` / `setup.run`): one controller
+ * per Settings view, so drafts of secrets and the "waiting for Terminal" poll
+ * survive re-renders. `rerender` is called when a poll ends.
+ */
+export function createSetupKit(store, { rerender = () => {}, isActive = () => true } = {}) {
   const { state: s, actions } = store;
-  const body = h("div", { class: "setup-body" });
-  const el = h("section", { class: "page-view setup-view", aria: { label: "Setup" } },
-    h("header", { class: "page-head setup-head" },
-      h("div", null, h("h2", null, "Setup"), h("p", { class: "muted" }, "What Ensō uses on this Mac. The helper checks each item; the buttons do the work.")),
-      iconButton("refresh", "Check again", () => actions.setupStatus(true), { class: "small" })),
-    body);
   const drafts = { apiKey: "", ghToken: "" };
-  let poll = null; // { step, until, timer, done(st) }
+  let poll = null; // { step, until, timer, isDone(st) }
   let installType = null;
-  if (inExtension) globalThis.browser?.management?.getSelf?.().then(i => { installType = i?.installType ?? null; render(); }, () => {});
+  if (inExtension) globalThis.browser?.management?.getSelf?.().then(i => { installType = i?.installType ?? null; rerender(); }, () => {});
 
   const busy = step => s.setup.busy === step;
   const run = (step, options) => actions.setupRun(step, options);
@@ -210,12 +210,13 @@ export function createSetupPage(store, ctx) {
     return h("p", { class: ["si-done", d.ok ? "good" : "bad"], role: d.ok ? "status" : "alert" }, icon(d.ok ? "check" : "alert"), d.ok ? d.message : d.error);
   }
 
-  function item({ id, level, title, optional, status, actions: acts, extra, done }) {
+  /** A checklist row: a status mark, a title, one status line and its buttons. */
+  function item({ id, level, title, optional, status, actions: acts, extra, done, keys = "" }) {
     const mark = level === "good" ? icon("check") : level === "bad" || level === "warn" ? icon("alert") : h("i");
-    return h("li", { class: ["setup-item", level], id: `setup-${id}` },
+    return h("li", { class: ["setup-item", "set-row", level], id: `setup-${id}`, dataset: { search: `${title} ${typeof status === "string" ? status : ""} ${keys}`.toLowerCase() } },
       h("span", { class: "si-mark", aria: { hidden: "true" } }, mark),
       h("div", { class: "si-body" },
-        h("div", { class: "si-head" }, h("h3", null, title), optional ? h("span", { class: "tag" }, "Optional") : null),
+        h("div", { class: "si-head" }, h("h4", null, title), optional ? h("span", { class: "tag" }, "Optional") : null),
         status ? h("p", { class: "si-status" }, status) : null,
         acts?.filter(Boolean).length ? h("div", { class: "si-actions" }, acts) : null,
         extra,
@@ -237,173 +238,131 @@ export function createSetupPage(store, ctx) {
     } }, h("div", { class: "form-actions" }, input, save), hint ? h("p", { class: "hint" }, hint) : null);
   }
 
+  const waiting = () => h("p", { class: "si-wait" }, h("span", { class: "spinner" }), "Waiting for you to finish in Terminal…");
+
   function helperItem(st) {
     const hp = st.helper;
     const node = `Node ${hp.node.version}${hp.node.source === "private" ? " (Ensō's own copy)" : ""}`;
-    if (hp.dev) return item({ id: "helper", level: "good", title: "Helper", status: `Helper ${hp.version} from a checkout (scripts/dev.sh) · ${node}. Update it with git pull.` });
+    const keys = "helper version update node install";
+    if (hp.dev) return item({ id: "helper", level: "good", title: "Helper", keys, status: `Helper ${hp.version} from a checkout (scripts/dev.sh) · ${node}. Update it with git pull.` });
     if (hp.updateAvailable) {
-      return item({ id: "helper", level: "warn", title: "Helper", status: `Helper ${hp.version} · ${hp.latest} is available · ${node}`,
+      return item({ id: "helper", level: "warn", title: "Helper", keys, status: `Helper ${hp.version} · ${hp.latest} is available · ${node}`,
         actions: [btn("helper.update", busy("helper.update") ? "Updating…" : `Update to ${hp.latest}`, "refresh", { primary: true })],
         extra: busy("helper.update") ? h("p", { class: "hint" }, "Running the installer in the background. Ensō reconnects by itself when it's done.") : null,
         done: doneLine(["helper."]) });
     }
-    return item({ id: "helper", level: "good", title: "Helper", status: `Helper ${hp.version}${hp.latest ? " · up to date" : ""} · ${node}`, extra: hp.error ? h("p", { class: "hint" }, hp.error) : null, done: doneLine(["helper."]) });
+    return item({ id: "helper", level: "good", title: "Helper", keys, status: `Helper ${hp.version}${hp.latest ? " · up to date" : ""} · ${node}`, extra: hp.error ? h("p", { class: "hint" }, hp.error) : null, done: doneLine(["helper."]) });
   }
 
   function engineItem(st) {
     const selected = s.settings?.engine ?? st.engine.selected;
     const e = engineState(st, s.settings);
     const c = st.engine.subscription;
-    const picker = h("div", { class: "segmented", role: "radiogroup", aria: { label: "Engine" } },
-      [["subscription", "Claude subscription"], ["api", "API key"]].map(([v, label]) =>
-        h("button", { type: "button", role: "radio", class: ["seg", v === selected && "on"], aria: { checked: String(v === selected) }, onclick: () => v !== selected && actions.updateSettings({ engine: v }) }, label)));
     let acts = [];
     let extra = null;
     if (selected === "api") {
       if (st.engine.api.stored && st.engine.api.source === "keychain") acts = [btn("engine.forgetApiKey", "Remove key", "trash", { ghost: true, confirmText: "Remove the Anthropic API key from your Keychain?" })];
-      extra = h("div", null,
-        secretForm({ id: "su-api-key", label: "Anthropic API key", placeholder: "sk-ant-…", draftKey: "apiKey", step: "engine.apiKey", optionKey: "key", submit: st.engine.api.stored ? "Replace key" : "Save to Keychain",
-          hint: ["It goes straight to the helper and into your macOS Keychain, and isn't shown again. Get one at ", h("a", { href: "https://console.anthropic.com/settings/keys", target: "_blank", rel: "noopener" }, "console.anthropic.com"), "."] }));
+      extra = secretForm({ id: "su-api-key", label: "Anthropic API key", placeholder: "sk-ant-…", draftKey: "apiKey", step: "engine.apiKey", optionKey: "key", submit: st.engine.api.stored ? "Replace key" : "Save to Keychain",
+        hint: ["Goes straight to the helper and your macOS Keychain. Get one at ", h("a", { href: "https://console.anthropic.com/settings/keys", target: "_blank", rel: "noopener" }, "console.anthropic.com"), "."] });
     } else if (!c.found) {
       acts = [btn("engine.install", "Install Claude Code", "arrowUpRight", { primary: true })];
-      extra = h("p", { class: "hint" }, "Opens Terminal with Anthropic's installer (", h("code", null, c.installCommand ?? "curl -fsSL https://claude.ai/install.sh | bash"), "), then asks you to sign in. Or switch to an API key.");
+      extra = h("p", { class: "hint" }, "Opens Terminal with Anthropic's installer (", h("code", null, c.installCommand ?? "curl -fsSL https://claude.ai/install.sh | bash"), "), then asks you to sign in. Or switch to an API key in General.");
     } else if (c.loggedIn === false) {
       acts = [btn("engine.login", "Sign in", "arrowUpRight", { primary: true })];
       extra = h("p", { class: "hint" }, "Opens Terminal with ", h("code", null, "claude auth login"), "; your browser asks you to sign in to claude.ai.");
     }
-    const waiting = poll && poll.step.startsWith("engine.") ? h("p", { class: "si-wait" }, h("span", { class: "spinner" }), "Waiting for you to finish in Terminal…") : null;
-    return item({ id: "engine", level: e.level, title: "Claude", status: e.text, actions: [picker, ...acts], extra: [extra, waiting], done: doneLine(["engine."]) });
-  }
-
-  function agentsItem(st) {
-    const a = st.agents;
-    const registered = a.clients.filter(c => c.registration);
-    const claudeOn = a.clients.find(c => c.id === "claude")?.registration;
-    const busyClient = s.setup.busy?.startsWith("agents.") ? s.setup.busyFor : null;
-    const rows = h("ul", { class: "si-clients" }, a.clients.map(c => {
-      const desc = c.registration === "http" ? "Older entry with the token in its config: turn off and on to switch to the launcher."
-        : c.registration === "launcher-read" ? "Uses Zen, read only"
-        : c.registration ? "Uses Zen"
-        : c.detected ? "Found on this Mac" : "Not installed";
-      return h("li", null, switchRow(c.name, desc, !!c.registration, on => run(on ? "agents.register" : "agents.unregister", { client: c.id, readOnly: a.readOnly }), { disabled: !c.detected && !c.registration, busy: busyClient === c.id }));
-    }));
-    return item({
-      id: "agents", optional: true,
-      level: registered.length ? "good" : "off",
-      title: "Use Zen from your agents",
-      status: registered.length ? `${registered.map(c => c.name).join(", ")} can read and use your Zen tabs (every action shows in Activity).` : "Let Claude Code, Codex, Cursor or OpenCode read and use your Zen tabs through the zen-browser tool.",
-      extra: h("div", { class: "si-sub" },
-        rows,
-        h("div", { class: "si-options" },
-          switchRow("Read only", "Agents can see tabs and pages, but not click, type, open or close.", a.readOnly, v => run("agents.readOnly", { readOnly: v }), { disabled: !registered.length }),
-          switchRow("Claude Code hook", "Screenshots and notes you send an idle Claude Code arrive with your next message.", a.hook, v => run("agents.hook", { on: v }), { disabled: !claudeOn && !a.hook }))),
-      done: doneLine(["agents."]),
-    });
-  }
-
-  function t3Item(st) {
-    const t = st.t3;
-    if (!t.installed) return item({ id: "t3", optional: true, level: "off", title: "Send screenshots to T3 Code", status: "T3 Code isn't on this Mac. Screenshots can still go to agents connected through Zen, or be copied." });
-    const level = !t.connected ? "off" : t.tokenValid === false ? "warn" : "good";
-    const status = !t.connected ? "Connect so screenshots (⌘⇧2) can go straight to a T3 Code thread." : t.tokenValid === false ? "T3 Code no longer accepts Ensō's token. Connect again." : !t.reachable ? "Connected. T3 Code isn't running right now." : `Connected${t.serverVersion ? ` to T3 Code ${t.serverVersion}` : ""}.`;
-    const acts = !t.connected || t.tokenValid === false ? [btn("t3.connect", t.connected ? "Reconnect" : "Connect T3", "link")] : [btn("t3.disconnect", "Disconnect", null, { ghost: true })];
-    return item({ id: "t3", optional: true, level, title: "Send screenshots to T3 Code", status, actions: acts, extra: !t.connected ? h("p", { class: "hint" }, "Gives Ensō a token that can read and message your T3 threads for 30 days, kept in your Keychain.") : null, done: doneLine(["t3."]) });
+    return item({ id: "engine", level: e.level, title: selected === "api" ? "Claude · API key" : "Claude · subscription", keys: "claude code engine sign in install api key keychain anthropic", status: e.text, actions: acts,
+      extra: [extra, poll && poll.step.startsWith("engine.") ? waiting() : null], done: doneLine(["engine."]) });
   }
 
   function githubItem(st) {
     const g = st.github;
+    const keys = "github gh token sign in pull requests notifications";
     if (g.connected) {
-      return item({ id: "github", optional: true, level: "good", title: "GitHub", status: `Signed in as ${g.login}${g.via ? ` (${g.via})` : ""}.`,
+      return item({ id: "github", level: "good", title: "GitHub", keys, status: `Signed in as ${g.login}${g.via ? ` (${g.via})` : ""}.`,
         actions: g.via === "Keychain" ? [btn("github.forget", "Remove token", "trash", { ghost: true, confirmText: "Remove Ensō's GitHub token from your Keychain?" })] : [],
         done: doneLine(["github."]) });
     }
     return item({
-      id: "github", optional: true, level: "off", title: "GitHub",
-      status: g.error ? `Not connected: ${g.error}` : "Your pull requests, reviews and notifications across every org, for chat, the new tab and your agents.",
+      id: "github", level: g.error ? "warn" : "off", title: "GitHub", keys,
+      status: g.error ? `Not connected: ${g.error}` : "Pull requests, reviews and notifications across your orgs, for chat, the new tab and your agents.",
       actions: g.ghInstalled ? [btn("github.login", "Sign in with gh", "arrowUpRight")] : [],
       extra: h("div", { class: "si-sub" },
-        g.ghInstalled ? h("p", { class: "hint" }, "Opens Terminal with ", h("code", null, "gh auth login"), ". Or paste a token instead:") : h("p", { class: "hint" }, "Paste a token (", h("a", { href: TOKEN_URL, target: "_blank", rel: "noopener" }, "create one"), ", with repo, read:org and notifications), or install the GitHub CLI and run ", h("code", null, "gh auth login"), "."),
+        g.ghInstalled ? h("p", { class: "hint" }, "Opens Terminal with ", h("code", null, "gh auth login"), ". Or paste a token:") : h("p", { class: "hint" }, "Paste a token (", h("a", { href: TOKEN_URL, target: "_blank", rel: "noopener" }, "create one"), " with repo, read:org and notifications), or install the GitHub CLI and run ", h("code", null, "gh auth login"), "."),
         secretForm({ id: "su-gh-token", label: "GitHub token", placeholder: "ghp_… or github_pat_…", draftKey: "ghToken", step: "github.token", optionKey: "token", submit: "Save token" }),
-        poll && poll.step === "github.login" ? h("p", { class: "si-wait" }, h("span", { class: "spinner" }), "Waiting for you to finish in Terminal…") : null),
+        poll && poll.step === "github.login" ? waiting() : null),
       done: doneLine(["github."]),
     });
   }
 
-  function toolsItem(st) {
-    const t = st.tools;
-    return item({ id: "tools", optional: true, level: t.needsAuth ? "warn" : t.on ? "good" : "off", title: "Tools",
-      status: t.total ? `${t.on} of ${t.total} on${t.needsAuth ? ` · ${t.needsAuth} need${t.needsAuth === 1 ? "s" : ""} sign-in` : ""}. Connectors from claude.ai and your MCP servers.` : "Connect Gmail, Calendar, Drive and other tools from claude.ai, or add MCP servers.",
-      actions: [h("button", { type: "button", class: "btn small", onclick: () => actions.go("tools") }, "Open Tools", icon("chevronRight"))] });
+  /** One switch per agent (Claude Code, Codex, Cursor, OpenCode): registered with `enso mcp install` or not. */
+  function agentRows(st) {
+    const a = st.agents;
+    const busyClient = s.setup.busy?.startsWith("agents.") ? s.setup.busyFor : null;
+    return a.clients.map(c => {
+      const desc = c.registration === "http" ? "Older entry with the token in its config. Turn it off and on again to fix."
+        : c.registration === "launcher-read" ? "Uses Zen, read only"
+        : c.registration ? "Uses Zen"
+        : c.detected ? "Found on this Mac" : "Not installed";
+      return switchRow(c.name, desc, !!c.registration, on => run(on ? "agents.register" : "agents.unregister", { client: c.id, readOnly: a.readOnly }),
+        { disabled: !c.detected && !c.registration, busy: busyClient === c.id, keys: "agent mcp zen-browser enso mcp install register claude code codex cursor opencode" });
+    });
   }
 
-  function tokenItem() {
-    return item({ id: "token", level: "good", title: "Agent access token", optional: true,
-      status: "Agents reach Zen with a token kept in Ensō's folder. Replace it if it may have leaked; agents started with enso mcp keep working.",
-      actions: [btn("mcp.rotate", "Rotate token", "refresh", { confirmText: "Replace the agent access token? Agents registered the old way (http with a token header) will need to be registered again." })],
-      done: doneLine(["mcp."]) });
+  function readOnlyRow(st) {
+    const a = st.agents;
+    const registered = a.clients.some(c => c.registration);
+    return switchRow("Register read only", "A hard limit in each agent's config: it can never click, type, open or close, whatever the access level above.", a.readOnly, v => run("agents.readOnly", { readOnly: v }), { disabled: !registered, keys: "read-only token scope" });
   }
 
-  function devItem(st) {
-    if (!st.helper.dev && installType !== "development") return null;
-    return item({ id: "dev", level: "off", title: "Unsigned builds", optional: true,
-      status: "Zen installs an unsigned build (scripts/dev.sh) only with xpinstall.signatures.required set to false in about:config. Release builds are signed and don't need it.",
-      actions: [copyButtonSmall("xpinstall.signatures.required")] });
+  function hookRow(st) {
+    const a = st.agents;
+    const claudeOn = a.clients.find(c => c.id === "claude")?.registration;
+    return switchRow("Claude Code hook", "Screenshots and notes you send an idle Claude Code arrive with your next message.", a.hook, v => run("agents.hook", { on: v }), { disabled: !claudeOn && !a.hook, keys: "UserPromptSubmit hook idle screenshot" });
   }
 
-  function copyButtonSmall(text) {
+  function tokenRow() {
+    return h("div", { class: "setting set-row", dataset: { search: "agent access token rotate replace leaked mcp" } },
+      h("div", { class: "setting-text" }, h("label", null, "Agent access token"), h("p", null, "Replace it if it may have leaked. Agents started with enso mcp keep working."), doneLine(["mcp."])),
+      btn("mcp.rotate", "Rotate", "refresh", { confirmText: "Replace the agent access token? Agents registered the old way (http with a token header) will need to be registered again." }));
+  }
+
+  /** Only for unsigned builds (scripts/dev.sh, or a temporary add-on). */
+  function devRow(st) {
+    if (!st?.helper.dev && installType !== "development") return null;
     const b = h("button", { type: "button", class: "btn small" }, icon("copy"), "Copy setting name");
-    b.addEventListener("click", () => navigator.clipboard?.writeText(text).then(() => { clear(b, icon("check"), "Copied"); setTimeout(() => clear(b, icon("copy"), "Copy setting name"), 2000); }, () => {}));
-    return b;
-  }
-
-  function render() {
-    const st = s.setup.status;
-    if (!st) { clear(body, h("div", { class: "list-loading" }, h("span", { class: "spinner" }), "Checking this Mac…")); return; }
-    const sum = setupSummary(st, s.settings);
-    clear(body,
-      h("div", { class: ["setup-summary", sum.essentialsReady ? "good" : "warn"] },
-        h("span", { class: "si-mark" }, icon(sum.essentialsReady ? "check" : "alert")),
-        h("div", null,
-          h("strong", null, sum.essentialsReady ? "Ensō is ready" : sum.todo[0] ? `Next: ${sum.todo[0]}` : "Almost there"),
-          h("span", { class: "muted" }, sum.essentialsReady ? ` · ${sum.optionalOn} optional connection${sum.optionalOn === 1 ? "" : "s"} on. Everything here also works from the enso command.` : " · Chat needs Claude: your subscription through Claude Code, or an API key."))),
-      h("h3", { class: "setup-group" }, "Essentials"),
-      h("ol", { class: "setup-list" }, helperItem(st), engineItem(st)),
-      h("h3", { class: "setup-group" }, "Connections"),
-      h("ol", { class: "setup-list" }, agentsItem(st), t3Item(st), githubItem(st), toolsItem(st), tokenItem(), devItem(st)));
+    b.addEventListener("click", () => navigator.clipboard?.writeText("xpinstall.signatures.required").then(() => { clear(b, icon("check"), "Copied"); setTimeout(() => clear(b, icon("copy"), "Copy setting name"), 2000); }, () => {}));
+    return h("div", { class: "setting set-row", dataset: { search: "unsigned builds dev xpinstall signatures about:config" } },
+      h("div", { class: "setting-text" }, h("label", null, "Unsigned builds"), h("p", null, "Zen installs an unsigned build (scripts/dev.sh) only with xpinstall.signatures.required set to false in about:config.")), b);
   }
 
   // After a Terminal step, check every few seconds until it took effect (or 3 minutes passed).
   function startPoll(step, isDone) {
     stopPoll();
     poll = { step, until: Date.now() + POLL_FOR_MS, isDone, timer: setInterval(() => {
-      if (!poll || Date.now() > poll.until || !el.isConnected) return stopPoll(true);
+      if (!poll || Date.now() > poll.until || !isActive()) return stopPoll(true);
       actions.setupStatus(true);
     }, POLL_MS) };
   }
-  function stopPoll(rerender = false) {
+  function stopPoll(again = false) {
     if (poll) clearInterval(poll.timer);
     poll = null;
-    if (rerender) render();
+    if (again) rerender();
   }
 
   let lastDone = null;
-  return {
-    el,
-    show() { actions.setupStatus(); render(); },
-    update(topics) {
-      if (topics.has("setup")) {
-        const d = s.setup.done;
-        if (d && d !== lastDone) {
-          lastDone = d;
-          if (d.ok && d.step === "engine.login") startPoll(d.step, st => st.engine.subscription.loggedIn === true);
-          if (d.ok && d.step === "engine.install") startPoll(d.step, st => st.engine.subscription.found && st.engine.subscription.loggedIn !== false);
-          if (d.ok && d.step === "github.login") startPoll(d.step, st => st.github.connected);
-        }
-        if (poll && s.setup.status && poll.isDone(s.setup.status)) stopPoll();
-        render();
-      }
-      if (topics.has("settings") || topics.has("state")) render();
-    },
-    hide() { stopPoll(); },
-  };
+  /** Call on every store update with the topics. */
+  function onTopics(topics) {
+    if (!topics.has("setup")) return;
+    const d = s.setup.done;
+    if (d && d !== lastDone) {
+      lastDone = d;
+      if (d.ok && d.step === "engine.login") startPoll(d.step, st => st.engine.subscription.loggedIn === true);
+      if (d.ok && d.step === "engine.install") startPoll(d.step, st => st.engine.subscription.found && st.engine.subscription.loggedIn !== false);
+      if (d.ok && d.step === "github.login") startPoll(d.step, st => st.github.connected);
+    }
+    if (poll && s.setup.status && poll.isDone(s.setup.status)) stopPoll();
+  }
+
+  return { helperItem, engineItem, githubItem, agentRows, readOnlyRow, hookRow, tokenRow, devRow, onTopics, stopPoll, doneLine };
 }

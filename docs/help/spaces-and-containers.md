@@ -10,7 +10,7 @@ their own cookies and logins. Ensō follows the space you are in.
 |---|---|
 | Conversations | Each conversation belongs to the space of its first message. History shows this space's conversations by default; switch to **All** at the top. |
 | What Ensō knows | Your note about the space ("Work at Northwind: Figma, Linear; use my work accounts") and the space's own memory go with every message in that space. |
-| Memory | "Remember" can save a fact to the current space only. **Settings → Memory → Everywhere / <space>** shows either. |
+| Memory | "Remember" can save a fact to the current space only. **Settings → You & memory → Memory** (**Everywhere** or a space) shows either. |
 | Tabs | `@`-mentions list this space's tabs first. "List my tabs" means this space unless you ask for all. New tabs Ensō opens land in this space, in its container, so they use its logins. |
 | Recent chats widget | This space's conversations. |
 | Requests with your session | Made in a tab of the site in the right container, so they use the account you are signed in to in that space. |
@@ -18,7 +18,7 @@ their own cookies and logins. Ensō follows the space you are in.
 ## How do I describe my spaces?
 
 The first time you open Ensō it lists your spaces and asks what each is for.
-Change the notes in **Settings → Profile → Zen spaces**. Keep them short and
+Change the notes in **Settings → You & memory → Zen spaces**. Keep them short and
 practical: who you are there, which accounts and tools to use.
 
 ## How does Ensō know which space I'm in?

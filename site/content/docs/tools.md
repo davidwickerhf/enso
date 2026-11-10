@@ -9,7 +9,7 @@ group: Using Ensō
 
 Ensō reaches your mail, calendar, files, tasks and code through **tools**. Most come from **MCP servers** (Model Context Protocol); GitHub is built in. Claude decides when to use a tool; you decide what may run without asking.
 
-Open **Settings → Tools** in the sidebar, **Tools** in the full page, or click an icon under the new-tab box.
+Open **Settings → Connections → Manage** in the sidebar, **Tools** in the full page, or click an icon under the new-tab box.
 
 ## Where tools come from
 
@@ -50,7 +50,7 @@ Open a tool's row on the Tools page and use the switch. Switching a tool off rem
 
 Ensō's GitHub tools read your pull requests, reviews, issues and notifications **across every org and repository your account can see**, and can comment, review, label, assign, close and reopen when you ask. There is no merge or delete.
 
-**Settings → Setup → GitHub** shows whether you're connected. If you use the GitHub CLI, **Sign in with gh** opens Terminal with `gh auth login`; Ensō uses that sign-in, which works in every org that allows the GitHub CLI, without installing a GitHub App. Otherwise, create a token (classic with `repo`, `read:org` and `notifications`, or fine-grained), paste it in Setup (or in **GitHub** on the Tools page) and choose **Save token**. Ensō checks it with GitHub, then stores it in your Keychain. **Remove token** deletes it again.
+**Settings → Connections → GitHub** shows whether you're connected. If you use the GitHub CLI, **Sign in with gh** opens Terminal with `gh auth login`; Ensō uses that sign-in, which works in every org that allows the GitHub CLI, without installing a GitHub App. Otherwise, create a token (classic with `repo`, `read:org` and `notifications`, or fine-grained), paste it in Setup (or in **GitHub** on the Tools page) and choose **Save token**. Ensō checks it with GitHub, then stores it in your Keychain. **Remove token** deletes it again.
 
 An org that blocks both can still be read with your browser session, if you allow `github.com` in [session access](/docs/session-access).
 
@@ -81,11 +81,11 @@ Ensō sends it as a bearer token and never writes it to disk.
 
 Every tool call is shown in the conversation as it happens, with what was sent and a short preview of the result.
 
-- **Reading tools run straight away**: searching mail, listing events, reading a document. Turn this off in **Settings → Behaviour → Auto-approve read-only tools** so that everything asks.
+- **Reading tools run straight away**: searching mail, listing events, reading a document. Turn this off in **Settings → Privacy & safety → Run reading tools without asking** so that everything asks.
 - **Anything that changes something asks first**: sending or drafting mail, creating or moving events, editing files, deleting. The approval card shows the tool, its input and why Ensō wants it.
 - Choose **Allow** (this once), **Always allow** (this tool, from now on) or **Deny**.
 
-"Always allow" is per tool, not per server: allowing *create draft* does not allow *send*. **Settings → Always allowed** lists them; remove one to be asked again.
+"Always allow" is per tool, not per server: allowing *create draft* does not allow *send*. **Settings → Privacy & safety → Always allowed** lists them; remove one to be asked again.
 
 ## Adding more
 

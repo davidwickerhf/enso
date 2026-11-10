@@ -22,7 +22,7 @@ soon, Tasks and Clock.
 | Ask | Three things Ensō suggests asking today. | The brief |
 
 Widgets that read the brief update when the brief does: about once an hour and
-each morning (**Settings → Home**), or when you press refresh on Home. A widget
+each morning (**Settings → General → Refresh the brief**), or when you press refresh on Home. A widget
 whose tool isn't connected stays empty.
 
 ## How do I add, move or remove widgets?
@@ -94,4 +94,4 @@ of your Ensō data folder.
 
 ## Can I hide "Your tools" under the box?
 
-Yes: the **×** at the end of the strip. Manage tools in **Settings → Tools**.
+Yes: the **×** at the end of the strip. Manage tools in **Settings → Connections → Manage**.

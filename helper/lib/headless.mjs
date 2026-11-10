@@ -456,7 +456,7 @@ async function headlessAct(ctx, args, toolName, title, input) {
   const toolUseId = ctx.toolUse?.(toolName);
   const withSession = s.copied.some(c => c.cookies > 0);
   if (ctx.external) {
-    if (withSession && ctx.mode() !== "full") throw new Error("This headless browser carries the user's sessions; acting in it needs External control = Full (Ensō → Settings).");
+    if (withSession && ctx.mode() !== "full") throw new Error("This headless browser carries the user's sessions; acting in it needs Access = Full (Ensō → Settings → Agents & screenshots).");
   } else if (withSession && pageActionNeedsApproval(args)) {
     const decision = await ctx.ask({ toolUseId, tool: toolName, title, input, reason: args.irreversible ? "This can't be undone, and the headless browser is signed in as you." : "Claude suggested this step itself; the headless browser is signed in as you." });
     if (decision === "deny") throw new Error("The user declined this action.");
@@ -476,7 +476,7 @@ export const HEADLESS_TOOLS = [
     name: "headless_start",
     title: "Start headless Zen",
     description:
-      "Start a separate, invisible Zen with its own temporary profile (the user's windows are untouched), for developing and testing web apps. By default it is signed out of everything. `sites` (e.g. [\"github.com\", \"localhost\"]) copies only those sites' cookies (and with includeLocalStorage their localStorage) from the user's Zen, so the headless browser is signed in there; each site needs their permission (Ensō asks; MCP callers are refused unless they allowed the site in Ensō → Settings → Developer and external control is Full). Private sites are never copied. One headless browser at a time, shared with Ensō; starting again with different sites restarts it. It stops after 10 minutes idle, on headless_stop, or when Zen quits, and its profile is deleted.",
+      "Start a separate, invisible Zen with its own temporary profile (the user's windows are untouched), for developing and testing web apps. By default it is signed out of everything. `sites` (e.g. [\"github.com\", \"localhost\"]) copies only those sites' cookies (and with includeLocalStorage their localStorage) from the user's Zen, so the headless browser is signed in there; each site needs their permission (Ensō asks; MCP callers are refused unless they allowed the site in Ensō → Settings → Advanced and external control is Full). Private sites are never copied. One headless browser at a time, shared with Ensō; starting again with different sites restarts it. It stops after 10 minutes idle, on headless_stop, or when Zen quits, and its profile is deleted.",
     shape: {
       sites: z.array(z.string()).max(20).optional().describe("Hostnames whose sessions to copy, e.g. [\"github.com\"]; omit for a signed-out browser"),
       includeLocalStorage: z.boolean().optional().describe("Also copy those sites' localStorage (best effort)"),
@@ -492,14 +492,14 @@ export const HEADLESS_TOOLS = [
       const needAsk = sites.filter(h => sessionAccessFor(h, { anyScheme: true }) !== "allow");
       if (needAsk.length) {
         if (ctx.external) {
-          if (ctx.mode() !== "full") throw new Error("Copying the user's sessions needs External control = Full (Ensō → Settings).");
-          throw new Error(`The user hasn't allowed session access for ${needAsk.join(", ")}. They can allow sites in Ensō → Settings → Developer → Session access. Start without those sites, or ask them.`);
+          if (ctx.mode() !== "full") throw new Error("Copying the user's sessions needs Access = Full (Ensō → Settings → Agents & screenshots).");
+          throw new Error(`The user hasn't allowed session access for ${needAsk.join(", ")}. They can allow sites in Ensō → Settings → Privacy & safety → Session access. Start without those sites, or ask them.`);
         }
         const decision = await ctx.ask({ toolUseId, tool: "headless_start", title: `Copy your session on ${needAsk.join(", ")} to a headless browser`, input: { sites, includeLocalStorage: !!args.includeLocalStorage }, reason: "The headless browser would be signed in as you on these sites until it stops.", alwaysLabel: needAsk.length === 1 ? "Always allow on this site" : "Always allow these sites" });
         if (decision === "deny") throw new Error("The user declined copying these sessions.");
         if (decision === "always") needAsk.forEach(h => allowSessionAccess(h));
       } else if (sites.length && ctx.external && ctx.mode() !== "full") {
-        throw new Error("Copying the user's sessions needs External control = Full (Ensō → Settings).");
+        throw new Error("Copying the user's sessions needs Access = Full (Ensō → Settings → Agents & screenshots).");
       }
       if (session) {
         if (JSON.stringify([...session.sites].sort()) === JSON.stringify([...sites].sort()) && session.proc.exitCode === null) {

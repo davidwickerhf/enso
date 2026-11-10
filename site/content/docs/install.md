@@ -55,19 +55,19 @@ If the guide says the helper **didn't start**, run the same command again: it re
 
 ## 3. Finish in Setup
 
-Once the helper is connected, Ensō asks your name, a few lines about you and, if you use Zen spaces, what each space is for. **Skip for now** leaves them empty; change them later in **Settings → Profile**.
+Once the helper is connected, Ensō asks your name, a few lines about you and, if you use Zen spaces, what each space is for. **Skip for now** leaves them empty; change them later in **Settings → You & memory**.
 
-Then it opens **Settings → Setup**, a checklist the helper keeps up to date. Each item has a button:
+Then it opens **Settings → Setup**, which the helper keeps up to date. A dot on **Settings** means something there, or in Connections or Agents, needs you. Each item has a button:
 
-| Item | What the button does |
-|---|---|
-| **Helper** | Shows the installed version. **Update** runs the installer in the background and restarts the helper. |
-| **Claude** | Choose your subscription or an API key. **Install Claude Code** and **Sign in** open Terminal with Anthropic's installer or `claude auth login`; Setup notices when you're done. An API key goes from a password field straight into your Keychain. |
-| **Use Zen from your agents** | A switch each for Claude Code, Codex, Cursor and OpenCode (the ones found on your Mac), a **Read only** switch, and the **Claude Code hook** that delivers screenshots to an idle session. See [other agents](/docs/other-agents). |
-| **Send screenshots to T3 Code** | **Connect** or **Disconnect**, when T3 Code is installed. See [screenshots](/docs/screenshots). |
-| **GitHub** | Shows whether the GitHub CLI is signed in. **Sign in with gh** opens `gh auth login` in Terminal, or paste a token. |
-| **Tools** | Opens the [Tools](/docs/tools) page for claude.ai connectors and servers that need a sign-in. |
-| **Agent access token** | **Rotate** replaces the token agents use to reach Zen. |
+| Where | Item | What the button does |
+|---|---|---|
+| **Setup** | **Helper** | Shows the installed version. **Update** runs the installer in the background and restarts the helper. |
+| **Setup** | **Claude** | **Install Claude Code** and **Sign in** open Terminal with Anthropic's installer or `claude auth login`; Setup notices when you're done. With the API-key engine (**General → Engine**), the key goes from a password field straight into your Keychain. |
+| **Agents & screenshots** | **Agents that can use Zen** | A switch each for Claude Code, Codex, Cursor and OpenCode (the ones found on your Mac), **Register read only**, and the **Claude Code hook** that delivers screenshots to an idle session. See [other agents](/docs/other-agents). |
+| **Connections** | **T3 Code** | **Connect** or **Disconnect**. See [screenshots](/docs/screenshots). |
+| **Connections** | **GitHub** | Shows whether the GitHub CLI is signed in. **Sign in with gh** opens `gh auth login` in Terminal, or paste a token. |
+| **Connections** | **Tools** | **Manage** opens the [Tools](/docs/tools) page for claude.ai connectors and servers that need a sign-in. |
+| **Agents & screenshots** | **Agent access token** | **Rotate** replaces the token agents use to reach Zen. |
 
 Only Claude is needed to chat; everything else is optional. The same checks run in a terminal with `enso setup`, and every button has a command: `enso update`, `enso mcp install`, `enso t3 connect`, `enso mcp rotate`.
 

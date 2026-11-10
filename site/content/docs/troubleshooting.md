@@ -25,9 +25,9 @@ The subscription engine needs the `claude` command.
 
 - Open **Settings → Setup → Claude**: **Install Claude Code** or **Sign in** open Terminal with the right command, and the item turns green when it worked.
 - By hand: `claude --version`; if it isn't found, install Claude Code ([setup guide](https://docs.anthropic.com/en/docs/claude-code/setup)), then `claude auth login`.
-- Zen starts the helper with a minimal `PATH`. Ensō looks in your `PATH`, `~/.local/bin`, `~/.claude/local`, `/opt/homebrew/bin` and `/usr/local/bin`. If `claude` lives somewhere else, set **Settings → Engine → Claude Code location**.
+- Zen starts the helper with a minimal `PATH`. Ensō looks in your `PATH`, `~/.local/bin`, `~/.claude/local`, `/opt/homebrew/bin` and `/usr/local/bin`. If `claude` lives somewhere else, set **Settings → Advanced → Claude Code location**.
 
-Or switch to the API-key engine in Settings.
+Or switch to the API-key engine in **Settings → General → Engine**.
 
 ## "No Anthropic API key"
 
