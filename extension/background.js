@@ -635,10 +635,58 @@ function broadcast(msg) {
   }
 }
 
+// Helper state for the UIs (`helper.status`, docs/PROTOCOL.md): connecting |
+// connected | missing (no native-messaging manifest: install.sh hasn't run) |
+// failed (the manifest is there but the helper exited before saying anything) |
+// stopped (it ran, then went away) | restarting (it said it would, after an update).
+// While it isn't connected, connecting is retried: every 2 s while an Ensō page
+// is open (so the first-run guide moves on by itself once install.sh is done),
+// slower otherwise. Zen reads the manifest on every connectNative call, so no
+// restart is needed after installing.
+let helper = { state: "connecting", reason: null, at: Date.now() };
+let helperGotMessage = false;
+let helperRetryTimer = null;
+let helperFailures = 0;
+let helperRestarting = false;
+let helperConnectedAt = 0;
+
+function setHelper(state, reason = null) {
+  helper = { state, reason, at: Date.now() };
+  broadcast({ type: "helper.status", ...helper });
+}
+
+function scheduleHelperRetry(now = false) {
+  clearTimeout(helperRetryTimer);
+  const open = uis.size > 0;
+  const delay = now ? 0
+    : helper.state === "restarting" || helper.state === "stopped" ? Math.min(30_000, 500 * 2 ** helperFailures)
+    : helper.state === "missing" ? (open ? 2000 : 60_000)
+    : open ? Math.min(30_000, 2000 * 2 ** Math.min(helperFailures, 4)) : 5 * 60_000;
+  helperRetryTimer = setTimeout(() => {
+    helperRetryTimer = null;
+    if (!native) connectNative();
+  }, delay);
+}
+
 function connectNative() {
   if (native) return native;
-  native = browser.runtime.connectNative(HOST);
+  helperGotMessage = false;
+  try {
+    native = browser.runtime.connectNative(HOST);
+  } catch (err) {
+    native = null;
+    setHelper("missing", String(err?.message ?? err));
+    scheduleHelperRetry();
+    return null;
+  }
   native.onMessage.addListener(async msg => {
+    if (!helperGotMessage) {
+      helperGotMessage = true;
+      helperConnectedAt = Date.now();
+      helperRestarting = false;
+      setHelper("connected");
+    }
+    if (msg.type === "helper.restarting") helperRestarting = true;
     if (msg.type === "page.request" || msg.type === "browser.request") {
       const reply = { type: msg.type.replace("request", "response"), reqId: msg.reqId };
       try {
@@ -671,9 +719,19 @@ function connectNative() {
     broadcast(msg);
   });
   native.onDisconnect.addListener(port => {
-    const reason = port.error?.message || "the helper stopped";
+    const reason = port.error?.message || null;
+    const wasUp = helperGotMessage;
     native = null;
-    broadcast({ type: "event", conversationId: null, event: { kind: "error", code: "host_disconnected", text: `Lost the chat helper: ${reason}. Run scripts/install.sh if this keeps happening.` } });
+    if (/no such native application/i.test(reason ?? "")) setHelper("missing", reason);
+    else if (helperRestarting) setHelper("restarting", null);
+    else if (wasUp) {
+      setHelper("stopped", reason ?? "the helper stopped");
+      broadcast({ type: "event", conversationId: null, event: { kind: "error", code: "host_disconnected", text: `Lost Ensō's helper${reason ? `: ${reason}` : ""}. Reconnecting by itself…` } });
+    } else setHelper("failed", reason ?? "the helper exited as soon as it started");
+    // Back off when it keeps failing, or keeps crashing soon after starting.
+    helperFailures = wasUp && Date.now() - helperConnectedAt > 30_000 ? 0 : helperFailures + 1;
+    if (helper.state === "restarting") helperFailures = 0;
+    scheduleHelperRetry();
   });
   // Space detection must work with no Ensō page open (e.g. Claude Code calling over MCP).
   native.postMessage({ type: "spaces.list" });
@@ -682,6 +740,7 @@ function connectNative() {
 
 async function forward(msg) {
   const host = connectNative();
+  if (!host) return;
   if (msg.type === "chat.send") {
     const tab = await activeTab();
     msg.space = await spaceOf(tab);
@@ -710,7 +769,9 @@ browser.runtime.onConnect.addListener(port => {
   if (!String(port.sender?.url ?? "").startsWith(browser.runtime.getURL(""))) return void port.disconnect();
   uis.add(port);
   port.onDisconnect.addListener(() => uis.delete(port));
-  connectNative();
+  port.postMessage({ type: "helper.status", ...helper });
+  if (!connectNative()) scheduleHelperRetry();
+  else if (helper.state !== "connected" && helperRetryTimer) scheduleHelperRetry(); // a page is open now: retry at the faster pace
   pushCurrentPage(port);
   port.postMessage({ type: "agents", sessions: agentSessions });
   if (pendingCapture && String(port.sender?.url ?? "").includes("/sidebar.html")) {
@@ -729,6 +790,11 @@ browser.runtime.onConnect.addListener(port => {
       return;
     }
     if (msg.type === "page.current") return pushCurrentPage(port);
+    if (msg.type === "helper.retry") {
+      if (native && helper.state === "connected") port.postMessage({ type: "helper.status", ...helper });
+      else scheduleHelperRetry(true);
+      return;
+    }
     if (msg.type === "console.start") {
       const tab = await browser.tabs.get(Number(msg.tabId)).catch(() => null);
       if (!tab || !isWeb(tab.url) || isSensitive(tab.url)) return;

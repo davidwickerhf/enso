@@ -26,6 +26,10 @@ export function keychain(service) {
 // The key's Keychain item is "enso-anthropic"; installs from before the rename
 // stored it as "zen-chat-anthropic", which is still read when the new one is missing.
 let keyCache = { at: 0, value: null };
+/** Forget the cached key (after Setup stored or removed one). */
+export function clearApiKeyCache() {
+  keyCache = { at: 0, value: null };
+}
 export function apiKey(config) {
   if (process.env.ANTHROPIC_API_KEY) return process.env.ANTHROPIC_API_KEY;
   if (keyCache.value && Date.now() - keyCache.at < 60_000) return keyCache.value;

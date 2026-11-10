@@ -100,6 +100,11 @@ conversations, tool calls and approvals, and a streamed answer for every
 message.
 
 - `?onboarding=1` starts without a profile (the first-run card).
+- `?helper=missing` or `?helper=failed` shows the first-run install guide (no
+  helper, or one that can't start); add `&connectAfter=6` to have it connect
+  after 6 seconds, or call `__ensoMock.connectHelper()`.
+- `?setup=ready | mixed | fresh` sets the Settings → Setup checklist (default
+  `ready`); `#setup` opens it. Its buttons change the mock's state.
 - Messages to try: anything (a Gmail and calendar answer with a table), "fill
   in the form on this page" (page actions and an approval), "error" (the
   missing API key error); press Stop while an answer streams.
@@ -111,6 +116,7 @@ message.
   __ensoMock.prefill("text")           // what "Ask Ensō about this" does
   __ensoMock.githubConnected(false)    // the GitHub token box
   __ensoMock.disconnect()              // the "helper stopped" banner
+  __ensoMock.connectHelper()           // the helper appears (first-run guide → connected)
   ```
 
 Keep the mock fictional: no real names, addresses, hostnames or accounts. The

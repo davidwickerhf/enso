@@ -7,15 +7,16 @@ search your history, use GitHub, and test pages in a separate headless Zen.
 
 ## How do I set it up?
 
-The installer offers to set up Claude Code. For all of them:
+Open **Settings → Setup → Use Zen from your agents** and turn on the agents
+that may use Zen (Claude Code, Codex, Cursor and OpenCode, the ones found on
+your Mac). The same panel has **Read only** and the **Claude Code hook**. Start
+a new session in that agent, then ask "what tabs do I have open?".
+
+From a terminal, the same thing for every client it finds:
 
 ```sh
 enso mcp install
 ```
-
-It registers Ensō (as `zen-browser`) with Claude Code, Codex and Cursor,
-whichever you have. Restart them or start a new session, then ask "what tabs do
-I have open?".
 
 Just one: `enso mcp install --client codex` (`claude`, `codex` or `cursor`).
 Check with `enso mcp status`. Remove with `enso mcp uninstall`.

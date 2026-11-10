@@ -4,7 +4,9 @@
 // Topics: connection, state, conversations, conv:<id>, dashboard, settings,
 // servers, approvals, history, actions, memory, ui, tab, github, agents
 // (external agents' live sessions), agents-focus (the page pill was clicked),
-// shot (the screenshot send sheet), t3 (T3 Code connection), toast.
+// shot (the screenshot send sheet), t3 (T3 Code connection), toast,
+// helper (is the native helper installed and running: the first-run guide),
+// setup (Settings → Setup checklist).
 
 export function createStore() {
   const listeners = new Set();
@@ -58,6 +60,9 @@ export function createStore() {
     // The screenshot send sheet (views/send.js): capture → targets → send.
     shot: null,              // { image, mode, tab, consoleErrors, capturing, error, targets, target, picker, sending, includePage, includeErrors, message, remember }
     t3: { status: null, busy: null, done: null }, // T3 Code connection (Settings), from the helper's `t3` messages
+    // The native helper as background.js sees it (`helper.status`): connecting | connected | missing | failed | stopped | restarting.
+    helper: { state: "connecting", reason: null, at: 0, everConnected: false },
+    setup: { status: null, busy: null, done: null, loading: false }, // Settings → Setup (`setup` messages)
     toast: null,             // { text, kind, action?: { label, run } }
     ui: { view: "home", currentId: null, includePage: true, pendingSend: null, notice: null, scope: "space" },
   };
@@ -358,6 +363,26 @@ export function createStore() {
         s.t3 = { status: msg.status ?? s.t3.status, busy: null, done: msg.done ?? null };
         emit("t3");
         return;
+      case "helper.status": {
+        const was = s.helper.state;
+        s.helper = { state: msg.state, reason: msg.reason ?? null, at: msg.at ?? Date.now(), everConnected: s.helper.everConnected || msg.state === "connected" };
+        // Back after being away (installed just now, restarted after an update): fetch everything again.
+        if (msg.state === "connected" && was !== "connected" && was !== "connecting") {
+          actions.hello();
+          if (s.setup.status || s.ui.view === "setup") send({ type: "setup.status" });
+        }
+        if (msg.state === "connected" && s.globalError?.code === "host_disconnected") { s.globalError = null; emit("banner"); }
+        emit("helper");
+        return;
+      }
+      case "helper.restarting":
+        s.helper = { ...s.helper, state: "restarting" };
+        emit("helper");
+        return;
+      case "setup":
+        s.setup = { status: msg.status ?? s.setup.status, busy: msg.done ? null : s.setup.busy, done: msg.done ?? s.setup.done, loading: false };
+        emit("setup");
+        return;
       case "agents": {
         if (Array.isArray(msg.connected)) s.connectedAgents = msg.connected;
         s.agents = Array.isArray(msg.sessions) ? msg.sessions : [];
@@ -500,7 +525,7 @@ export function createStore() {
     const m = location.hash.match(/^#conversation=(.+)$/);
     if (m) return { view: "chat", id: decodeURIComponent(m[1]) };
     const view = location.hash.slice(1);
-    return ["history", "activity", "settings", "reports", "tools"].includes(view) ? { view } : { view: "home" };
+    return ["history", "activity", "settings", "reports", "tools", "setup"].includes(view) ? { view } : { view: "home" };
   }
 
   // ---- actions (UI → host) ----------------------------------------------
@@ -772,6 +797,12 @@ export function createStore() {
     t3Disconnect() { s.t3 = { ...s.t3, busy: "disconnect", done: null }; emit("t3"); send({ type: "t3.disconnect" }); },
     openT3(threadId) { send({ type: "t3.open", threadId }); },
     dismissToast() { s.toast = null; emit("toast"); },
+    // First-run guide: ask background.js to try the helper again now.
+    helperRetry() { send({ type: "helper.retry" }); },
+    // Settings → Setup. setupRun options may carry a key or token: it goes to the helper only, and is never kept here.
+    setupStatus(fresh = false) { s.setup = { ...s.setup, loading: !s.setup.status }; emit("setup"); send({ type: "setup.status", fresh }); },
+    setupRun(step, options = {}) { s.setup = { ...s.setup, busy: step, busyFor: typeof options.client === "string" ? options.client : null, done: null }; emit("setup"); send({ type: "setup.run", step, options }); },
+    clearSetupDone() { s.setup = { ...s.setup, done: null }; emit("setup"); },
   };
 
   /** Title and subtitle of a send target from the last targets list. */

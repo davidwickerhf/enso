@@ -104,25 +104,25 @@
 </section>
 
 <section class="wrap install" id="install" aria-labelledby="install-title">
-	<h2 id="install-title">Install it in three steps.</h2>
+	<h2 id="install-title">Install it in two steps.</h2>
 	<ol class="steps">
-		<li>
-			<h3>Install the helper</h3>
-			<p>A small Node.js program that Zen starts when you open Ensō. The script checks your Mac, Node and Claude Code, and says what it does.</p>
-			<CopyCommand command={installCommand} />
-		</li>
 		<li>
 			<h3>Add the extension</h3>
 			<p>Zen asks you to confirm. Updates arrive on their own after that.</p>
 			<a class="btn" href="/releases/enso-latest.xpi">Download the extension</a>
 		</li>
 		<li>
-			<h3>Open a new tab</h3>
-			<p>Type a site, a search or a question. On any page, press <kbd>⌘E</kbd>.</p>
+			<h3>Run one command</h3>
+			<p>Press <kbd>⌘E</kbd> and Ensō shows this with a Copy button: paste it in Terminal. It installs the helper Zen starts, with its own Node if your Mac has none, and asks no questions.</p>
+			<CopyCommand command={installCommand} />
+		</li>
+		<li>
+			<h3>Finish in Setup</h3>
+			<p>Claude, your agents, T3 Code and GitHub: a button each in Settings → Setup. Then open a new tab and ask.</p>
 		</li>
 	</ol>
 	<p class="req">
-		Needs macOS (Linux later), Zen or Firefox 139 or newer, Node 18+, and Claude Code signed in or an Anthropic API key. Questions count against
+		Needs macOS (Linux later), Zen or Firefox 139 or newer, and your Claude plan (through Claude Code, which Setup installs) or an Anthropic API key. Questions count against
 		your Claude plan’s usage, as they do in Claude Code. <a href="/docs/install">Full instructions</a>
 	</p>
 </section>
@@ -268,7 +268,7 @@
 		margin: 0;
 		padding: 0;
 		display: grid;
-		grid-template-columns: 1.5fr 1fr 1fr;
+		grid-template-columns: minmax(0, 1fr) minmax(0, 1.5fr) minmax(0, 1fr);
 		gap: clamp(1.5rem, 4vw, 3rem);
 		counter-reset: step;
 	}

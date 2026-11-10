@@ -518,13 +518,24 @@ function editClaudeSettings(mode, { launcher } = {}) {
 
 // ---------- commands ----------
 
+/** Which clients look installed on this machine: { claude, codex, cursor, opencode } → bool. */
+export function detectClients() {
+  return {
+    claude: !!findClaudeBin(),
+    codex: existsSync(path.dirname(codexConfig())),
+    cursor: existsSync(path.dirname(cursorConfig())),
+    opencode: existsSync(opencodeDir()),
+  };
+}
+
 /** "all" = every client that looks installed on this machine. */
 export function resolveClients(which = "all") {
   if (which !== "all") {
     if (!CLIENTS.includes(which)) throw new Error(`Unknown client "${which}" (claude, codex, cursor, opencode or all)`);
     return [which];
   }
-  return CLIENTS.filter(c => (c === "claude" ? !!findClaudeBin() : c === "codex" ? existsSync(path.dirname(codexConfig())) : c === "cursor" ? existsSync(path.dirname(cursorConfig())) : existsSync(opencodeDir())));
+  const found = detectClients();
+  return CLIENTS.filter(c => found[c]);
 }
 
 const installOne = (c, o) => (c === "claude" ? installClaude(o) : c === "codex" ? editCodex("install", o) : c === "cursor" ? editCursor("install", o) : editOpencode("install", o));
@@ -540,6 +551,11 @@ export function uninstall({ client = "all", hooks = false } = {}) {
   const results = resolveClients(client).map(c => (c === "claude" ? uninstallClaude() : c === "codex" ? editCodex("uninstall") : c === "cursor" ? editCursor("uninstall") : editOpencode("uninstall")));
   if (hooks || client === "all" || client === "claude") results.push(editClaudeSettings("uninstall"));
   return results;
+}
+
+/** Turn Claude Code's UserPromptSubmit hook (`--hooks`) on or off, without touching the server entry. */
+export function setHook(on, { dir = dataDir(), log = () => {} } = {}) {
+  return on ? editClaudeSettings("install", { launcher: ensureLauncher(dir, log) }) : editClaudeSettings("uninstall");
 }
 
 /** Which clients have zen-browser registered, and how (never values). */

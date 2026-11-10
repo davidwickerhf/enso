@@ -32,6 +32,8 @@ the limits you set. Privacy (what leaves the Mac) is in [privacy.md](privacy.md)
 | A web page calling the local MCP server | `fetch("http://127.0.0.1:47823/mcp")` from a site | Requests with an `Origin` header get 403; a bearer token is required. |
 | Another user on the same Mac | Reading tokens or data | Token files are 0600; secrets are in the login Keychain; the data folder is in your home folder. |
 | Tampered helper download | A modified tarball | `install.sh` checks the SHA-256 published at `/api/latest` and refuses without one. |
+| Tampered Node download | A modified Node.js archive (only fetched when the Mac has no Node 18+) | `install.sh` pins the SHA-256 of Node's darwin-arm64 and darwin-x64 archives (taken from nodejs.org's signed SHASUMS256.txt) and refuses anything else. |
+| Setup running commands | A page or another extension asking the helper to run something | `setup.run` only accepts its fixed steps; Terminal steps open fixed commands written by the helper, never one from the UI. Ensō's `ui` port only accepts Ensō's own pages. Keys and tokens typed in Setup go to the Keychain through `security -i` on stdin and are never logged or echoed. |
 | Tampered extension | An unsigned or modified `.xpi` | Release builds are signed by addons.mozilla.org; Zen refuses unsigned extensions unless signature checks are switched off. |
 
 Out of scope: malware running as your user (it can read the data folder, the

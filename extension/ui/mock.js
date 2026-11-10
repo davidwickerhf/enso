@@ -16,6 +16,9 @@
 // ?links=1 adds linked threads (Settings → Send screenshots).
 // ?monday=ok | down | off: monday.com signed in and working (default), signed in
 // but its server failing (HTTP 500), or not connected.
+// ?helper=missing | failed: no helper yet (the first-run install guide) or one that
+// can't start; &connectAfter=6 connects it after 6 seconds (or __ensoMock.connectHelper()).
+// ?setup=ready | mixed | fresh: the Settings → Setup checklist (default ready); #setup opens it.
 
 const MIN = 60_000;
 const HOUR = 60 * MIN;
@@ -804,11 +807,128 @@ Want me to draft the reply to Jonas, or open the [Vercel deployment](https://ver
   }
   if (shotPreset) setTimeout(() => mockCapture("region"), 300);
 
+  // ---- the native helper (first-run guide) and Settings → Setup ----
+  const helperPreset = params.get("helper");
+  let helperState = helperPreset === "missing" || helperPreset === "failed" ? helperPreset : "connected";
+  out({ type: "helper.status", state: helperState, reason: helperState === "failed" ? "exit code 127" : null, at: now() });
+  function connectHelper() {
+    if (helperState === "connected") return;
+    helperState = "connected";
+    out({ type: "helper.status", state: "connected", reason: null, at: now() });
+  }
+  if (helperState !== "connected" && Number(params.get("connectAfter")) > 0) setTimeout(connectHelper, Number(params.get("connectAfter")) * 1000);
+  const setupPreset = params.get("setup") ?? "ready";
+  const SETUP_DATA = "/Users/maya/Library/Application Support/Enso";
+  const setupState = {
+    version: "0.5.4",
+    latest: setupPreset === "mixed" ? "0.5.5" : "0.5.4",
+    claudeFound: setupPreset !== "fresh",
+    loggedIn: setupPreset === "ready",
+    apiStored: false,
+    clients: setupPreset === "ready" ? { claude: "launcher", codex: "launcher", cursor: null, opencode: null } : setupPreset === "mixed" ? { claude: "launcher", codex: null, cursor: null, opencode: null } : { claude: null, codex: null, cursor: null, opencode: null },
+    detected: setupPreset === "fresh" ? { claude: false, codex: true, cursor: false, opencode: false } : { claude: true, codex: true, cursor: true, opencode: false },
+    hook: setupPreset === "ready",
+    t3Installed: setupPreset !== "fresh",
+    t3Connected: setupPreset === "ready",
+    gh: setupPreset === "ready" ? { ghInstalled: true, connected: true, login: "maya-designs", via: "GitHub CLI" } : { ghInstalled: setupPreset === "mixed", connected: false, login: null, via: null },
+  };
+  const CLIENT_NAMES = { claude: "Claude Code", codex: "Codex", cursor: "Cursor", opencode: "OpenCode" };
+  function setupStatus() {
+    const st = setupState;
+    const reg = Object.values(st.clients).filter(Boolean);
+    const on = servers.filter(x => x.enabled !== false);
+    return {
+      checkedAt: iso(now()),
+      helper: { version: st.version, dev: false, latest: st.latest, updateAvailable: st.version !== st.latest, error: null, node: { path: `${SETUP_DATA}/runtime/node/bin/node`, version: "24.22.2", source: "private" }, installedAt: iso(now() - 3 * 86_400_000) },
+      engine: {
+        selected: settings.engine,
+        subscription: st.claudeFound ? { found: true, path: "/Users/maya/.local/bin/claude", version: "2.1.321 (Claude Code)", loggedIn: st.loggedIn, authMethod: st.loggedIn ? "claude.ai" : "none", subscriptionType: st.loggedIn ? "max" : null, email: st.loggedIn ? "maya@northwind.example" : null } : { found: false, reason: "Claude Code isn't installed.", installCommand: "curl -fsSL https://claude.ai/install.sh | bash" },
+        api: { stored: st.apiStored, source: st.apiStored ? "keychain" : null },
+      },
+      agents: { launcher: `${SETUP_DATA}/bin/enso`, clients: Object.keys(CLIENT_NAMES).map(id => ({ id, name: CLIENT_NAMES[id], detected: st.detected[id] || !!st.clients[id], registration: st.clients[id] })), readOnly: reg.length > 0 && reg.every(r => r === "launcher-read"), hook: st.hook },
+      t3: { installed: st.t3Installed, connected: st.t3Connected, reachable: st.t3Connected, tokenValid: st.t3Connected ? true : null, serverVersion: st.t3Connected ? "0.1.9-nightly" : null, error: null },
+      github: { ...st.gh, error: null },
+      tools: { total: servers.length, on: on.length, needsAuth: on.filter(x => x.status === "needs-auth").length },
+      mcp: { port: 47823, listening: true },
+    };
+  }
+  const setupDone = (step, ok, text, extra = {}) => out({ type: "setup", status: setupStatus(), done: { step, ok, ...(ok ? { message: text } : { error: text }), ...extra } });
+  function setupRun(step, o = {}) {
+    const st = setupState;
+    const later = (ms, fn) => setTimeout(fn, ms);
+    switch (step) {
+      case "helper.update":
+        return later(1600, () => {
+          setupDone(step, true, `Updated to ${st.latest}. Restarting the helper…`, { restart: true });
+          out({ type: "helper.restarting" });
+          later(300, () => { out({ type: "helper.status", state: "restarting", at: now() }); });
+          later(1800, () => { st.version = st.latest; out({ type: "helper.status", state: "connected", at: now() }); });
+        });
+      case "engine.login":
+        later(500, () => setupDone(step, true, "Terminal is open: follow the sign-in there, then come back."));
+        return later(5000, () => { st.loggedIn = true; });
+      case "engine.install":
+        later(500, () => setupDone(step, true, "Terminal is open: it installs Claude Code, then asks you to sign in."));
+        return later(6000, () => { st.claudeFound = true; st.loggedIn = true; });
+      case "engine.apiKey":
+        return later(600, () => {
+          if (!/^sk-ant-[A-Za-z0-9_-]{20,}$/.test(String(o.key ?? ""))) return setupDone(step, false, "That doesn't look like an Anthropic API key (it starts with sk-ant-).");
+          st.apiStored = true;
+          setupDone(step, true, "Saved to your Keychain. The key works.");
+        });
+      case "engine.forgetApiKey":
+        st.apiStored = false;
+        return later(300, () => setupDone(step, true, "Removed the key from your Keychain."));
+      case "agents.register":
+        return later(700, () => { st.clients[o.client] = o.readOnly ? "launcher-read" : "launcher"; setupDone(step, true, `${CLIENT_NAMES[o.client]} can use Zen${o.readOnly ? " (read only)" : ""}. Start a new session there to pick it up.`); });
+      case "agents.unregister":
+        return later(500, () => { st.clients[o.client] = null; if (o.client === "claude") st.hook = false; setupDone(step, true, `Removed zen-browser from ${CLIENT_NAMES[o.client]}.`); });
+      case "agents.readOnly":
+        return later(600, () => { for (const k of Object.keys(st.clients)) if (st.clients[k]) st.clients[k] = o.readOnly ? "launcher-read" : "launcher"; setupDone(step, true, `${o.readOnly ? "Read only" : "Full access"} for ${Object.keys(st.clients).filter(k => st.clients[k]).map(k => CLIENT_NAMES[k]).join(", ")}.`); });
+      case "agents.hook":
+        return later(400, () => { st.hook = !!o.on; setupDone(step, true, o.on ? "Claude Code gets screenshots and notes with your next message." : "Removed the Claude Code hook."); });
+      case "t3.connect":
+        return later(900, () => { st.t3Connected = true; setupDone(step, true, "Connected to T3 Code."); });
+      case "t3.disconnect":
+        return later(400, () => { st.t3Connected = false; setupDone(step, true, "Revoked Ensō's T3 session."); });
+      case "github.login":
+        later(500, () => setupDone(step, true, "Terminal is open: follow the GitHub sign-in there, then come back."));
+        return later(6000, () => { st.gh = { ghInstalled: true, connected: true, login: "maya-designs", via: "GitHub CLI" }; });
+      case "github.token":
+        return later(700, () => {
+          if (!/^(ghp_|github_pat_|gho_)[A-Za-z0-9_]{16,}$/.test(String(o.token ?? ""))) return setupDone(step, false, "That doesn't look like a GitHub token (ghp_…, github_pat_… or gho_…).");
+          st.gh = { ghInstalled: st.gh.ghInstalled, connected: true, login: "maya-designs", via: "Keychain" };
+          setupDone(step, true, "Signed in to GitHub as maya-designs.");
+        });
+      case "github.forget":
+        st.gh = { ...st.gh, connected: false, login: null, via: null };
+        return later(300, () => setupDone(step, true, "Removed Ensō's GitHub token from your Keychain."));
+      case "mcp.rotate":
+        return later(300, () => setupDone(step, true, "New tokens written. Agents started with enso mcp keep working."));
+      default:
+        return later(100, () => setupDone(step, false, `Unknown setup step: ${step}`));
+    }
+  }
+
   const sendAgents = () => out({ type: "agents", sessions: agents, connected: connectedAgents() });
   const patchAgent = (id, patch) => { agents = agents.map(a => (a.id === id ? { ...a, ...patch } : a)); sendAgents(); };
 
   function handle(msg) {
+    // No helper: background.js answers nothing but helper.retry.
+    if (helperState !== "connected") {
+      if (msg.type === "helper.retry") out({ type: "helper.status", state: helperState, reason: helperState === "failed" ? "exit code 127" : null, at: now() });
+      return;
+    }
     switch (msg.type) {
+      case "helper.retry":
+        out({ type: "helper.status", state: "connected", at: now() });
+        return;
+      case "setup.status":
+        setTimeout(() => out({ type: "setup", status: setupStatus() }), msg.fresh ? 500 : 250);
+        return;
+      case "setup.run":
+        setupRun(msg.step, msg.options ?? {});
+        return;
       case "agents.list":
         sendAgents();
         return;
@@ -1138,7 +1258,9 @@ Want me to draft the reply to Jonas, or open the [Vercel deployment](https://ver
     },
     // GitHub's tools-panel state: githubConnected(false) shows the token box.
     githubConnected(on) { servers.splice(servers.findIndex(x => x.name === "github"), 1, githubEntry(!!on)); out({ type: "servers", servers }); },
-    disconnect() { out({ type: "event", conversationId: null, event: { kind: "error", code: "host_disconnected", text: "Lost Ensō's helper: the native host exited. Run the installer again if this persists.", at: iso(now()) } }); },
+    disconnect() { out({ type: "event", conversationId: null, event: { kind: "error", code: "host_disconnected", text: "Lost Ensō's helper: the native host exited. Reconnecting by itself…", at: iso(now()) } }); },
+    // First-run guide: the helper appears (install.sh finished).
+    connectHelper,
     setActiveTab(tabId) {
       activeTabId = tabId;
       out({ type: "page.current", tab: tabOut(activeTab()), space: spaceRef(currentSpaceId()) });

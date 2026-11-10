@@ -58,11 +58,7 @@ T3 Code has to be open. Your threads appear in the list only while it is running
 
 Any agent connected to Zen through Ensō (see [Use Zen from other agents](/docs/other-agents)) is listed under **Agents**, even when it's idle. The screenshot waits for it and arrives with its next step in Zen, as an image, marked as coming from you. You can also tell the agent "I sent you a screenshot": it fetches it with `inbox_read`.
 
-So that an idle **Claude Code** gets it with your next message instead, add its prompt hook once:
-
-```sh
-enso mcp install --hooks
-```
+So that an idle **Claude Code** gets it with your next message instead, turn on **Claude Code hook** in **Settings → Setup → Use Zen from your agents** (or run `enso mcp install --hooks`).
 
 Claude Code then gets the screenshot's file path with your message and opens it. Codex and OpenCode have no such hook; they get it with their next step or when they call `inbox_read`.
 

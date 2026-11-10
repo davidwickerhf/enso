@@ -5,6 +5,8 @@
 //   mcp                        always (launcher, scopes, client registration)
 //   agents                     always (agent sessions, steering, the live push to the UI, screenshots to agents)
 //   t3                         always (T3 Code: fake server and CLI, target order, token store, launcher header, installers)
+//   setup                      always (Setup checklist: setup.status / setup.run with fakes, through host.mjs too)
+//   install                    macOS (scripts/install.sh twice in a throwaway HOME with a fake helper tarball)
 //   pageagent                  always; skips itself without Playwright's Chromium
 //                              (Google Docs typing, title prefix, page pill)
 //   sdk-mcp                    only with ENSO_TEST_SDK=1 (one real turn on your Claude plan)
@@ -14,7 +16,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const tests = ["unit.test.mjs", "hello.test.mjs", "tasks.test.mjs", "monday.test.mjs", "mcp.test.mjs", "agents.test.mjs", "t3.test.mjs", "pageagent.test.mjs"];
+const tests = ["unit.test.mjs", "hello.test.mjs", "tasks.test.mjs", "monday.test.mjs", "mcp.test.mjs", "agents.test.mjs", "t3.test.mjs", "setup.test.mjs", "install.test.mjs", "pageagent.test.mjs"];
 if (process.platform === "darwin" && process.env.ENSO_SKIP_KEYCHAIN !== "1") tests.push("connections.test.mjs", "host-connect.test.mjs");
 if (process.env.ENSO_TEST_SDK === "1") tests.push("sdk-mcp.test.mjs");
 

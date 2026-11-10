@@ -50,13 +50,7 @@ Open a tool's row on the Tools page and use the switch. Switching a tool off rem
 
 Ensō's GitHub tools read your pull requests, reviews, issues and notifications **across every org and repository your account can see**, and can comment, review, label, assign, close and reopen when you ask. There is no merge or delete.
 
-If you use the GitHub CLI, sign in there and you are done:
-
-```sh
-gh auth login
-```
-
-Ensō uses that sign-in, which works in every org that allows the GitHub CLI, without installing a GitHub App. Otherwise, create a token (classic with `repo`, `read:org` and `notifications`, or fine-grained), open **GitHub** on the Tools page, paste it and choose **Save**. Ensō checks it with GitHub, then stores it in your Keychain. To remove a saved token later, run `security delete-generic-password -s enso-github`.
+**Settings → Setup → GitHub** shows whether you're connected. If you use the GitHub CLI, **Sign in with gh** opens Terminal with `gh auth login`; Ensō uses that sign-in, which works in every org that allows the GitHub CLI, without installing a GitHub App. Otherwise, create a token (classic with `repo`, `read:org` and `notifications`, or fine-grained), paste it in Setup (or in **GitHub** on the Tools page) and choose **Save token**. Ensō checks it with GitHub, then stores it in your Keychain. **Remove token** deletes it again.
 
 An org that blocks both can still be read with your browser session, if you allow `github.com` in [session access](/docs/session-access).
 

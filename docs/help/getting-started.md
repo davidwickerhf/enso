@@ -11,27 +11,36 @@ or an Anthropic API key, and keeps what it knows on your Mac.
 |---|---|
 | Mac | macOS. Linux and Windows aren't supported yet. |
 | Browser | [Zen](https://zen-browser.app). Firefox 139 or newer works too, without Zen's spaces. |
-| Node.js | 18 or newer. Check with `node --version`; install from [nodejs.org](https://nodejs.org). |
-| Claude | [Claude Code](https://docs.anthropic.com/en/docs/claude-code/setup) installed and signed in once (`claude`), to use your Claude plan. Or an Anthropic API key. |
+| Claude | Your Claude plan (through Claude Code, which Setup installs for you) or an Anthropic API key. |
+
+Nothing else has to be installed first: if your Mac has no Node.js 18 or newer,
+the installer fetches Ensō's own copy.
 
 ## How do I install it?
 
-1. Open Terminal and run:
+1. **Add the extension.** Open <https://enso.wicker.life/releases/enso-latest.xpi>
+   in Zen. Zen asks whether to add Ensō and lists its permissions. Choose **Add**.
+2. **Run one command.** Press <kbd>⌘E</kbd>. Ensō sees its helper isn't there yet
+   and shows this command with a **Copy** button:
 
    ```sh
    curl -fsSL https://enso.wicker.life/install.sh | bash
    ```
 
-   The script prints each step. It checks your Mac, Node and Claude Code;
-   downloads the helper and checks its SHA-256; installs it in
-   `~/Library/Application Support/Enso/helper`; registers it with Zen and
-   Firefox; writes the `enso` command; asks whether Claude Code may use Zen;
-   and opens the extension in Zen. It needs no password and leaves your data
-   alone.
+   Open Terminal (<kbd>⌘ Space</kbd>, type *Terminal*, <kbd>Return</kbd>), paste
+   it and press <kbd>Return</kbd>. It downloads the helper and checks its
+   SHA-256 (and, only if needed, Node.js, checked against a pinned SHA-256);
+   installs it in `~/Library/Application Support/Enso/helper`; registers it with
+   Zen and Firefox; writes the `enso` command; and prints a short summary. It
+   asks no questions, needs no password and leaves your data alone. Ensō moves
+   on by itself when it's done: no need to restart Zen.
 
-2. Zen asks whether to add Ensō and lists its permissions. Choose **Add**.
-3. If Zen was already open, quit it fully (<kbd>⌘Q</kbd>) and open it again, so
-   it picks up the helper.
+   Why a terminal step? Browsers don't let an extension install or start a
+   program, and an extension can't open Terminal either. It's the only one.
+3. **Finish in Setup.** After a few words about you, Ensō opens
+   **Settings → Setup**: install or sign in to Claude Code (or paste an API key),
+   let Claude Code, Codex, Cursor or OpenCode use Zen, connect T3 Code and GitHub.
+   Each item is a button; the same checks run in a terminal with `enso setup`.
 
 Prefer to read the script first: `curl -fsSL https://enso.wicker.life/install.sh -o install.sh`, read it, then `bash install.sh`.
 
@@ -87,8 +96,10 @@ Next: [the sidebar and the new tab](sidebar-and-new-tab.md).
 
 ## How do I update it?
 
-The extension updates itself. For the helper, run the install command again;
-it replaces the program and keeps your data. Then quit and reopen Zen.
+The extension updates itself. For the helper, choose **Update** in
+**Settings → Setup** when it says a new version is out (or run `enso update`, or
+the install command again). It replaces the program, keeps your data, and Ensō
+reconnects by itself.
 
 ## How do I uninstall it?
 
