@@ -1,6 +1,6 @@
 // The address bar as Ensō's box, on Ensō's side:
 //   createUrlbarArrival: the new-tab page opened for a query typed in Zen's address
-//     bar (background.js → newtab.html#urlbar). Asks Ensō with a one-click "Search
+//     bar (background.js → full.html#urlbar; not the new-tab page, which Zen closes when replace-newtab is on). Asks Ensō with a one-click "Search
 //     <engine> instead", or shows the two-option chooser, plus the active rule.
 //   createAddressBarSetting: the one Settings row (mode, web search engine, whether
 //     Ensō is Zen's default engine and how to make it so).

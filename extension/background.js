@@ -1166,6 +1166,7 @@ browser.tabs.onRemoved.addListener(tabId => {
 // the query from this script with runtime.sendMessage, so it isn't in any URL).
 // Where a query goes: ui/route.js and the addressBar setting (storage.local).
 
+const FULL_PAGE = browser.runtime.getURL("full.html");
 const ASK_FILTER = { url: [{ hostEquals: "enso.wicker.life", pathEquals: "/ask" }] };
 const urlbarQueries = new Map(); // tabId → what Ensō's page should do with the query
 
@@ -1191,7 +1192,9 @@ async function fromAddressBar(tabId, url) {
   const entry = { query: r.text, to: r.to === "web" && !r.text ? "enso" : r.to, forced: r.forced, mode: prefs.mode, engine, ensoIsDefault, lastChoice: prefs.lastChoice ?? null };
   urlbarQueries.set(tabId, entry);
   setTimeout(() => { if (urlbarQueries.get(tabId) === entry) urlbarQueries.delete(tabId); }, 60_000);
-  await browser.tabs.update(tabId, { url: `${NEWTAB}#urlbar`, loadReplace: true }).catch(() => {});
+  // Ensō's full page, not the new-tab page: with zen.urlbar.replace-newtab on,
+  // Zen closes any tab that shows the new-tab URL, so the query vanished.
+  await browser.tabs.update(tabId, { url: `${FULL_PAGE}#urlbar`, loadReplace: true }).catch(() => {});
   forget();
   setTimeout(forget, 2000);
 }
@@ -1205,7 +1208,7 @@ browser.webNavigation.onReferenceFragmentUpdated.addListener(({ tabId, frameId, 
 }, ASK_FILTER);
 
 browser.runtime.onMessage.addListener((msg, sender) => {
-  if (msg?.ensoUrlbar !== "take" || sender.tab?.id == null || !sender.url?.startsWith(NEWTAB)) return;
+  if (msg?.ensoUrlbar !== "take" || sender.tab?.id == null || !(sender.url?.startsWith(FULL_PAGE) || sender.url?.startsWith(NEWTAB))) return;
   const entry = urlbarQueries.get(sender.tab.id) ?? null;
   urlbarQueries.delete(sender.tab.id);
   return Promise.resolve(entry);
