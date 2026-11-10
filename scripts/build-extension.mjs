@@ -82,6 +82,8 @@ export function findDynamicCode(text) {
   return hits;
 }
 
+const rel = (root, f) => path.relative(root, f).split(path.sep).join("/");
+
 function walk(dir) {
   return readdirSync(dir).flatMap(name => {
     const p = path.join(dir, name);
@@ -101,7 +103,7 @@ export function build({ src, out, channel }) {
   if (channel === "listed") {
     for (const f of files.filter(f => f.endsWith(".js"))) {
       const before = readFileSync(f, "utf8");
-      const r = stripUnlistedOnly(before, path.relative(out, f));
+      const r = stripUnlistedOnly(before, rel(out, f));
       if (r.blocks) writeFileSync(f, r.text);
       blocks += r.blocks;
     }
@@ -110,7 +112,7 @@ export function build({ src, out, channel }) {
   if (channel === "listed") {
     const left = files
       .filter(f => /\.(m?js|html?)$/.test(f))
-      .flatMap(f => findDynamicCode(readFileSync(f, "utf8")).map(h => `${path.relative(out, f)}:${h.line}: ${h.match}  ${h.text}`));
+      .flatMap(f => findDynamicCode(readFileSync(f, "utf8")).map(h => `${rel(out, f)}:${h.line}: ${h.match}  ${h.text}`));
     if (left.length) throw new Error(`Dynamic code left in the listed build:\n${left.join("\n")}`);
     if (!blocks) throw new Error("No <unlisted-only> blocks found: is this the right source folder?");
   }
