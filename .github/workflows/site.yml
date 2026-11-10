@@ -19,7 +19,7 @@ jobs:
         image: postgres:17-alpine
         env:
           POSTGRES_USER: enso
-          POSTGRES_PASSWORD: enso
+          POSTGRES_HOST_AUTH_METHOD: trust
           POSTGRES_DB: enso_test
         ports: ['5432:5432']
         options: >-
@@ -28,8 +28,8 @@ jobs:
       run:
         working-directory: site
     env:
-      TEST_DATABASE_URL: postgres://enso:enso@localhost:5432/enso_test
-      DATABASE_URL: postgres://enso:enso@localhost:5432/enso_test
+      TEST_DATABASE_URL: postgres://enso@localhost:5432/enso_test
+      DATABASE_URL: postgres://enso@localhost:5432/enso_test
       BETTER_AUTH_SECRET: ci-only-secret-ci-only-secret-ci-only-secret
     steps:
       - uses: actions/checkout@v4
