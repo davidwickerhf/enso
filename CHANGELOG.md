@@ -5,6 +5,13 @@ share one version number. Dates are the tag dates. Releases are published to
 <https://enso.wicker.life> by the release workflow ([docs/releasing.md](docs/releasing.md));
 the extension updates itself, the helper updates when you run the installer again.
 
+## 0.5.6.1 (10 November 2026)
+
+The same code as 0.5.6, signed as a self-distributed build so enso.wicker.life
+can offer it for direct download while 0.5.6 waits for review on
+addons.mozilla.org. Version numbers are unique across AMO's listed and
+self-distributed channels, hence the fourth number.
+
 ## 0.5.6 (10 November 2026)
 
 Linux and Windows, a clearer Settings, the address bar as Ensō's box, and a

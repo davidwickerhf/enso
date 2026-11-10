@@ -66,7 +66,7 @@ export const { shellQuote, psQuote } = platformLib;
 export function compareVersions(a, b) {
   const pa = String(a ?? "").replace(/^v/, "").split(/[.+-]/).map(n => Number.parseInt(n, 10) || 0);
   const pb = String(b ?? "").replace(/^v/, "").split(/[.+-]/).map(n => Number.parseInt(n, 10) || 0);
-  for (let i = 0; i < 3; i++) if ((pa[i] ?? 0) !== (pb[i] ?? 0)) return (pa[i] ?? 0) < (pb[i] ?? 0) ? -1 : 1;
+  for (let i = 0; i < Math.max(pa.length, pb.length, 3); i++) if ((pa[i] ?? 0) !== (pb[i] ?? 0)) return (pa[i] ?? 0) < (pb[i] ?? 0) ? -1 : 1;
   return 0;
 }
 
