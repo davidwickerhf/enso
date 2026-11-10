@@ -17,7 +17,7 @@ import { convertAttachment } from "./lib/attachments.mjs";
 import { cleanupStale } from "./lib/headless.mjs";
 import { createConnections } from "./lib/connections.mjs";
 import { forgetGithubToken, githubServerEntry, githubWidgetData, saveGithubToken } from "./lib/github.mjs";
-import { MCP_PORT, mcpListening, setOAuthRoute, startMcpServer } from "./lib/mcpserver.mjs";
+import { agentSessions, MCP_PORT, mcpListening, setOAuthRoute, startMcpServer } from "./lib/mcpserver.mjs";
 import * as store from "./lib/store.mjs";
 import { config, configError, LOCAL_CONFIG } from "./lib/config.mjs";
 import { listSpaces } from "./lib/zenspaces.mjs";
@@ -450,6 +450,7 @@ async function handle(msg) {
         sensitiveHosts: config.sensitiveHosts,
         spaces: listSpaces(),
         reports: store.listReports(),
+        agents: agentSessions.list(),
       });
       if (settings.engine === "api") connectMcp(await externalServers(), setServers);
       else if (await subscriptionAvailable()) prewarm({ settings, config, servers: await externalServers(), disallowed: disallowedTools() });
@@ -599,6 +600,38 @@ async function handle(msg) {
       await forgetGithubToken();
       await refreshGithub(true);
       break;
+    // Steering an external agent from Ensō (lib/agentsessions.mjs). Only Ensō's own
+    // pages reach here: background.js accepts "ui" ports from extension pages only.
+    case "agents.list":
+      send({ type: "agents", sessions: agentSessions.list() });
+      break;
+    case "agents.pause":
+      agentSessions.pause(msg.id);
+      break;
+    case "agents.resume":
+      agentSessions.resume(msg.id);
+      break;
+    case "agents.stop":
+      agentSessions.stop(msg.id);
+      break;
+    case "agents.dismiss":
+      agentSessions.dismiss(msg.id);
+      break;
+    case "agents.note": {
+      const note = agentSessions.note(msg.id, msg.text);
+      const s = agentSessions.get(msg.id);
+      if (note && s) {
+        // The log says a note was sent, not what it said.
+        let host = "";
+        try {
+          host = new URL(s.url).host;
+        } catch {}
+        const action = { id: store.newId(), at: store.now(), conversationId: null, source: "You", url: s.url, title: s.title, host, action: "note", target: `a note to ${s.client}`, ok: true };
+        store.logAction(action);
+        send({ type: "actions.added", action });
+      }
+      break;
+    }
     case "page.response":
     case "browser.response": {
       const p = pending.get(msg.reqId);
@@ -618,6 +651,12 @@ onMessage(msg => handle(msg).catch(err => log("handler failed:", err.stack ?? er
 cleanupStale();
 
 // Let other Claude sessions (Claude Code, T3 Code) use Zen through MCP.
-startMcpServer({ browserRequest, onReports: () => send({ type: "reports", reports: store.listReports() }) });
+startMcpServer({
+  browserRequest,
+  onReports: () => send({ type: "reports", reports: store.listReports() }),
+  onAction: action => send({ type: "actions.added", action }), // live Activity and agent card
+});
+// Agent sessions to every UI and to background.js (page pill, title prefix, toolbar badge).
+agentSessions.subscribe(sessions => send({ type: "agents", sessions }));
 process.stdin.on("end", () => process.exit(0));
 process.on("SIGTERM", () => process.exit(0));

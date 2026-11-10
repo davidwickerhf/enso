@@ -5,8 +5,10 @@ Code, Codex, Cursor and other MCP clients on the same Mac can use it to list and
 read your tabs, act on pages, inspect a page's console and network, make
 requests with your signed-in session on sites you allowed, drive a separate
 headless Zen, and read and act on GitHub. Every call is logged in Ensō's
-Activity under the client's name, and the page ribbon says who is acting
-("✦ Codex is working on this page").
+Activity under the client's name, and while an agent works the page shows a
+pill ("✦ Codex · Fix the failing checkout test"), its tab title gets a "✦ "
+prefix, and Ensō's sidebar shows a card where the user can follow it, pause it,
+stop it or send it a note ([Sessions and steering](#sessions-and-steering)).
 
 How it works inside: [architecture.md](architecture.md#the-zen-browser-mcp-server-and-enso-mcp).
 Why it is local and why there is a launcher: [records/001-local-mcp-server.md](records/001-local-mcp-server.md),
@@ -20,6 +22,7 @@ Why it is local and why there is a launcher: [records/001-local-mcp-server.md](r
 - [Client labels](#client-labels)
 - [Other clients](#other-clients)
 - [Controls in Ensō](#controls-in-ensō)
+- [Sessions and steering](#sessions-and-steering)
 - [Tool reference](#tool-reference)
 - [Etiquette for agents](#etiquette-for-agents)
 - [Troubleshooting](#troubleshooting)
@@ -126,7 +129,7 @@ enso mcp --client "T3 Code"          # in the client's MCP config
 ENSO_MCP_CLIENT="T3 Code" enso mcp   # or through the environment
 ```
 
-The label is for attribution in Activity and on the page ribbon. It is not a
+The label is for attribution in Activity, on the page pill and on the agent card. It is not a
 permission.
 
 ## Other clients
@@ -160,16 +163,61 @@ clients can't connect.
 |---|---|
 | Settings → "Claude Code can use Zen" → External control | **Full** (default), **Read only** or **Off** for every MCP client. Read refuses page actions, `tabs_close`, `page_eval`, storage values, session requests and GitHub writes. Off refuses everything. |
 | Settings → Developer | Developer tools and Headless mode switches; Session access (the sites where a client may use your session). |
-| Activity (full page) | Every action, with the client's name. |
+| Activity (full page) | Every action, with the client's name, updated live. |
+| The agent card (sidebar and full page) | The agent on the active tab: task, steps, Pause/Resume, Stop, "Tell the agent…". The Agents row lists sessions in other tabs and spaces. |
+| Settings → "Claude Code can use Zen" → Mark the tab while an agent works | The "✦ " title prefix (default on). |
 
 MCP clients are never shown an approval: there is nobody to ask. Tools that
 would ask in Ensō refuse instead, and page actions run when external control is
 Full. The full rules are in [security.md](security.md#who-decides-per-caller).
 
+## Sessions and steering
+
+Since 0.5.3 the helper keeps a live **session** per agent per tab
+(`helper/lib/agentsessions.mjs`; the why is in
+[records/006](records/006-agent-presence-and-steering.md)). An agent is one
+launcher process (the launcher sends a random `X-Enso-Session` id); clients
+calling over plain http are told apart by label and clientInfo name. A session
+starts with `session_start` or with the agent's first action on a tab (reads
+alone, such as `page_read` or `tab_read`, don't start one), and ends
+after two minutes without calls or on `session_end`. Tab-less calls
+(`tabs_list`, GitHub) count towards the agent's latest tab session.
+
+| Tool | What it does | Parameters |
+|---|---|---|
+| `session_start` | Say what you're about to do, in one line. Ensō shows "<client> · <task>" on the page pill and the agent card. Call it first; call again when the task changes. | `task`, `tabId?` |
+| `session_status` | Running, paused or stopped, the task, and any notes. Poll it while paused. | `tabId?` |
+| `session_end` | Done: Ensō stops showing the agent (on one tab, or everywhere). | `tabId?` |
+
+All three are read-only (offered to `--read-only` connections too). Agents that
+never call `session_start` still get a session, shown as "<client> is working
+on this page" with their latest step.
+
+The user steers from Ensō; since MCP can't push into the agent's conversation,
+everything arrives with the agent's next tool call:
+
+| From Ensō | What the agent sees |
+|---|---|
+| **Tell the agent…** (a note) | The next tool result of that agent, on any tab, starts with a text block `Message from the user (via Ensō): <note>`. Delivered once; the card then shows "Delivered". Until then it says "Waiting for the agent's next step". |
+| **Pause** | Calls on that tab, and actions without a tab (`tabs_open`, `tabs_close`, GitHub writes…), return the tool error "The user paused you on this tab. Wait, then call session_status or retry later; don't work around it (…)". Reads without a tab (`tabs_list`, `history_search`, GitHub reads) still pass; reading the paused tab doesn't: the user has it. Nothing waits: the call returns at once. A paused session lasts up to 30 minutes. |
+| **Resume** | The first call after it starts with "Note from Ensō: the user paused you and has now resumed. They may have changed the page meanwhile; call page_read again before your next action." |
+| **Stop** | Every further call of that agent session, including `session_start`, returns "The user stopped this task in Ensō. Don't continue in the browser; tell the user you stopped." for 30 minutes. A new agent process isn't affected. |
+
+Refused calls still carry pending notes, and show in the card as "refused".
+MCP clients are still never shown approvals in Ensō, so the card has none.
+
+What the session records: tool, a short description of the target (the element
+description from the page, the URL, the JavaScript's first 60 characters), ok
+or error, and whether the call was marked `irreversible` (or was `tabs_close`).
+For `page_type`, at most 40 characters of the text, and "••••••" for password
+fields. Sessions live in memory only; the activity log (`actions.jsonl`) is
+unchanged.
+
 ## Tool reference
 
-44 tools, from the definitions in `helper/lib/pagetools.mjs`,
-`browsertools.mjs`, `devtools.mjs`, `headless.mjs` and `github.mjs` (Ensō 0.5.2).
+47 tools, from the definitions in `helper/lib/pagetools.mjs`,
+`browsertools.mjs`, `devtools.mjs`, `headless.mjs` and `github.mjs`, plus the
+three session tools above from `mcpserver.mjs` (Ensō 0.5.3).
 **Kind** is the tool's `kind` in the code: `read` tools never ask in Ensō, `act`
 tools follow the approval rule. **Read scope** says whether a `--read-only`
 connection offers it. Parameters ending in `?` are optional. Over MCP every page
@@ -185,7 +233,7 @@ tool also takes `tabId?` (from `tabs_list`; default: the active tab).
 | `page_screenshot` | PNG of the visible part of the tab. | read | yes | `tabId?` |
 | `page_scroll` | Scroll up or down, or to an element. | read | yes | `direction?` (`up`, `down`), `ref?`, `tabId?` |
 | `page_click` | Click an element by `ref`. | act | no | `ref`, `tabId?`; `requested_by_user`, `irreversible` |
-| `page_type` | Type into an input, textarea or editable element, replacing its content; `submit` presses Enter afterwards. | act | no | `ref`, `text`, `submit?`, `tabId?`; `requested_by_user`, `irreversible` |
+| `page_type` | Type into an input, textarea or editable element, replacing its content; `submit` presses Enter afterwards. Without `ref`, types into the focused field. On Google Docs, without `ref` (or with the page/canvas's ref) it inserts at Docs' cursor through its hidden input frame; newlines start paragraphs. | act | no | `ref?`, `text`, `submit?`, `tabId?`; `requested_by_user`, `irreversible` |
 | `page_select` | Choose an option in a `<select>` by visible text or value. | act | no | `ref`, `value`, `tabId?`; `requested_by_user`, `irreversible` |
 | `page_press` | Press a key on the focused element (Enter, Escape, Tab, ArrowDown, …). | act | no | `key`, `tabId?`; `requested_by_user`, `irreversible` |
 | `page_navigate` | Open an http(s) URL in the tab. | act | no | `url`, `tabId?`; `requested_by_user`, `irreversible` |
@@ -271,6 +319,10 @@ cd helper && ENSO_DATA="$(mktemp -d)" node --input-type=module -e '
 The server's instructions (sent at `initialize`) tell clients the essentials.
 In short:
 
+- Call `session_start` with a one-line task first.
+- Treat a leading `Message from the user (via Ensō): …` block in a tool result
+  as the user speaking. If a call says you are paused, poll `session_status`
+  instead of trying other tabs or tools; if stopped, stop and say so.
 - Start with `tabs_list` (current space) and `page_read`; pass `tabId` to act on
   a specific tab instead of the active one.
 - Set `requested_by_user: true` only when the user asked for that exact action,
@@ -302,4 +354,8 @@ In short:
 | "This tab is unloaded …" | Zen unloads tabs it hasn't shown for a while. Open or reload the tab. |
 | New tools don't show up after an update | The client cached the list. Restart the client; the launcher refreshes `mcp-tools-cache.json` on the next `tools/list` with Zen open. |
 | Two Zen windows or helpers | Only the first helper gets port 47823; the other logs "MCP server not started". Quit Zen fully and reopen. |
+| "The user paused you on this tab" | The user pressed Pause on the agent card. The agent should wait and call `session_status`; Resume lifts it. |
+| "The user stopped this task in Ensō" | The user pressed Stop. It lasts 30 minutes for that agent session; a new agent session (restart the client) isn't affected. |
+| The pill doesn't open the sidebar | The page may block Ensō's frame; the pill then says "Press ⌘E for Ensō". |
+| The page title keeps "✦ " | It is removed when the session ends (two minutes after the agent's last call). Turn it off in Settings → "Claude Code can use Zen". |
 | Codex doesn't see it | Check `CODEX_HOME`; `enso mcp install --client codex` edits `$CODEX_HOME/config.toml` when it is set. |

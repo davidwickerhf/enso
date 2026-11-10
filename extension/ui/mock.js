@@ -8,6 +8,8 @@
 // "fill in the form on this page" (page actions + approval), "error"
 // (no_api_key error), and Stop while an answer streams.
 // ?onboarding=1 starts without a profile (the first-run card).
+// ?agents=running | paused | delivered | idle | stopped | list shows external
+// agents (Claude Code, Codex) working in tabs: the agent card and the Agents row.
 
 const MIN = 60_000;
 const HOUR = 60 * MIN;
@@ -657,10 +659,87 @@ Want me to draft the reply to Jonas, or open the [Vercel deployment](https://ver
     if (alive()) end({ usage: { inputTokens: 14873, outputTokens: 356, costUsd: 0.09 } });
   }
 
+  // ---- external agents (agent card, Agents row) ----
+  const agentPreset = new URLSearchParams(globalThis.location?.search ?? "").get("agents");
+  const ago = sec => iso(now() - sec * 1000);
+  const step = (sec, tool, title, target, extra = {}) => ({ id: nid("st"), at: ago(sec), tool, title, target, ok: true, irreversible: false, ...extra });
+  let agents = [];
+  if (agentPreset) {
+    if (agentPreset !== "list") activeTabId = 16;
+    const docs = {
+      id: "ag-docs", client: "Claude Code", clientName: "claude-code", task: "Draft the methods section of the Assignment 3 brief", tabId: 16,
+      url: "https://docs.google.com/document/d/1x9/edit", title: "Assignment 3 brief: small multiples · Google Docs",
+      startedAt: ago(194), lastAt: ago(2), endsAt: iso(now() + 118_000), running: true, paused: false, stopped: false, explicit: true, idleMs: 2000,
+      actions: [
+        step(190, "session_start", "Start a session", ""),
+        step(184, "page_read", "Read the page", ""),
+        step(150, "page_click", "Click", 'textbox "Document body"'),
+        step(96, "page_type", "Type", "Google Docs document body (at the cursor)", { typed: "Methods. We compared six small-multiple…" }),
+        step(41, "page_eval", "Run JavaScript", "JavaScript: document.querySelectorAll('.kix-paragraphrenderer').length"),
+        step(12, "page_click", "Click", 'button "Share"', { irreversible: false }),
+        step(2, "page_click", "Click", 'button "Send"', { irreversible: true }),
+      ],
+      notes: [],
+    };
+    const codex = {
+      id: "ag-ci", client: "Codex", clientName: "codex-mcp-client", task: "Find why CI fails on PR #431", tabId: 13,
+      url: "https://github.com/northwind-labs/atlas-web/pull/431", title: "Settings: keyboard shortcuts panel · Pull Request #431",
+      startedAt: ago(420), lastAt: ago(25), endsAt: iso(now() + 95_000), running: false, paused: false, stopped: false, explicit: true, idleMs: 25000,
+      actions: [step(400, "page_read", "Read the page", ""), step(25, "devtools_network", "Network requests", "")], notes: [],
+    };
+    const cursor = {
+      id: "ag-travel", client: "Cursor", clientName: "cursor-vscode", task: "", tabId: 20,
+      url: "https://www.airbnb.com/rooms/porto", title: "Weekend in Porto · Airbnb",
+      startedAt: ago(70), lastAt: ago(8), endsAt: iso(now() + 112_000), running: true, paused: false, stopped: false, explicit: false, idleMs: 8000,
+      actions: [step(8, "page_scroll", "Scroll", "")], notes: [],
+    };
+    if (agentPreset === "paused") Object.assign(docs, { paused: true, running: false, notes: [{ id: "n1", text: "Use the second dataset, not the pilot one.", at: ago(20), deliveredAt: null }] });
+    if (agentPreset === "delivered") docs.notes = [{ id: "n1", text: "Use the second dataset, not the pilot one.", at: ago(60), deliveredAt: ago(41) }, { id: "n2", text: "Keep it under 300 words.", at: ago(6), deliveredAt: null }];
+    if (agentPreset === "idle") Object.assign(docs, { running: false, actions: [step(5, "session_start", "Start a session", "")], startedAt: ago(5), lastAt: ago(5) });
+    if (agentPreset === "stopped") Object.assign(docs, { running: false, stopped: true });
+    agents = agentPreset === "list" ? [docs, codex, cursor] : agentPreset === "idle" ? [docs] : [docs, codex];
+  }
+  const sendAgents = () => out({ type: "agents", sessions: agents });
+  const patchAgent = (id, patch) => { agents = agents.map(a => (a.id === id ? { ...a, ...patch } : a)); sendAgents(); };
+
   function handle(msg) {
     switch (msg.type) {
+      case "agents.list":
+        sendAgents();
+        return;
+      case "agents.pause":
+        patchAgent(msg.id, { paused: true, running: false });
+        return;
+      case "agents.resume":
+        patchAgent(msg.id, { paused: false });
+        return;
+      case "agents.stop":
+        patchAgent(msg.id, { stopped: true, paused: false, running: false });
+        return;
+      case "agents.dismiss":
+        agents = agents.filter(a => a.id !== msg.id);
+        sendAgents();
+        return;
+      case "agents.switch":
+        activeTabId = msg.tabId;
+        out({ type: "page.current", tab: tabOut(activeTab()), space: spaceRef(currentSpaceId()) });
+        return;
+      case "agents.note": {
+        const a = agents.find(x => x.id === msg.id);
+        if (!a) return;
+        const note = { id: nid("n"), text: String(msg.text).trim().replace(/\s+/g, " ").slice(0, 1000), at: iso(now()), deliveredAt: null };
+        patchAgent(a.id, { notes: [...a.notes, note] });
+        if (!a.paused && !a.stopped) setTimeout(() => {
+          // The agent's next tool call carries the note.
+          const cur = agents.find(x => x.id === a.id);
+          if (!cur) return;
+          const read = step(0, "page_read", "Read the page", "");
+          patchAgent(a.id, { notes: cur.notes.map(n => (n.deliveredAt ? n : { ...n, deliveredAt: iso(now()) })), actions: [...cur.actions, read], lastAt: iso(now()) });
+        }, 1800);
+        return;
+      }
       case "hello":
-        out({ type: "state", settings, engines, servers, connections: connectionsList(), conversations: summaries(), activeConversationId: [...turns.keys()][0] ?? null, dashboard: onboarding && !onboardingDone ? null : dashboard, profile: profileState(), paths: PATHS, skills: SKILLS, reports: REPORTS.map(({ id, title, createdAt }) => ({ id, title, createdAt })), spaces: SPACES, sensitiveHosts: ["*bank*", "*health*", "*patient*", "*.paypal.com"] });
+        out({ type: "state", settings, engines, servers, connections: connectionsList(), conversations: summaries(), activeConversationId: [...turns.keys()][0] ?? null, dashboard: onboarding && !onboardingDone ? null : dashboard, profile: profileState(), paths: PATHS, skills: SKILLS, reports: REPORTS.map(({ id, title, createdAt }) => ({ id, title, createdAt })), spaces: SPACES, sensitiveHosts: ["*bank*", "*health*", "*patient*", "*.paypal.com"], agents });
         return;
       case "tabs.list":
         out({ type: "tabs", tabs: TABS

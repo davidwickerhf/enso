@@ -18,6 +18,7 @@ import { createNav, createContext } from "./views/panels.js";
 import { createReport } from "./views/report.js";
 import { createToolsPage } from "./views/tools.js";
 import { createOnboarding } from "./views/onboarding.js";
+import { createAgentsPanel } from "./views/agents.js";
 
 const root = document.documentElement;
 const MODES = ["sidebar", "newtab", "full", "report"];
@@ -91,7 +92,9 @@ function bootApp() {
   const viewHost = h("div", { class: "view-host" });
   const scroller = h("div", { class: "scroller", tabindex: "-1" }, viewHost);
   const dock = h("div", { class: "dock" });
-  const main = h("main", { class: "main" }, topbar, banner, scroller, dock);
+  // External agents (Claude Code, Codex…) on the active tab and elsewhere: above the content, sidebar and full page.
+  const agents = mode === "sidebar" || mode === "full" ? createAgentsPanel(store) : null;
+  const main = h("main", { class: "main" }, topbar, banner, agents?.el, scroller, dock);
   const nav = mode === "full" ? createNav(store, ctx) : null;
   const context = mode === "full" ? createContext(store, ctx) : null;
   const app = h("div", { class: "app" }, nav?.el, main, context?.el);
@@ -285,6 +288,7 @@ function bootApp() {
     for (const v of Object.values(views)) v.update?.(topics);
     nav?.update(topics);
     context?.update(topics);
+    agents?.update(topics);
     if (["ui", "approvals", "conversations", "settings", "state", "space"].some(t => topics.has(t)) || [...topics].some(t => t.startsWith("conv:"))) renderTopbar();
     if (topics.has("ui") || [...topics].some(t => t.startsWith("conv:"))) placeComposer();
     if (topics.has("banner") || topics.has("connection")) renderBanner();

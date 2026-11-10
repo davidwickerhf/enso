@@ -50,7 +50,7 @@ User guides, one per topic. They are the source for the site's help pages.
 ## Decisions and plans
 
 Records say why something was built the way it is; the pages above say how it
-works now. Plans describe work that isn't built yet.
+works now. Plans (in `plans/`, when there are any) describe work that isn't built yet.
 
 | Page | What it covers |
 |---|---|
@@ -60,4 +60,4 @@ works now. Plans describe work that isn't built yet.
 | [003: Subscription engine](records/003-subscription-engine-agent-sdk.md) | Why the default engine runs the Agent SDK on the user's own `claude`. |
 | [004: Unlisted AMO signing](records/004-unlisted-amo-signing.md) | Why the extension is signed unlisted and updated from enso.wicker.life. |
 | [005: MIT licence](records/005-mit-licence.md) | Why MIT. |
-| [Plan: agent presence and steering](plans/agent-presence.md) | A live activity card per tab for MCP clients, Pause/Stop, notes to the agent, an Agents row, `session_start`. Not built. |
+| [006: Agent presence and steering](records/006-agent-presence-and-steering.md) | Why external agents get sessions, why steering rides on tool results, what Pause holds, and how Zen's tab list shows an acting agent. |

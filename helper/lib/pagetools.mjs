@@ -78,11 +78,13 @@ export const PAGE_TOOLS = [
   {
     name: "page_type",
     title: "Type",
-    description: "Type text into an input, textarea or editable element by ref, replacing its content. Set submit to press Enter / submit the form afterwards.",
-    shape: { ref: z.number().int(), text: z.string(), submit: z.boolean().optional(), ...intent },
+    description:
+      "Type text into an input, textarea or editable element by ref, replacing its content. Set submit to press Enter / submit the form afterwards. " +
+      "Without ref, types at the cursor (the focused element). On Google Docs, typing without a ref (or with the ref of the page/canvas) inserts the text into the document body at the cursor instead of replacing anything; a newline in text starts a new paragraph.",
+    shape: { ref: z.number().int().optional(), text: z.string(), submit: z.boolean().optional(), ...intent },
     kind: "act",
     async run(args, ctx) {
-      const r = await ctx.act("type", { ref: args.ref, text: args.text, submit: !!args.submit }, args);
+      const r = await ctx.act("type", { ...(args.ref != null ? { ref: args.ref } : {}), text: args.text, submit: !!args.submit }, args);
       return textResult(`Typed into ${r.description}${args.submit ? " and submitted" : ""}.`);
     },
   },

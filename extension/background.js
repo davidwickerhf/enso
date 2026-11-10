@@ -396,6 +396,11 @@ async function browserAction(action, args) {
     }
     case "tab_text":
       return readTab(args.tabId);
+    case "active_tab": {
+      // The tab a page tool acts on when the caller gives none (for agent sessions and Pause).
+      const t = await activeTab();
+      return t ? { tabId: t.id, url: t.url ?? "", title: t.title ?? "" } : {};
+    }
     case "tabs_open": {
       // Open in the current space's container so the tabs land in that space with its logins.
       const cookieStoreId = (await activeTab())?.cookieStoreId;
@@ -442,6 +447,84 @@ async function browserAction(action, args) {
   throw new Error(`Unknown browser action ${action}`);
 }
 
+
+// ---------- external agents: presence on the page, in the tab title and on the toolbar ----------
+// The helper pushes `agents` (live sessions of MCP clients, lib/agentsessions.mjs).
+// For each tab with a session: the page pill and "✦ " title prefix (pageagent.js
+// "presence") and a copper per-tab badge on Ensō's toolbar button. Zen's own tab
+// list can't be styled by extensions; the title prefix is what shows there.
+
+const AGENT_BADGE = "#d9643a";
+const AGENT_BADGE_PAUSED = "#8a7f74";
+let agentSessions = [];
+let titlePrefixOn = true; // settings.agentTitlePrefix
+const presenceSent = new Map(); // tabId -> last presence sent (JSON)
+
+function setAgentBadge(tabId, s) {
+  const ba = browser.browserAction;
+  ba.setBadgeText({ tabId, text: s.stopped ? "" : "AI" }).catch?.(() => {});
+  ba.setBadgeBackgroundColor({ tabId, color: s.paused ? AGENT_BADGE_PAUSED : AGENT_BADGE }).catch?.(() => {});
+  ba.setBadgeTextColor?.({ tabId, color: "#ffffff" })?.catch?.(() => {});
+  ba.setTitle({ tabId, title: `Ensō · ${s.client}${s.task ? `: ${s.task}` : " is working on this tab"}${s.paused ? " (paused)" : ""}` }).catch?.(() => {});
+}
+function clearAgentBadge(tabId) {
+  const ba = browser.browserAction;
+  ba.setBadgeText({ tabId, text: null }).catch?.(() => {});
+  ba.setTitle({ tabId, title: null }).catch?.(() => {});
+}
+
+async function syncPresence() {
+  const byTab = new Map();
+  for (const s of agentSessions) if (Number.isInteger(s.tabId) && !byTab.has(s.tabId)) byTab.set(s.tabId, s); // newest first
+  for (const [tabId, s] of byTab) {
+    const p = { label: s.client, task: s.task, running: !!s.running, paused: !!s.paused, stopped: !!s.stopped, titlePrefix: titlePrefixOn };
+    const key = JSON.stringify(p);
+    if (presenceSent.get(tabId) === key) continue;
+    presenceSent.set(tabId, key);
+    setAgentBadge(tabId, s);
+    agent(tabId, "presence", p).catch(() => {}); // unloaded or private tabs: no pill
+  }
+  for (const tabId of [...presenceSent.keys()]) {
+    if (byTab.has(tabId)) continue;
+    presenceSent.delete(tabId);
+    clearAgentBadge(tabId);
+    browser.tabs.sendMessage(tabId, { enso: true, action: "presence", args: { off: true } }, { frameId: 0 }).catch(() => {});
+  }
+}
+
+// A navigation drops the content script (and Firefox resets tab-specific badges): show it again.
+browser.tabs.onUpdated.addListener((tabId, info) => {
+  if (info.status !== "complete" || !presenceSent.has(tabId)) return;
+  presenceSent.delete(tabId);
+  syncPresence();
+});
+browser.tabs.onRemoved.addListener(tabId => presenceSent.delete(tabId));
+
+// The pill: pill.html (an extension frame over it) opens the sidebar on click;
+// the content script's own click handler is the fallback when the frame can't load.
+async function pillClicked(tab, opened) {
+  broadcast({ type: "agents.focus", tabId: tab.id });
+  if (opened) return;
+  const open = await browser.sidebarAction.isOpen({ windowId: tab.windowId }).catch(() => false);
+  if (!open) browser.tabs.sendMessage(tab.id, { enso: true, action: "pill_hint", args: { text: "Press ⌘E for Ensō" } }, { frameId: 0 }).catch(() => {});
+}
+browser.runtime.onMessage.addListener((msg, sender) => {
+  if (!sender.tab) return;
+  if (msg?.ensoPill && sender.url === browser.runtime.getURL("pill.html")) {
+    if (msg.ensoPill === "ready") browser.tabs.sendMessage(sender.tab.id, { enso: true, action: "pill_ready", args: {} }, { frameId: 0 }).catch(() => {});
+    if (msg.ensoPill === "click") pillClicked(sender.tab, !!msg.opened);
+  } else if (msg?.ensoPillFallback && sender.frameId === 0) {
+    // Not a user action as far as Firefox is concerned, so open() is usually refused; then focus or hint.
+    let opening;
+    try {
+      opening = browser.sidebarAction.open();
+    } catch (err) {
+      opening = Promise.reject(err);
+    }
+    opening.then(() => pillClicked(sender.tab, true), () => pillClicked(sender.tab, false));
+  }
+});
+
 // ---------- the helper connection ----------
 
 function broadcast(msg) {
@@ -469,6 +552,18 @@ function connectNative() {
       return;
     }
     if (msg.type === "state" && Array.isArray(msg.sensitiveHosts)) sensitivePatterns = msg.sensitiveHosts;
+    if ((msg.type === "state" || msg.type === "settings") && msg.settings) {
+      const on = msg.settings.agentTitlePrefix !== false;
+      if (on !== titlePrefixOn) {
+        titlePrefixOn = on;
+        presenceSent.clear();
+        syncPresence();
+      }
+    }
+    if (msg.type === "agents" || (msg.type === "state" && Array.isArray(msg.agents))) {
+      agentSessions = (msg.type === "agents" ? msg.sessions : msg.agents) ?? [];
+      syncPresence();
+    }
     if ((msg.type === "state" || msg.type === "spaces") && Array.isArray(msg.spaces)) {
       spaces = msg.spaces;
       pushCurrentPage();
@@ -511,10 +606,13 @@ async function pushCurrentPage(port) {
 
 browser.runtime.onConnect.addListener(port => {
   if (port.name !== "ui") return;
+  // Only Ensō's own pages: notes to agents and Pause/Stop must never come from page content.
+  if (!String(port.sender?.url ?? "").startsWith(browser.runtime.getURL(""))) return void port.disconnect();
   uis.add(port);
   port.onDisconnect.addListener(() => uis.delete(port));
   connectNative();
   pushCurrentPage(port);
+  port.postMessage({ type: "agents", sessions: agentSessions });
   port.onMessage.addListener(async msg => {
     if (msg.type === "tabs.list") {
       const tabs = (await browser.tabs.query({ windowType: "normal" })).filter(t => isWeb(t.url));
@@ -526,6 +624,15 @@ browser.runtime.onConnect.addListener(port => {
       return;
     }
     if (msg.type === "page.current") return pushCurrentPage(port);
+    if (msg.type === "agents.switch") {
+      // Agents list: go to the tab an agent works in (in whatever space it is).
+      const t = await browser.tabs.get(Number(msg.tabId)).catch(() => null);
+      if (t) {
+        await browser.tabs.update(t.id, { active: true }).catch(() => {});
+        await browser.windows.update(t.windowId, { focused: true }).catch(() => {});
+      }
+      return;
+    }
     forward(msg).catch(err => port.postMessage({ type: "event", conversationId: msg.conversationId ?? null, event: { kind: "error", text: String(err.message ?? err) } }));
   });
 });

@@ -27,6 +27,10 @@ From any page you can also select text, right-click and choose **Ask Ensō about
 
 You see each step as it happens: which tool it used, with what input, and a short preview of the result. Steps that change something wait for your approval (see [Acting on pages](/docs/acting-on-pages)). Press the stop button, or <kbd>Esc</kbd>, to stop; any open approval is denied.
 
+## When another agent is working
+
+When Claude Code, Codex or another agent works on the tab you are looking at through Ensō, a card at the top of the sidebar shows it: its name and task, how long it has been at it, and its last steps, updating as it goes. **Pause**, **Stop** and **Tell the agent…** let you hold it, end it or correct it without going back to its window. Agents in other tabs are listed in the **Agents** row below. Clicking the ✦ pill on the page opens the sidebar on that card. See [Use Zen from other agents](/docs/other-agents#steering-an-agent).
+
 ## The full page
 
 Right-click the Ensō toolbar button and choose **Open Ensō as a page**. It has three columns: **Home**, **Activity**, **Tools**, **Settings**, your conversations and reports on the left; the chat in the middle; and on the right, the current page, the pages in this conversation, recent actions and your memory.

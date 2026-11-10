@@ -57,6 +57,12 @@ All messages are objects with a `type`. Times are ISO strings. Ids are strings.
 | `tasks.complete` | `server`, `id` (a task from the last `tasks` list; the user ticked it, so no approval) | `tasks.completed` + `tasks` (marks it done with the app's `update_task` / `complete_task`; logged in actions.jsonl as `complete_task`) |
 | `github.token` | `token` (pasted in Tools → GitHub; checked against GitHub, then saved to the Keychain service `enso-github` through `security -i` on stdin) | `github.saved` + `servers` |
 | `github.forget` | | `servers` (deletes the Keychain token) |
+| `agents.list` | | `agents` |
+| `agents.pause` | `id` (an `AgentSession` id) | `agents` (that agent's calls on that tab, and its tab-less actions, are refused until resumed) |
+| `agents.resume` | `id` | `agents` (its next call carries the hand-back note) |
+| `agents.stop` | `id` | `agents` (every further call of that agent session is refused for 30 minutes) |
+| `agents.note` | `id`, `text` (≤ 1000 characters) | `agents` (the note, undelivered) + `actions.added` (`action: "note"`, without the text); `deliveredAt` is set when the agent's next tool result carries it |
+| `agents.dismiss` | `id` | `agents` (removes the session from the list, e.g. a stopped one) |
 
 `chat.send`: background always adds `page: { tabId, url, title }` for the active
 tab (so page tools act on the tab the user was looking at), plus `text` when
@@ -71,10 +77,17 @@ the active tab. On a private site no `text` or `screenshot` is added.
 |---|---|---|
 | `tabs.list` | | `tabs`: `{ type, tabs: [{ tabId, title, url, favIconUrl, active }] }` (open http(s) tabs; each also has `hidden` (true = another Zen space) and `space` (name); current space's tabs first) |
 | `page.current` | | `page.current`: `{ type, tab: { tabId, title, url, favIconUrl, sensitive } \| null }`, also pushed whenever the active tab changes. `sensitive: true` on banking/health sites: the page chip shows a lock and the page is not sent or acted on. |
+| `agents.switch` | `tabId` | none: activates that tab and focuses its window (the Agents list) |
 
-background.js also sends two messages of its own to every UI:
+background.js accepts `ui` ports only from Ensō's own pages (`port.sender.url`
+under the extension's origin), so notes, Pause and Stop can't come from page
+content. On connect it sends the last `agents` it has.
+
+background.js also sends messages of its own to every UI:
 
 - `composer.prefill`: `{ type, text }` from the "Ask Ensō about this" context menu;
+- `agents.focus`: `{ type, tabId }` when the user clicked the page pill on that
+  tab (the sidebar scrolls to the agent card and focuses "Tell the agent…");
 - an `event` with `conversationId: null` and `code: "host_disconnected"` when the
   native port closes (the UI shows "The chat helper stopped" with Reconnect).
 
@@ -101,9 +114,33 @@ engine without a key).
   sensitiveHosts: ["*.bank*", ...],       // patterns where page reading/acting is off
   spaces: [Space],                        // the user's Zen spaces
   connections: [Connection],              // OAuth servers, see Connections below
-  reports: [{ id, title, createdAt, conversationId }]
+  reports: [{ id, title, createdAt, conversationId }],
+  agents: [AgentSession]                  // live sessions of external agents, see below
 }
 ```
+
+### `AgentSession` (external agents, `lib/agentsessions.mjs`)
+`agents`: `{ type, sessions: [AgentSession] }`, newest activity first, pushed on
+every change (a call starting or ending, a note, Pause, Resume, Stop, a
+session ending). background.js uses it too, for the page pill, the "✦ " title
+prefix and the toolbar badge.
+```js
+{ id: "3f2a9c1b04de", client: "Claude Code", clientName: "claude-code",
+  task: "Draft the methods section",       // from session_start; "" if none
+  tabId: 42 | null,                        // null: no tab yet (tabs_list, GitHub…)
+  url, title,                              // the tab's page as last seen
+  startedAt, lastAt, endsAt,               // ISO; endsAt = when it ends if nothing happens
+  running: false,                          // a call is in progress
+  paused: false, stopped: false,
+  explicit: true,                          // the agent called session_start
+  idleMs: 1200,
+  actions: [{ id, at, tool: "page_type", title: "Type", target: 'textbox "Body"',
+              ok: true, irreversible: false, typed?: "Dear Sam…" /* ≤ 40 chars, "••••••" for password fields */,
+              error?: "…", refused?: true }],   // the last 30
+  notes: [{ id, text, at, deliveredAt: ISO | null }] }
+```
+A session ends two minutes after its last call (paused: 30 minutes), or when
+the agent calls `session_end`.
 
 ### `Space`
 ```js
@@ -197,6 +234,7 @@ starts a fresh warm session. A Claude Code registration of the same name
   alwaysAllowedTools: ["mcp__notes__search_notes", ...],
   dashboard: { autoRefreshMinutes: 60 },
   externalControl: "full" | "read" | "off",   // what MCP clients (zen-browser) may do; a read-scope token caps it at "read"
+  agentTitlePrefix: true,                      // "✦ " in front of the page title while an external agent works on the tab
   developerTools: true,                        // console/network/eval/storage/session tools (default on)
   headless: true,                              // headless Zen tools (default on)
   sessionAccess: { "https://github.com": "allow" },  // per-site use of the user's signed-in sessions; missing = "ask"
@@ -251,7 +289,8 @@ Streaming-only kinds (not persisted, folded into `assistant` / `thinking` at the
 - `conversation.created` / `conversation.updated`: `{ type, conversation: ConversationSummary }`
 - `conversation.deleted`: `{ type, id }`
 - `history.results`: `{ type, query, results: [{ conversationId, title, snippet, at }] }`
-- `actions.results`: `{ type, actions: [{ id, at, conversationId, url, title, host, action, target, ok }] }`
+- `actions.results`: `{ type, actions: [{ id, at, conversationId, url, title, host, action, target, ok, source?, client? }] }` (`source`: the MCP client's label for external agents, "You" for notes)
+- `actions.added`: `{ type, action }`, pushed when an external agent's action (or a note to one) is logged, so Activity and the recent list update live; same shape as an `actions.results` entry
 - `dashboard`: `{ type, loading?: true, data?: Dashboard, error?: string }`
 - `settings`: `{ type, settings }`
 - `memory`: `{ type, spaceId, text }` (Markdown the user can edit; spaceId null = global)
@@ -289,15 +328,16 @@ pages the assistant acted on (`actions.list`).
 
 `agent` (also on `browser.request`) names the MCP client acting ("Codex",
 "Cursor", …) when the request comes from the zen-browser server; background.js
-passes it to the page agent with the action, and the ribbon reads
-"✦ <agent> is working on this page". Without it (Ensō's own turns) it says
-"Claude".
+passes it to the page agent with the action, and the pill and outline flash name
+it. Without it (Ensō's own turns) they say "Claude". For external agents with a
+live session the pill comes from `presence` instead (below) and stays for the
+whole session.
 
 | action | args | result |
 |---|---|---|
 | `snapshot` | | `{ url, title, elements: [{ ref, role, name, value?, href? }], text }` |
 | `click` | `ref` | `{ description }` |
-| `type` | `ref`, `text`, `submit?` | `{ description }` |
+| `type` | `ref?`, `text`, `submit?` | `{ description }`. Without `ref`: the focused field. On `docs.google.com/document/…`, without `ref` or with the ref of a non-editable element (the canvas), the text goes into Docs' hidden input frame (`.docs-texteventtarget-iframe`) with `execCommand("insertText")` at the cursor, an Enter keydown per newline; `description` is "Google Docs document body (at the cursor)". |
 | `select` | `ref`, `value` | `{ description }` |
 | `press` | `key` | |
 | `scroll` | `direction` (`up`/`down`), `ref?` | |
@@ -306,6 +346,8 @@ passes it to the page agent with the action, and the ribbon reads
 | `screenshot` | | `{ dataUrl }` (PNG) |
 | `console` | `since?` (ms), `level?`, `limit?` | `{ tabId, url, now, started, dropped, entries: [{ t, level, text, source?, stack? }] }`; the first call for a tab starts capture (`started: true`); `level: "nav"` entries mark navigations |
 | `eval` | `expression` | `{ ok, world: "page" \| "isolated", type?, json?, error?, stack?, url, title, description }` (page world; falls back to the content-script world when the page CSP blocks eval) |
+| `presence` | `{ label, task, running, paused, stopped, titlePrefix }`, or `{ off: true }` | `{ shown, title }`. Sent by background.js itself (not the host) from `agents`: shows or updates the session pill and the "✦ " title prefix, or removes both (the page's latest own title restored exactly). |
+| `pill_ready` / `pill_hint` | — / `{ text }` | background.js → page agent: the pill's frame loaded (clicks go to it now) / a short hint on the pill ("Press ⌘E for Ensō") |
 | `storage` | `includeValues?` | `{ url, local: [{ key, length, value? }], session: [...], cookies: [{ name, domain, path, secure, httpOnly, sameSite, session, expires, partitioned }], container }`; cookie values are never included, credential-looking storage values are redacted |
 
 The envelope's `tabId` can be any tab, not only the active one: developer tools
@@ -317,6 +359,7 @@ Browser-level actions use the same envelope (`browser.request` / `browser.respon
 |---|---|---|
 | `tabs_list` | `allSpaces?` | `[{ tabId, title, url, groupId, active, windowId, space }]` (the current space only unless `allSpaces`) |
 | `tab_text` | `tabId` | `{ url, title, text }` |
+| `active_tab` | | `{ tabId, url, title }` or `{}`: the tab page tools act on by default (the MCP server resolves it for sessions and Pause) |
 | `tabs_open` | `urls`, `background?` | `[{ tabId, url }]` |
 | `tabs_close` | `tabIds` | |
 | `tabs_group` | `tabIds`, `title?`, `color?`, `groupId?` | `{ groupId }` |
@@ -327,6 +370,15 @@ Browser-level actions use the same envelope (`browser.request` / `browser.respon
 | `network_log` | `tabId?`, `filter?` (substring or `/regex/`), `type?`, `failedOnly?`, `since?`, `includeHeaders?`, `limit?` | `{ tabId, url, now, total, requests: [{ id, t, method, url, type, status, ms, fromCache, ip, reqSize, resSize, initiator, error?, requestHeaders?, responseHeaders? }] }` (ring buffer of 500 per tab, recorded for all web tabs; secret query values and cookie/auth/token header values redacted; never bodies) |
 | `session_fetch` | `url`, `method`, `headers`, `body?`, `maxChars` | `{ status, statusText, url, redirected, headers, contentType, body, bodyLength, truncated, tabOrigin, tabTitle, tabId, openedTab, container }`: made with `content.fetch` inside a tab of that origin (an open one in the current space's container, else a background tab in the site's container, closed afterwards) |
 | `site_cookies` | `hosts` | `{ "<host>": { container, containerName, cookies: [...] } }` with values, for the helper to build the headless profile; the helper never passes them to Claude |
+
+The pill's click target, `pill.html` (web-accessible, laid transparently over
+the pill), calls `sidebarAction.open()` in its click handler and sends
+`runtime.sendMessage({ ensoPill: "ready" | "click", opened? })`; background.js
+checks `sender.url` is that page. When the frame can't load, the page agent's own
+click sends `{ ensoPillFallback: true }`. Per tab with a session, background.js
+also sets a copper "AI" badge and a title on Ensō's toolbar button
+(`browserAction.setBadgeText` / `setBadgeBackgroundColor` / `setTitle` with
+`tabId`) and re-sends `presence` after a navigation.
 
 The page agent posts captured console entries to background.js as
 `runtime.sendMessage({ ensoConsole: true, entries })`; background keeps up
@@ -381,8 +433,10 @@ No merge, delete or force operations. Output is compact text capped at 30k
 characters; issue and PR text is marked as data. The morning brief gets a short
 GitHub summary (reviews waiting, own PRs that need him) as input for `tasks`.
 
-The page agent outlines the element it acts on and shows a small
-"Claude is working on this page" ribbon (with the MCP client's name instead when one is acting) while a turn uses page tools.
+The page agent flashes a soft outline with the actor's name on the element it
+acts on and shows a small "Claude is working on this page" pill (with the MCP
+client's name instead when one is acting) while a turn uses page tools; for an
+external agent's session the pill stays until the session ends.
 
 ## zen-browser MCP server (`helper/lib/mcpserver.mjs`)
 
@@ -402,8 +456,9 @@ compared against two files in the data folder, re-read on every request:
 read the token once at start and keeps the old one until Zen restarts.
 
 **Client identity.** Each request is attributed to a client, available to every
-tool as `ctx.client = { name, version, label, scope, via }` (`via`: `"launcher"`
-or `"http"`):
+tool as `ctx.client = { name, version, label, scope, via, session? }` (`via`:
+`"launcher"` or `"http"`; `session`: the launcher's `X-Enso-Session` id, one per
+launcher process):
 
 1. `X-Enso-Client: <name>/<version>`, sent by the launcher from the
    `initialize` request's `clientInfo`;
@@ -420,7 +475,7 @@ activity log's `source` (with `client`: the raw name) and the page request's
 **Launcher** (`helper/bin/enso.mjs` → `lib/mcplauncher.mjs`): `enso mcp
 [--read-only] [--client <label>]` is a stdio MCP server that POSTs each
 JSON-RPC line to the endpoint above with the token for its scope (read from the
-file per request), `X-Enso-Client` and `MCP-Protocol-Version`, and writes the
+file per request), `X-Enso-Client`, `X-Enso-Session` and `MCP-Protocol-Version`, and writes the
 JSON or SSE replies back as lines. If the helper can't be reached it answers
 `initialize` and `ping` itself, `tools/list` from `mcp-tools-cache[-read].json`
 (the last list it forwarded), and `tools/call` with
@@ -430,3 +485,14 @@ helper is back.
 
 **Registration** (`lib/mcpinstall.mjs`): `enso mcp install | uninstall | status`,
 see [mcp.md](mcp.md).
+
+**Agent sessions and steering** (`lib/agentsessions.mjs`, wrapped around every
+tool's `run` in `mcpserver.mjs`): before a tool runs, the helper checks Stop and
+Pause for that agent (and tab; page tools without `tabId` resolve the active tab
+with `browser.request` `active_tab`) and collects undelivered notes and the
+hand-back note. A refused call returns a tool error; any collected messages are
+prepended as separate text blocks (`Message from the user (via Ensō): …`) to
+the result, refused or not. The session tools `session_start`,
+`session_status` and `session_end` exist only on this server. Every change is
+pushed as `agents`; every logged external action as `actions.added`. Semantics:
+[mcp.md](mcp.md#sessions-and-steering).

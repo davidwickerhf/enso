@@ -5,6 +5,44 @@ share one version number. Dates are the tag dates. Releases are published to
 <https://enso.wicker.life> by the release workflow ([docs/releasing.md](docs/releasing.md));
 the extension updates itself, the helper updates when you run the installer again.
 
+## 0.5.3 (10 November 2026)
+
+Agent presence and steering: what an external agent does in Zen is visible
+while it happens, and the user can pause, stop or correct it from Ensō.
+Design and reasons: [docs/records/006](docs/records/006-agent-presence-and-steering.md).
+
+- **Agent sessions in the helper** (`lib/agentsessions.mjs`): per agent (the
+  launcher's new `X-Enso-Session` id) and tab, with task, recent steps and a
+  two-minute idle timeout. New MCP tools `session_start`, `session_status` and
+  `session_end`; the server instructions ask agents to call `session_start`
+  first.
+- **Steering through tool results**: notes from Ensō arrive at the start of the
+  agent's next result ("Message from the user (via Ensō): …", once); Pause
+  refuses its calls on that tab and its tab-less actions; Resume adds a
+  hand-back note; Stop refuses every call of that session for 30 minutes.
+- **Live push**: the helper sends `agents` and `actions.added` to every UI, so
+  the sidebar and Activity update without reopening (also for `page_eval`).
+- **Agent card and Agents row** in the sidebar and full page: client, task,
+  elapsed time, steps (irreversible ones highlighted), Pause/Resume, Stop,
+  "Tell the agent…" with delivery state; sessions in other tabs and spaces with
+  Switch and Stop.
+- **On the page**: the pill stays for the whole session ("Claude Code · task"),
+  with live, Paused and Stopped states; clicking it opens the sidebar
+  (`pill.html`, a web-accessible frame); elements acted on flash a soft outline
+  with the agent's name (static with reduced motion).
+- **In Zen's tab list**: a "✦ " title prefix while an agent works (setting
+  `agentTitlePrefix`, on by default; restored exactly afterwards) and a per-tab
+  copper "AI" badge on the toolbar button. Zen offers extensions nothing more
+  direct (see the record).
+- **Google Docs**: `page_type` without a ref (or with the canvas's ref) types
+  into the document body at the cursor; `ref` is now optional everywhere
+  (the focused field).
+- background.js accepts `ui` ports from Ensō's own pages only.
+- Tests: `agents.test.mjs` (sessions, steering, the push, end to end through
+  host.mjs) and `pageagent.test.mjs` (Docs typing, title prefix, pill; needs
+  Playwright's Chromium, skipped without it). `playwright-core` is a dev
+  dependency.
+
 ## 0.5.2 (10 November 2026)
 
 Using Zen from other agents, without a token in their configs.

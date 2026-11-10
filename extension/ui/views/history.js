@@ -123,7 +123,7 @@ export function createActivity(store) {
   const filterEl = h("div", { class: "filter-chips", role: "group", aria: { label: "Filter by site" } });
   const listEl = h("div", { class: "activity-list" });
   const el = h("section", { class: "page-view activity-view", aria: { label: "Activity" } },
-    h("header", { class: "page-head" }, h("h2", null, "Activity"), h("p", { class: "muted" }, "What Ensō did on web pages, newest first.")),
+    h("header", { class: "page-head" }, h("h2", null, "Activity"), h("p", { class: "muted" }, "What Ensō and other agents (Claude Code, Codex…) did on web pages, newest first. New actions appear as they happen.")),
     filterEl, listEl);
 
   function render() {
@@ -146,7 +146,7 @@ export function createActivity(store) {
         h("span", { class: "action-time", title: fullDate(a.at) }, new Date(a.at).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })),
         h("span", { class: ["act-icon", a.ok === false && "bad"] }, icon(actionIcon(a.action))),
         h("span", { class: "action-main" },
-          h("span", { class: "action-title" }, describeAction(a.action, a.target, a.url), a.ok === false ? h("span", { class: "badge bad" }, "failed") : null),
+          h("span", { class: "action-title" }, describeAction(a.action, a.target, a.url), a.source && !a.conversationId ? h("span", { class: "tag accent action-source" }, a.source) : null, a.ok === false ? h("span", { class: "badge bad" }, "failed") : null),
           h("a", { class: "action-page", href: a.url, target: "_blank", rel: "noreferrer noopener", title: a.url }, hostBadge(a.host || hostOf(a.url)), h("span", null, a.title || a.url))),
         a.conversationId ? h("button", { type: "button", class: "link-btn", onclick: () => actions.open(a.conversationId) }, "Conversation", icon("chevronRight")) : null))))));
   }

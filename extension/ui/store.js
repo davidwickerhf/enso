@@ -2,7 +2,8 @@
 // protocol messages into it, and tells views which parts changed ("topics").
 //
 // Topics: connection, state, conversations, conv:<id>, dashboard, settings,
-// servers, approvals, history, actions, memory, ui, tab, github.
+// servers, approvals, history, actions, memory, ui, tab, github, agents
+// (external agents' live sessions), agents-focus (the page pill was clicked).
 
 export function createStore() {
   const listeners = new Set();
@@ -47,6 +48,9 @@ export function createStore() {
     report: null,            // report.get (report page)
     globalError: null,       // event with conversationId null (e.g. host_disconnected)
     prefill: null,           // composer.prefill text waiting for the composer
+    agents: [],              // live sessions of external agents (Claude Code, Codex…): see docs/PROTOCOL.md "agents"
+    agentNotes: new Map(),   // local id → { sessionId, text, at } notes sent but not yet echoed by the helper
+    agentFocus: null,        // { tabId, at } when the page pill asked for the agent card
     ui: { view: "home", currentId: null, includePage: true, pendingSend: null, notice: null, scope: "space" },
   };
 
@@ -195,6 +199,7 @@ export function createStore() {
         if (msg.spaces) s.spaces = msg.spaces;
         if (s.globalError?.code === "host_disconnected") s.globalError = null;
         if (msg.dashboard) s.dashboard = { ...s.dashboard, data: msg.dashboard };
+        if (Array.isArray(msg.agents)) { s.agents = msg.agents; emit("agents"); }
         if (first && s.settings) s.ui.includePage = s.settings.includePageByDefault !== false;
         emit("state", "settings", "servers", "conversations", "dashboard", "ui", "skills", "reports", "banner", "profile");
         return;
@@ -293,6 +298,29 @@ export function createStore() {
         if (who === "log") { s.actions.results = msg.actions ?? []; s.actions.loading = false; emit("actions"); }
         return;
       }
+      case "actions.added": {
+        // Pushed live by the helper (external agents' actions, notes): Activity and "recent" update without a reload.
+        const a = msg.action;
+        if (!a) return;
+        if (s.recentActions) { s.recentActions = [a, ...s.recentActions.filter(x => x.id !== a.id)].slice(0, 8); emit("dashboard", "recent"); }
+        const f = s.actions.filter;
+        if (s.actions.results && (!f?.host || f.host === a.host)) { s.actions.results = [a, ...s.actions.results.filter(x => x.id !== a.id)]; emit("actions"); }
+        return;
+      }
+      case "agents": {
+        s.agents = Array.isArray(msg.sessions) ? msg.sessions : [];
+        // Drop local "sending" notes the helper now knows about.
+        for (const [id, n] of s.agentNotes) {
+          const sess = s.agents.find(x => x.id === n.sessionId);
+          if (!sess || sess.notes.some(x => x.text === n.text)) s.agentNotes.delete(id);
+        }
+        emit("agents");
+        return;
+      }
+      case "agents.focus":
+        s.agentFocus = { tabId: msg.tabId, at: Date.now() };
+        emit("agents-focus");
+        return;
       case "dashboard":
         if (msg.loading) s.dashboard = { ...s.dashboard, loading: true, error: null };
         else s.dashboard = { data: msg.data ?? s.dashboard.data, loading: false, error: msg.error ?? null };
@@ -615,8 +643,27 @@ export function createStore() {
     saveSkill(skill) { send({ type: "skills.save", skill }); },
     deleteSkill(name) { s.skills = s.skills.filter(k => k.name !== name); send({ type: "skills.delete", name }); emit("skills"); },
     listReports() { send({ type: "reports.list" }); },
+
+    // External agents (lib/agentsessions.mjs): steering from the agent card and the Agents list.
+    pauseAgent(id) { setAgent(id, { paused: true }); send({ type: "agents.pause", id }); },
+    resumeAgent(id) { setAgent(id, { paused: false }); send({ type: "agents.resume", id }); },
+    stopAgent(id) { setAgent(id, { stopped: true, paused: false }); send({ type: "agents.stop", id }); },
+    dismissAgent(id) { s.agents = s.agents.filter(x => x.id !== id); send({ type: "agents.dismiss", id }); emit("agents"); },
+    noteAgent(id, text) {
+      text = String(text ?? "").trim();
+      if (!text) return;
+      s.agentNotes.set(`n${++localSeq}`, { sessionId: id, text: text.replace(/\s+/g, " ").slice(0, 1000), at: new Date().toISOString() });
+      send({ type: "agents.note", id, text });
+      emit("agents");
+    },
+    switchToTab(tabId) { send({ type: "agents.switch", tabId }); },
     getReport(id) { send({ type: "report.get", id }); },
   };
+
+  function setAgent(id, patch) {
+    s.agents = s.agents.map(x => (x.id === id ? { ...x, ...patch } : x));
+    emit("agents");
+  }
 
   try { const sc = localStorage.getItem("enso.scope"); if (sc === "all" || sc === "space") s.ui.scope = sc; } catch { /* ignore */ }
 

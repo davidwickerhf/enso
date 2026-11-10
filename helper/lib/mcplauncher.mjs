@@ -5,6 +5,7 @@
 // read from stdin is POSTed to http://127.0.0.1:<port>/mcp with
 //   Authorization: Bearer <token read from the 0600 file in the data folder, per request>
 //   X-Enso-Client: <clientInfo name>/<version>   (from the client's initialize)
+//   X-Enso-Session: <random id for this launcher process>  (one agent session: Pause, Stop, notes)
 // so no token appears in any client config and `enso mcp rotate` needs no
 // re-registration. Responses (JSON or SSE) are written back as lines on stdout.
 //
@@ -14,6 +15,7 @@
 // Zen. It retries the helper on every request, polls it while it is down, and
 // sends notifications/tools/list_changed once it is back.
 
+import { randomBytes } from "node:crypto";
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { createInterface } from "node:readline";
@@ -56,6 +58,7 @@ export function runLauncher({ scope = "full", clientLabel = "", url = launcherUr
   let protocolVersion = null;
   let servedStale = false; // answered tools/list without the helper; tell the client when it is back
   let poller = null;
+  const sessionId = randomBytes(9).toString("base64url"); // one per launcher process, i.e. per agent session
   const cacheFile = path.join(dir, `mcp-tools-cache${scope === "read" ? "-read" : ""}.json`);
 
   const write = msg => output.write(JSON.stringify(msg) + "\n");
@@ -65,6 +68,7 @@ export function runLauncher({ scope = "full", clientLabel = "", url = launcherUr
     const client = encodeClientHeader(clientInfo ?? {});
     if (client) h["X-Enso-Client"] = client;
     if (clientLabel) h["X-Enso-Client-Label"] = clientLabel;
+    h["X-Enso-Session"] = sessionId;
     if (protocolVersion) h["MCP-Protocol-Version"] = protocolVersion;
     return h;
   };

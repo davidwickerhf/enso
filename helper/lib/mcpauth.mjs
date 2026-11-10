@@ -106,7 +106,8 @@ export function parseClientHeader(value) {
 /**
  * Who made an HTTP request: the launcher's X-Enso-Client header, else the
  * clientInfo of an initialize request, else a known User-Agent, else unknown.
- * `label` is what Ensō shows ("Codex is working on this page").
+ * `label` is what Ensō shows ("Codex is working on this page"). `session` is
+ * the launcher's per-process id, when sent.
  */
 export function identifyClient({ headers = {}, body, scope = "full" } = {}) {
   let info = parseClientHeader(headers["x-enso-client"]);
@@ -121,5 +122,7 @@ export function identifyClient({ headers = {}, body, scope = "full" } = {}) {
     if (/claude|codex|cursor|t3/i.test(ua) && !/^node$|undici/i.test(ua)) info = { name: ua.split(/[\s(]/)[0], version: "" };
   }
   const label = headers["x-enso-client-label"] ? clientLabel(headers["x-enso-client-label"]) : clientLabel(info?.name);
-  return { name: info?.name ?? "", version: info?.version ?? "", label, scope, via };
+  // The launcher's per-process id (X-Enso-Session): one agent session, for Pause, Stop and notes.
+  const session = String(headers["x-enso-session"] ?? "").replace(/[^A-Za-z0-9_-]/g, "").slice(0, 64);
+  return { name: info?.name ?? "", version: info?.version ?? "", label, scope, via, ...(session ? { session } : {}) };
 }

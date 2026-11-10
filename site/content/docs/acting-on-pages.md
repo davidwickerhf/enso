@@ -22,7 +22,7 @@ Ensō can work on the page in front of you: it reads the page, clicks, types, ch
 | Navigate, back | Opens a URL in the tab, or goes back |
 | Screenshot | Captures what is visible, to look at it |
 
-While it works, a ribbon at the top of the page says "✦ Claude is working on this page", and the element it touches is outlined, so you can follow along. When another agent works through Ensō, the ribbon names it instead ("✦ Codex is working on this page").
+While it works, a pill at the top of the page says "✦ Claude is working on this page", and the element it touches flashes an outline, so you can follow along. When another agent works through Ensō, the pill names it and its task ("✦ Codex · Fix the failing checkout test") and stays until it is done; see [Use Zen from other agents](/docs/other-agents#seeing-what-an-agent-is-doing).
 
 ## The approval rule
 
