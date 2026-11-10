@@ -71,6 +71,10 @@ All messages are objects with a `type`. Times are ISO strings. Ids are strings.
 | `agents.handover` | `id` (an `AgentSession` id) | `agents` (tab leases: the tab of that session goes to it, shared mode there ends; its next tool result starts with the hand-over note) |
 | `agents.share` | `tabId`, `on` | `agents` (on: every agent on the tab may act, `control: "shared"`; off: one at a time again, the last holder keeps it) |
 | `access.allow` | `id` (an `AccessRequest` id), `via?: "pill"` | the user's Allow on an agent's session-access request: adds exactly its origin to `settings.sessionAccess` (and `sessionAccessAdded`); `settings` + `agents` (the request `granted`) + `actions.added` (`action: "session_access"`). Only pending requests of live agents; never a private site. Only background.js sends it: from Ensō's pages, or for a trusted click in the pill frame on a tab of that site |
+| `agentTabs.close` | `tabIds` or `all: true` | the user's "Close all" / ✕ on tabs agents left open: background.js closes them (`tabs_close_leftovers` with `force`); `agents` (they move to `recentlyClosed`) |
+| `agentTabs.keep` | `tabIds` or `all: true` | "Keep": the tabs stay open and lose the agent mark; `agents` |
+| `agentTabs.reopen` | `id` (a `recentlyClosed` entry) | reopens its URL in its container (`tabs_reopen`); `agents` |
+| `agentTabs.touched`, `agentTabs.removed` | `tabId` | from background.js only: the user activated, clicked or typed in a tab an agent opened (it becomes theirs), or it closed; `agents` |
 | `access.dismiss` | `id`, `via?` | Not now: `agents` (the request `dismissed`; the agent isn't asked about that site again in its task) |
 | `send.targets` | `tabId`, `url` (the captured tab) | `send.targets` (see [Send screenshots](#send-screenshots)) |
 | `send.screenshot` | `target: { kind: "t3" \| "agent", id }`, `image` (PNG/JPEG data URL, ≤ 25 MB), `message`, `url`, `title`, `includePage` (bool, default true), `consoleErrors?` ([{ text, source }], only when ticked) | `send.result` + `actions.added` (`action: "screenshot"`) |
@@ -180,6 +184,7 @@ prefix and the toolbar badge.
 ```js
 { id: "3f2a9c1b04de", client: "Claude Code", clientName: "claude-code",
   task: "Draft the methods section",       // from session_start; "" if none
+  space: "BISS" | null,                    // the Zen space from session_start { space }
   tabId: 42 | null,                        // null: no tab yet (tabs_list, GitHub…)
   url, title,                              // the tab's page as last seen
   startedAt, lastAt, endsAt,               // ISO; endsAt = when it ends if nothing happens
@@ -208,6 +213,16 @@ answered in the last 15 seconds, newest first.
   tool: "session_fetch" | "headless_start", at: ISO,
   status: "pending" | "granted" | "dismissed", resolvedAt: ISO | null,
   told: false }                            // the agent's next tool result carried the answer
+```
+`agents` (and `state`) also carry `agentTabs` (lib/agenttabs.mjs): the tabs
+agents opened with `tabs_open`, and what's left once their agent is gone.
+```js
+{ mode: "close" | "ask" | "keep",          // settings.agentLeftoverTabs
+  marked: [42, 43],                        // tabs still marked as an agent's (background.js reports the user's use of them)
+  leftovers: [{ tabId, url, title, client, task, space, openedAt, leftSince,
+                closesAt: ISO | null,      // "close" mode: 30 min after the agent last used it
+                skipped: "active" | "pinned" | "group" | null }], // why the timer left it open
+  recentlyClosed: [{ id, url, title, client, task, closedAt, auto }] } // newest first, up to 20, for a day
 ```
 background.js sends pending requests to the pill of every tab on that site
 (`presence` `access: [{ id, label, origin, status }]`) and answers a pill click

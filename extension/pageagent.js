@@ -20,6 +20,19 @@
   window.__ensoAgent = true;
   const INSTANCE = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
 
+  // The user's own click or key press here (trusted events only; the agent's are
+  // synthetic) makes a tab an agent opened the user's (background.js, lib/agenttabs.mjs).
+  if (window === window.top) {
+    let told = 0;
+    const userInput = e => {
+      if (!e.isTrusted || Date.now() - told < 5000) return;
+      told = Date.now();
+      browser.runtime.sendMessage({ ensoUserInput: true }).catch(() => {});
+    };
+    window.addEventListener("pointerdown", userInput, true);
+    window.addEventListener("keydown", userInput, true);
+  }
+
   const ACCENT = "#d9643a";
   let refs = new Map();
 

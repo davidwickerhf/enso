@@ -1314,6 +1314,13 @@ html[data-mode="sidebar"] .tr-head .tp-status { font-size: 0; gap: 0; }
 .agents-who strong { font-weight: 600; }
 .agents-sub { font-size: 11.5px; color: var(--text-3); }
 .agents-row.paused .agents-sub { color: var(--warn); }
+/* Tabs agents left open, and "Recently closed by Ensō" (lib/agenttabs.mjs) */
+.agents-leftovers-wrap { display: grid; gap: 8px; }
+.agents-leftovers-head { display: flex; align-items: center; gap: 4px; padding-right: 6px; }
+.agents-leftovers-head .agents-toggle { flex: 1; min-width: 0; }
+.agents-dot.idle { background: var(--text-3); box-shadow: 0 0 0 3px var(--surface-2); }
+.agents-go.static { cursor: default; }
+.agents-who .agent-space { margin-left: 6px; vertical-align: 1px; }
 .action-source { margin-left: 6px; font-size: 10.5px; }
 @media (prefers-reduced-motion: reduce) { .agent-card, .agent-card.flash { animation: none; } }
 html[data-mode="full"] .agents-slot { padding: 12px 24px 0; max-width: 820px; width: 100%; margin: 0 auto; }

@@ -14,6 +14,11 @@
 //     one line), and "One at a time" to end sharing;
 //   - the Agents row: every live session across tabs and spaces; a row
 //     switches to that tab, Stop stops it;
+//   - tabs agents left open (lib/agenttabs.mjs): tabs an agent opened and
+//     didn't close before its session ended, "Opened by <agent> for <task>",
+//     with Close all, ✕ and Keep per tab, and when Ensō will close them
+//     (Settings → Agents & screenshots → Tabs agents leave open); below,
+//     "Recently closed by Ensō" with Reopen;
 //   - session-access requests (lib/agentsessions.mjs requestAccess): an agent
 //     refused because a site isn't on the session-access list asks through
 //     Ensō. The agent's card shows "<Client> wants to use your login on
@@ -27,7 +32,7 @@
 // nothing here takes focus unless the page pill asked for the card.
 
 import { h, clear, icon, iconButton, hostBadge } from "../dom.js";
-import { hostOf, fullDate } from "../format.js";
+import { hostOf, fullDate, relTime } from "../format.js";
 
 const STEP_VERB = {
   page_read: "Read the page",
@@ -160,8 +165,11 @@ export function createAgentsPanel(store) {
   const el = h("div", { class: "agents-slot" });
   let card = null; // { id, root, parts… }
   let listOpen = false;
+  let leftOpen = true; // "Tabs agents left open"
+  let closedOpen = false; // "Recently closed by Ensō"
   let lastAnnounced = null;
   let ticker = null;
+  let leftTicker = null;
 
   let picked = null; // the session shown when several work on the active tab
   const shades = new Map(); // session id -> shade
@@ -361,6 +369,55 @@ export function createAgentsPanel(store) {
     return h("div", { class: "agents-row-wrap" }, toggle, list);
   }
 
+  const SKIPPED = { active: "it's the tab you're on", pinned: "it's pinned", group: "it's in one of your groups" };
+  function leftoverSub(l) {
+    const by = `Opened by ${l.client}${l.task ? ` for ${l.task}` : ""}`;
+    if (l.skipped) return `${by} · Not closed: ${SKIPPED[l.skipped] ?? "it's in use"}`;
+    if (!l.closesAt) return `${by} · Left ${relTime(l.leftSince)}`;
+    const mins = Math.max(0, Math.round((Date.parse(l.closesAt) - Date.now()) / 60_000));
+    return `${by} · Closes ${mins < 1 ? "in under a minute" : `in ${mins} min`} unless you use it`;
+  }
+
+  function renderLeftovers() {
+    const at = s.agentTabs ?? {};
+    const left = at.leftovers ?? [];
+    const closed = at.recentlyClosed ?? [];
+    if (!left.length && !closed.length) return null;
+    const leftBlock = left.length ? h("div", { class: "agents-row-wrap agents-leftovers" },
+      h("div", { class: "agents-leftovers-head" },
+        h("button", { type: "button", class: "agents-toggle", dataset: { fk: "left-toggle" }, aria: { expanded: String(leftOpen), controls: "agents-leftovers-list" }, onclick: () => { leftOpen = !leftOpen; render(); } },
+          h("span", { class: "agents-dot idle", aria: { hidden: "true" } }),
+          h("span", { class: "agents-label" }, `Tabs agents left open (${left.length})`),
+          icon(leftOpen ? "chevronDown" : "chevronRight")),
+        h("button", { type: "button", class: "btn small ghost", dataset: { fk: "left-close-all" }, title: "Close every tab in this list", onclick: () => actions.closeAgentTabs("all") }, "Close all")),
+      leftOpen ? h("ul", { class: "agents-list", id: "agents-leftovers-list", aria: { label: "Tabs agents left open" } }, left.map(l => {
+        const host = hostOf(l.url);
+        return h("li", { class: "agents-row" },
+          h("button", { type: "button", class: "agents-go", dataset: { fk: `left-go-${l.tabId}` }, title: "Switch to this tab (it becomes yours)", onclick: () => actions.switchToTab(l.tabId) },
+            host ? hostBadge(host) : h("span", { class: "agent-mark small", aria: { hidden: "true" } }, "✦"),
+            h("span", { class: "agents-main" },
+              h("span", { class: "agents-who" }, h("strong", null, l.title || host || l.url), l.space ? h("span", { class: "tag agent-space" }, l.space) : null),
+              h("span", { class: "agents-sub" }, leftoverSub(l)))),
+          h("button", { type: "button", class: "btn small ghost", dataset: { fk: `left-keep-${l.tabId}` }, title: "Keep this tab open; it stops being an agent's tab", onclick: () => actions.keepAgentTabs([l.tabId]) }, "Keep"),
+          iconButton("x", `Close ${l.title || host || "this tab"}`, () => actions.closeAgentTabs([l.tabId]), { class: "small", dataset: { fk: `left-x-${l.tabId}` } }));
+      })) : null) : null;
+    const closedBlock = closed.length ? h("div", { class: "agents-row-wrap agents-closed" },
+      h("button", { type: "button", class: "agents-toggle", dataset: { fk: "closed-toggle" }, aria: { expanded: String(closedOpen), controls: "agents-closed-list" }, onclick: () => { closedOpen = !closedOpen; render(); } },
+        h("span", { class: "agents-label" }, `Recently closed by Ensō (${closed.length})`),
+        icon(closedOpen ? "chevronDown" : "chevronRight")),
+      closedOpen ? h("ul", { class: "agents-list", id: "agents-closed-list", aria: { label: "Recently closed by Ensō" } }, closed.map(c => {
+        const host = hostOf(c.url);
+        return h("li", { class: "agents-row" },
+          h("span", { class: "agents-go static" },
+            host ? hostBadge(host) : null,
+            h("span", { class: "agents-main" },
+              h("span", { class: "agents-who" }, h("strong", null, c.title || host || c.url)),
+              h("span", { class: "agents-sub" }, `${c.client}'s tab · closed ${relTime(c.closedAt)}${c.auto ? " (unused)" : ""}`))),
+          h("button", { type: "button", class: "btn small ghost", dataset: { fk: `reopen-${c.id}` }, onclick: () => actions.reopenClosedTab(c.id) }, "Reopen"));
+      })) : null) : null;
+    return h("div", { class: "agents-leftovers-wrap" }, leftBlock, closedBlock);
+  }
+
   const tabsHost = h("div", { class: "agent-tabs-host" });
   const cardHost = h("div", { class: "agent-card-host" });
   const stack = h("div", { class: "agent-stack" }, tabsHost, cardHost);
@@ -370,7 +427,9 @@ export function createAgentsPanel(store) {
   let accessSig = "";
   let listSig = "";
   let tabsSig = "";
-  el.append(stack, accessHost, listHost);
+  const leftHost = h("div", { class: "agents-leftovers-host" });
+  let leftSig = "";
+  el.append(stack, accessHost, listHost, leftHost);
 
   function render() {
     const a = current();
@@ -419,12 +478,27 @@ export function createAgentsPanel(store) {
       if (focused) accessHost.querySelector(`[data-fk="${CSS.escape(focused)}"]`)?.focus();
     }
     accessHost.hidden = !elsewhere.length;
+    // Tabs agents left open, and the ones Ensō closed.
+    const at = s.agentTabs ?? {};
+    const lsig = JSON.stringify([leftOpen, closedOpen, at.mode, (at.leftovers ?? []).map(l => [l.tabId, l.title, l.url, l.task, l.skipped, l.closesAt && Math.round((Date.parse(l.closesAt) - Date.now()) / 60_000)]), (at.recentlyClosed ?? []).map(c => c.id)]);
+    let left = leftHost.firstChild;
+    if (lsig !== leftSig) {
+      leftSig = lsig;
+      const focused = leftHost.contains(document.activeElement) ? document.activeElement.dataset.fk : null;
+      left = renderLeftovers();
+      clear(leftHost, left);
+      if (focused) leftHost.querySelector(`[data-fk="${CSS.escape(focused)}"]`)?.focus();
+    }
+    leftHost.hidden = !left;
     cardHost.hidden = !card;
     stack.hidden = !card;
     listHost.hidden = !list;
-    el.hidden = !card && !list && !elsewhere.length;
+    el.hidden = !card && !list && !elsewhere.length && !left;
     if (s.agents.length && !ticker) ticker = setInterval(tick, 1000);
     if (!s.agents.length && ticker) { clearInterval(ticker); ticker = null; }
+    const counting = (at.leftovers ?? []).some(l => l.closesAt);
+    if (counting && !leftTicker) leftTicker = setInterval(render, 30_000); // "Closes in N min"
+    if (!counting && leftTicker) { clearInterval(leftTicker); leftTicker = null; }
   }
 
   render();

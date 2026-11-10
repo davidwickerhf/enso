@@ -31,6 +31,7 @@ import { DATA, getSettings, logAction, newId, now } from "./store.mjs";
 import { identifyClient, readToken, scopeForAuthorization } from "./mcpauth.mjs";
 import { createAgentSessions, MAX_TASK_CHARS, NOTE_PREFIX } from "./agentsessions.mjs";
 import { findSpace } from "./zenspaces.mjs";
+import { createAgentTabs } from "./agenttabs.mjs";
 
 export const MCP_PORT = Number(process.env.ENSO_MCP_PORT || process.env.ZEN_CHAT_MCP_PORT) || 47823; // override for tests
 
@@ -46,6 +47,8 @@ export const allowedInScope = (tool, scope) => scope !== "read" || (tool.kind ==
 
 /** Live sessions of external agents (lib/agentsessions.mjs); host.mjs pushes them to Ensō's UI. */
 export const agentSessions = createAgentSessions();
+/** Tabs agents opened, and their leftovers once the agent is gone (lib/agenttabs.mjs); host.mjs wires closing and the setting. */
+export const agentTabs = createAgentTabs({ isLive: key => agentSessions.isLive(key) });
 
 const tabIdArg = { tabId: z.number().int().optional().describe("Tab to act on (from tabs_list); defaults to the active tab") };
 
@@ -57,7 +60,7 @@ const tabIdArg = { tabId: z.number().int().optional().describe("Tab to act on (f
  * the request calls one (`calls`: the tool names it calls), it is registered so
  * the caller gets a clear error instead of "not found".
  */
-export function buildServer({ browserRequest, onReports, onAction, sessions = agentSessions, client = { name: "", version: "", label: "An MCP client", scope: "full", via: "http" }, tools = ALL_BROWSER_TOOLS, calls = [] }) {
+export function buildServer({ browserRequest, onReports, onAction, sessions = agentSessions, tabsOpened = agentTabs, client = { name: "", version: "", label: "An MCP client", scope: "full", via: "http" }, tools = ALL_BROWSER_TOOLS, calls = [] }) {
   const server = new McpServer({ name: "zen-browser", version: "1.0.0" }, {
     instructions:
       "Controls the user's Zen browser through Ensō. First call session_start with a short task (one line on what you are about to do); the user sees it in Ensō and on the page. " +
@@ -66,6 +69,7 @@ export function buildServer({ browserRequest, onReports, onAction, sessions = ag
       "Use tabs_list to see the tabs in their current Zen space (allSpaces for all), page_read before acting on a page, and pass tabId to target a specific tab. " +
       "Prefer your own tab: for work that doesn't need the page the user has open, open one with tabs_open (it opens in the background and replies with its tabId; pass that tabId to every page tool) instead of acting in the user's active tab. " +
       "Zen spaces: the user keeps separate spaces (e.g. Personal and one per organisation), each with its own container and logins. Open tabs in the space that matches the task: work for an organisation goes in that organisation's space, never in Personal by default. Pass space to tabs_open, or once to session_start so your tabs go there; call spaces_list (names, containers, what each space is for) when you aren't sure which. tabs_open says where the tabs actually landed; if it says they opened in the current space with the other space's container, tell the user when that matters. " +
+      "Clean up: when you're done, close the tabs you opened (tabs_close) unless the user wants them, and call session_end. Ensō marks the tabs an agent opened; once your session ends, the ones you left are listed for the user and, by default, closed after 30 minutes unused. " +
       "Tabs are leased: the first agent session to act on a tab (click, type, upload, navigate, back, press, select, scroll, page_eval) has it while it keeps acting; it lapses 90 s after its last action or when you call session_end. Other agents can still read that tab, but their actions on it are refused. If a result says a tab is being used by another agent, open your own tab with tabs_open, use headless_*, or ask the user; don't retry, work around it or fight over the tab. The user can hand a tab over to you in Ensō. " +
       "page_query (CSS selector → matching elements, text, attributes, rects) and page_inspect (one element's computed styles, rect, visibility, what covers it) answer questions about a page without evaluating code. " +
       `Developer tools for his live tabs: devtools_console, devtools_network, ${unavailableTools().includes("page_eval") ? "" : "page_eval, "}page_storage. ${pageEvalNote()} ` +
@@ -121,7 +125,14 @@ export function buildServer({ browserRequest, onReports, onAction, sessions = ag
       return r;
     },
     browser: (action, args) => browserRequest("browser.request", action, args, tabId ?? null, client.label, sessionId ?? null),
-    claimTabs: ids => sessions.claim?.(client, ids), // tabs_open: the new tabs are this agent's
+    // tabs_open: the new tabs are this agent's (lease), and marked as opened by it for its task (lib/agenttabs.mjs).
+    claimTabs: (ids, opened = []) => {
+      sessions.claim?.(client, ids);
+      const st = sessions.status?.(client) ?? {};
+      tabsOpened?.opened({ key: sessions.keyOf?.(client) ?? client.label, client: client.label, clientName: client.name, task: st.task ?? "", space: sessions.spaceOf?.(client) ?? null }, opened.length ? opened : ids.map(tabId => ({ tabId })));
+    },
+    agentGroup: groupId => tabsOpened?.group(groupId), // tabs_group: an agent's group, not one the user made
+    tabsClosed: ids => ids.forEach(id => tabsOpened?.removed(id)),
     async act(action, bridgeArgs) {
       if (readOnlyScope) throw new Error(READ_SCOPE_ERROR);
       if (mode() !== "full") throw new Error(`Ensō only lets ${client.label} read Zen right now. The user can allow actions in Ensō → Settings → Agents & screenshots → Access.`);
@@ -192,8 +203,9 @@ export function buildServer({ browserRequest, onReports, onAction, sessions = ag
         }
         const call = {};
         const handle = sessions.begin(client, { tool: t.name, title: t.title, tabId });
-        const done = (ok, error) =>
-          sessions.finish(handle, {
+        const done = (ok, error) => {
+          if (tabId != null && tabsOpened?.isMarked(tabId)) tabsOpened.used(tabId, { url: call.last?.url ?? call.page?.url, title: call.last?.title ?? call.page?.title });
+          return sessions.finish(handle, {
             ok,
             error,
             refused: !ok && !!call.accessRefused, // not on the session-access list: "refused", and Ensō asked the user
@@ -203,6 +215,7 @@ export function buildServer({ browserRequest, onReports, onAction, sessions = ag
             irreversible: !!args.irreversible || t.name === "tabs_close",
             typed: t.name === "page_type" ? args.text : undefined,
           });
+        };
         try {
           const runArgs = tabTool && tabId != null && "tabId" in t.shape ? { ...args, tabId } : args;
           const result = await t.run(runArgs, ctxFor(tabId, call, handle.s?.id ?? null));

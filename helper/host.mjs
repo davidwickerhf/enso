@@ -21,7 +21,7 @@ import { cleanupStale } from "./lib/headless.mjs";
 import { allowSessionAccess } from "./lib/safety.mjs";
 import { createConnections, friendly } from "./lib/connections.mjs";
 import { forgetGithubToken, githubServerEntry, githubStatus, githubWidgetData, saveGithubToken } from "./lib/github.mjs";
-import { agentSessions, MCP_PORT, mcpListening, setOAuthRoute, startMcpServer } from "./lib/mcpserver.mjs";
+import { agentSessions, agentTabs, MCP_PORT, mcpListening, setOAuthRoute, startMcpServer } from "./lib/mcpserver.mjs";
 import * as store from "./lib/store.mjs";
 import { config, configError, LOCAL_CONFIG } from "./lib/config.mjs";
 import { listSpaces, spaceHint } from "./lib/zenspaces.mjs";
@@ -569,7 +569,8 @@ function agentsPayload() {
     return { ...a, t3: { threadId: a.t3ThreadId, title: info?.title ?? null, projectTitle: info?.projectTitle ?? null, openable: !!t3EnvId } };
   });
   // access: agents' pending session-access requests (and just-answered ones), for the pill and the sidebar.
-  return { type: "agents", sessions, connected: agentSessions.connected().map(({ inbox, ...a }) => a), access: agentSessions.accessList() };
+  // agentTabs: tabs agents opened (marked), their leftovers and "Recently closed by Ensō" (lib/agenttabs.mjs).
+  return { type: "agents", sessions, connected: agentSessions.connected().map(({ inbox, ...a }) => a), access: agentSessions.accessList(), agentTabs: agentTabs.state() };
 }
 let t3Refreshing = false;
 async function pushAgents() {
@@ -650,6 +651,7 @@ async function handle(msg) {
         agents: agentsPayload().sessions,
         connectedAgents: agentsPayload().connected,
         agentAccess: agentSessions.accessList(),
+        agentTabs: agentTabs.state(),
       });
       if (DOCTOR) break; // `enso doctor` only checks that we answer: no MCP servers, Claude, dashboard or GitHub
       if (settings.engine === "api") connectMcp(await externalServers(), setServers);
@@ -709,6 +711,10 @@ async function handle(msg) {
       if ("claudePath" in (msg.patch ?? {})) send({ type: "engines", engines: await enginesState() });
       if (settings.engine === "api") connectMcp(await externalServers(), setServers);
       if (msg.patch?.dashboard?.autoRefreshMinutes) dashboard(false); // just turned on (onboarding, Settings): a first brief if there is none
+      if ("agentLeftoverTabs" in (msg.patch ?? {})) {
+        pushAgents(); // the leftovers list shows the new mode
+        agentTabs.tick().catch(() => {});
+      }
       break;
     }
     case "profile.save": {
@@ -893,6 +899,25 @@ async function handle(msg) {
     case "agents.pause":
       agentSessions.pause(msg.id);
       break;
+    // Tabs agents opened (lib/agenttabs.mjs). From background.js: the user used one, or it closed.
+    case "agentTabs.touched":
+      agentTabs.touched(Number(msg.tabId));
+      break;
+    case "agentTabs.removed":
+      agentTabs.removed(Number(msg.tabId));
+      break;
+    // From Ensō's sidebar: "Close all" / ✕, "Keep", "Reopen".
+    case "agentTabs.close":
+      await agentTabs.close(msg.all ? agentTabs.state().leftovers.map(l => l.tabId) : [].concat(msg.tabIds ?? []).map(Number), { force: true });
+      break;
+    case "agentTabs.keep":
+      agentTabs.keep(msg.all ? null : [].concat(msg.tabIds ?? []).map(Number));
+      break;
+    case "agentTabs.reopen": {
+      const c = agentTabs.reopen(String(msg.id ?? ""));
+      if (c) await browserRequest("browser.request", "tabs_reopen", { url: c.url, cookieStoreId: c.cookieStoreId }, null).catch(err => logError("agentTabs.reopen:", err.message));
+      break;
+    }
     case "agents.resume":
       agentSessions.resume(msg.id);
       break;
@@ -972,7 +997,16 @@ if (!DOCTOR) {
   });
 }
 // Agent sessions to every UI and to background.js (page pill, title prefix, toolbar badge).
-agentSessions.subscribe(() => pushAgents());
+agentSessions.subscribe(() => {
+  pushAgents();
+  agentTabs.tick().catch(() => {}); // an agent's last session ended: its tabs become leftovers
+});
+// Leftover agent tabs: background.js closes them (only untouched, inactive, unpinned, outside the user's groups).
+agentTabs.configure({
+  closeTabs: (tabs, { force, agentGroups }) => browserRequest("browser.request", "tabs_close_leftovers", { tabs, force, agentGroups }, null),
+  mode: () => store.getSettings().agentLeftoverTabs ?? "close",
+});
+agentTabs.subscribe(() => pushAgents());
 process.stdin.on("end", () => {
   log("Zen closed the connection (stdin ended)");
   process.exit(0);

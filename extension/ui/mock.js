@@ -737,6 +737,10 @@ Want me to draft the reply to Jonas, or open the [Vercel deployment](https://ver
   const step = (sec, tool, title, target, extra = {}) => ({ id: nid("st"), at: ago(sec), tool, title, target, ok: true, irreversible: false, ...extra });
   let agents = [];
   let agentAccess = []; // agents' session-access requests (?agents=access)
+  // Tabs agents left open and "Recently closed by Ensō" (?agents=leftovers)
+  let leftovers = [];
+  let recentlyClosed = [];
+  const agentTabsState = () => ({ mode: settings.agentLeftoverTabs ?? "close", marked: leftovers.map(l => l.tabId), leftovers, recentlyClosed });
   if (agentPreset) {
     if (agentPreset !== "list") activeTabId = 16;
     const docs = {
@@ -795,6 +799,18 @@ Want me to draft the reply to Jonas, or open the [Vercel deployment](https://ver
         { id: "ar-deploy", client: "Codex", clientName: "codex-mcp-client", sessionId: codex.id, sessionIds: [codex.id], tabId: codex.tabId, origin: "https://deploy.northwind.example.com", tool: "headless_start", at: ago(20), status: "pending", resolvedAt: null, told: false },
       ];
     }
+  }
+  if (agentPreset === "leftovers") {
+    agents = [];
+    const left = (tabId, url, title, client, task, minAgo, extra = {}) => ({ tabId, url, title, client, task, space: null, openedAt: ago(minAgo * 60 + 300), leftSince: ago(minAgo * 60), closesAt: iso(now() + (30 - minAgo) * 60_000), skipped: null, ...extra });
+    leftovers = [
+      left(31, "https://deploy.northwind.example.com/apps/atlas/logs", "atlas-staging · Deploy log", "Claude Code", "Check the deploy log of the staging site", 4, { space: "Northwind" }),
+      left(32, "https://github.com/northwind-labs/atlas-web/actions/runs/8812", "CI run #8812 · atlas-web", "Codex", "Find why CI fails on PR #431", 18),
+      left(33, "https://docs.northwind.example.com/runbooks/rollback", "Rollback runbook", "Claude Code", "Check the deploy log of the staging site", 9, { skipped: "pinned", closesAt: iso(now() + 21 * 60_000) }),
+    ];
+    recentlyClosed = [
+      { id: "cl-1", url: "https://status.northwind.example.com/", title: "Northwind status", client: "Claude Code", task: "Check the deploy log of the staging site", closedAt: ago(1500), auto: true },
+    ];
   }
   // ---- send screenshot: T3 Code threads, connected agents, links ----
   const params = new URLSearchParams(globalThis.location?.search ?? "");
@@ -967,7 +983,7 @@ Want me to draft the reply to Jonas, or open the [Vercel deployment](https://ver
     }
   }
 
-  const sendAgents = () => out({ type: "agents", sessions: agents, connected: connectedAgents(), access: agentAccess });
+  const sendAgents = () => out({ type: "agents", sessions: agents, connected: connectedAgents(), access: agentAccess, agentTabs: agentTabsState() });
   const patchAgent = (id, patch) => { agents = agents.map(a => (a.id === id ? { ...a, ...patch } : a)); sendAgents(); };
 
   function handle(msg) {
@@ -1082,6 +1098,21 @@ Want me to draft the reply to Jonas, or open the [Vercel deployment](https://ver
         sendAgents();
         return;
       }
+      case "agentTabs.close": {
+        const ids = msg.all ? leftovers.map(l => l.tabId) : msg.tabIds ?? [];
+        for (const l of leftovers.filter(x => ids.includes(x.tabId))) recentlyClosed.unshift({ id: nid("cl"), url: l.url, title: l.title, client: l.client, task: l.task, closedAt: iso(now()), auto: false });
+        leftovers = leftovers.filter(l => !ids.includes(l.tabId));
+        sendAgents();
+        return;
+      }
+      case "agentTabs.keep":
+        leftovers = msg.all ? [] : leftovers.filter(l => !(msg.tabIds ?? []).includes(l.tabId));
+        sendAgents();
+        return;
+      case "agentTabs.reopen":
+        recentlyClosed = recentlyClosed.filter(c => c.id !== msg.id);
+        sendAgents();
+        return;
       case "agents.switch":
         activeTabId = msg.tabId;
         out({ type: "page.current", tab: tabOut(activeTab()), space: spaceRef(currentSpaceId()) });
@@ -1101,7 +1132,7 @@ Want me to draft the reply to Jonas, or open the [Vercel deployment](https://ver
         return;
       }
       case "hello":
-        out({ type: "state", settings, engines, servers, connections: connectionsList(), conversations: summaries(), activeConversationId: [...turns.keys()][0] ?? null, dashboard: onboarding && !onboardingDone ? null : dashboard, profile: profileState(), paths: PATHS, skills: SKILLS, reports: REPORTS.map(({ id, title, createdAt }) => ({ id, title, createdAt })), spaces: SPACES, sensitiveHosts: ["*bank*", "*health*", "*patient*", "*.paypal.com"], agents, connectedAgents: connectedAgents(), agentAccess });
+        out({ type: "state", settings, engines, servers, connections: connectionsList(), conversations: summaries(), activeConversationId: [...turns.keys()][0] ?? null, dashboard: onboarding && !onboardingDone ? null : dashboard, profile: profileState(), paths: PATHS, skills: SKILLS, reports: REPORTS.map(({ id, title, createdAt }) => ({ id, title, createdAt })), spaces: SPACES, sensitiveHosts: ["*bank*", "*health*", "*patient*", "*.paypal.com"], agents, connectedAgents: connectedAgents(), agentAccess, agentTabs: agentTabsState() });
         return;
       case "tabs.list":
         out({ type: "tabs", tabs: TABS

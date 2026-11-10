@@ -468,6 +468,12 @@ export function createAgentSessions({ now = Date.now, onChange = () => {}, idleM
       return n;
     },
 
+    /** Whether the agent with this key (clientKey) has a live session that isn't stopped (lib/agenttabs.mjs). */
+    isLive(key) {
+      return !isStopped(key) && ofClient(key).length > 0;
+    },
+    keyOf: client => clientKey(client),
+
     /** The Zen space this agent said it works in (session_start), or null. */
     spaceOf(client) {
       return spaces.get(clientKey(client)) ?? null;

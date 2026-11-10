@@ -101,9 +101,9 @@ export const BROWSER_TOOLS = [
       const r = Array.isArray(reply) ? { opened: reply, placement: "current", currentSpace: null, container: null } : (reply ?? { opened: [] });
       const opened = r.opened ?? [];
       const ids = opened.map(o => o.tabId).filter(Number.isInteger);
-      if (ctx.external && ids.length) ctx.claimTabs?.(ids);
+      if (ctx.external && ids.length) ctx.claimTabs?.(ids, opened.filter(o => Number.isInteger(o.tabId)));
       if (!opened.length) return text("Opened no tabs (only http(s) URLs can be opened).");
-      return text(describeOpened({ opened, r, target, from, background, external: ctx.external, spaces }));
+      return text(describeOpened({ opened, r, target, from, background, external: ctx.external, spaces }) + (ctx.external ? "\nWhen you're done, close the tabs you opened (tabs_close) and call session_end; otherwise Ensō cleans them up after your session ends." : ""));
     },
   },
   {
@@ -114,6 +114,7 @@ export const BROWSER_TOOLS = [
     kind: "read",
     async run(args, ctx) {
       const r = await ctx.browser("tabs_group", args);
+      if (ctx.external && args.groupId == null) ctx.agentGroup?.(r.groupId);
       return text(`Grouped into group ${r.groupId}.`);
     },
   },
@@ -151,6 +152,7 @@ export const BROWSER_TOOLS = [
         if (!ok) throw new Error("The user declined closing these tabs.");
       }
       await ctx.browser("tabs_close", { tabIds: args.tabIds });
+      ctx.tabsClosed?.(args.tabIds);
       return text(`Closed ${args.tabIds.length} tab(s).`);
     },
   },

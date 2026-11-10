@@ -529,6 +529,25 @@ is done twice.
 | `session_fetch` response body | 100,000 characters | Cut, with a note |
 | `page_read` page text | 20,000 characters | Cut, with a note |
 
+## Tabs agents leave open
+
+Every tab an agent opens with `tabs_open` is marked "opened by <client> for
+<task>" (lib/agenttabs.mjs). When the agent has no live session left
+(`session_end`, **Stop**, or two minutes idle), its lease goes at once, its
+pill and "✦ " title prefix go from every tab (after **Stop** the pill first
+reads "Stopped" until the session times out, two minutes later, or the user
+dismisses it), and the tabs it didn't close become leftovers:
+
+| | |
+|---|---|
+| The user uses one | Activating it, or a real click or key press in it (the agent's own events are synthetic), makes it the user's: the mark goes and Ensō never closes it. |
+| Settings → Agents & screenshots → **Tabs agents leave open** | **Close after 30 min unused** (default): Ensō closes a leftover 30 minutes after the agent last used it, but only if it is untouched, not the active tab, not pinned and not in a group the user made (groups an agent made with `tabs_group` don't count). **Ask me**: never closed for you. **Keep**: leftovers lose the mark and stay open. |
+| The sidebar | The Agents area lists **Tabs agents left open (N)** with when each closes, **Close all**, ✕ and **Keep** per tab, and **Recently closed by Ensō** with **Reopen** (the same URL in the same container). |
+| Restarts | Marks live in the helper's memory: after Zen (and so the helper) restarts, tab ids can be reused, so old marks are dropped rather than risk closing an unrelated tab. After an extension reload, background.js clears pills left on pages by its earlier copy (it remembers which tabs had one). |
+
+Agents should close the tabs they opened (`tabs_close`) and call
+`session_end` when done; the `tabs_open` reply and the server instructions say so.
+
 ## Zen spaces: where `tabs_open` puts a tab
 
 Zen keeps each space ("workspace") as its own set of tabs, and a space can have
@@ -575,6 +594,8 @@ In short:
   a specific tab instead of the active one.
 - Prefer your own tab: open one with `tabs_open` (background) and pass its
   `tabId`, rather than acting in the tab the user is looking at.
+- When you're done, close the tabs you opened (`tabs_close`) and call
+  `session_end`; Ensō cleans up leftovers otherwise ([below](#tabs-agents-leave-open)).
 - Pick the Zen space that matches the task: work for an organisation goes in
   that organisation's space (its container has those logins), never in
   Personal by default. Pass `space` to `tabs_open`, or once to `session_start`;

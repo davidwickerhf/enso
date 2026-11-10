@@ -560,7 +560,8 @@ async function openTabs(args) {
   const opened = [];
   for (const url of urls) {
     const t = await browser.tabs.create({ url, active: !args.background && opened.length === 0, ...(cookieStoreId ? { cookieStoreId } : {}), ...(windowId != null ? { windowId } : {}) });
-    opened.push({ tabId: t.id, url, windowId: t.windowId });
+    opened.push({ tabId: t.id, url, windowId: t.windowId, cookieStoreId: t.cookieStoreId ?? null });
+    openedAt.set(t.id, Date.now()); // its activation by tabs.create isn't the user's
   }
   await new Promise(r => setTimeout(r, opened.length ? 150 : 0)); // Zen moves routed tabs right after inserting them
   for (const o of opened) {
@@ -588,6 +589,14 @@ async function browserAction(action, args) {
     }
     case "tabs_open":
       return openTabs(args);
+    case "tabs_close_leftovers":
+      return closeLeftovers(args);
+    case "tabs_reopen": {
+      // "Reopen" in "Recently closed by Ensō": the same URL, in the same container.
+      if (!isWeb(args.url)) throw new Error("Only http(s) URLs can be reopened.");
+      const t = await browser.tabs.create({ url: args.url, active: true, ...(args.cookieStoreId ? { cookieStoreId: args.cookieStoreId } : {}) }).catch(() => browser.tabs.create({ url: args.url, active: true }));
+      return { tabId: t.id };
+    }
     case "spaces_info": {
       // For spaces_list: the space on screen and the containers' names (the helper has the rest).
       if (Array.isArray(args.spaces)) spaces = args.spaces;
@@ -723,6 +732,7 @@ async function syncPresence() {
     clearAgentBadge(tabId);
     browser.tabs.sendMessage(tabId, { enso: true, action: "presence", args: { off: true } }, { frameId: 0 }).catch(() => {});
   }
+  presenceCleanup.then(savePresenceTabs);
 }
 
 /**
@@ -743,6 +753,82 @@ browser.tabs.onUpdated.addListener((tabId, info) => {
   syncPresence();
 });
 browser.tabs.onRemoved.addListener(tabId => presenceSent.delete(tabId));
+
+// ---------- tabs agents opened (helper: lib/agenttabs.mjs) ----------
+// The helper pushes which tabs are marked "opened by <agent>". The user
+// activating one, or clicking or typing in it (pageagent.js reports trusted
+// input), makes it theirs: the helper drops the mark and never closes it.
+const openedAt = new Map(); // tabId -> when tabs_open created it (its own activation isn't the user's)
+let markedTabs = new Set();
+const touchTab = tabId => {
+  if (!markedTabs.has(tabId)) return;
+  markedTabs.delete(tabId);
+  native?.postMessage({ type: "agentTabs.touched", tabId });
+};
+browser.tabs.onActivated.addListener(({ tabId }) => {
+  if (Date.now() - (openedAt.get(tabId) ?? 0) < 1500) return;
+  touchTab(tabId);
+});
+browser.tabs.onRemoved.addListener(tabId => {
+  openedAt.delete(tabId);
+  if (markedTabs.delete(tabId)) native?.postMessage({ type: "agentTabs.removed", tabId });
+});
+browser.runtime.onMessage.addListener((msg, sender) => {
+  if (msg?.ensoUserInput === true && sender.tab?.id != null && sender.frameId === 0 && !sender.url?.startsWith(browser.runtime.getURL(""))) touchTab(sender.tab.id);
+});
+
+// Close leftover agent tabs. The timer's closes (force false) skip tabs that are
+// active, pinned, in a group the user made, or that the user touched meanwhile.
+async function closeLeftovers({ tabs = [], force = false, agentGroups = [] }) {
+  const out = [];
+  const theirs = new Set(agentGroups);
+  for (const { tabId } of tabs) {
+    let t;
+    try {
+      t = await browser.tabs.get(tabId);
+    } catch {
+      out.push({ tabId, gone: true });
+      continue;
+    }
+    if (!force) {
+      if (!markedTabs.has(tabId)) { out.push({ tabId, touched: true }); continue; }
+      const skipped = t.active ? "active" : t.pinned ? "pinned" : (t.groupId ?? -1) > -1 && !theirs.has(t.groupId) ? "group" : null;
+      if (skipped) { out.push({ tabId, skipped }); continue; }
+    }
+    try {
+      await browser.tabs.remove(tabId);
+      markedTabs.delete(tabId);
+      out.push({ tabId, closed: true, url: t.url ?? "", title: t.title ?? "", cookieStoreId: t.cookieStoreId ?? null });
+    } catch {
+      out.push({ tabId, gone: true });
+    }
+  }
+  return out;
+}
+
+// Pills left on pages by an earlier copy of this background (an extension
+// reload or update): its content scripts are gone, their pills aren't. The tabs
+// that had presence are kept in storage; on start, a fresh page agent there
+// removes the old copy's pill and title prefix (pageagent.js), then presence off.
+const PRESENCE_KEY = "enso.presenceTabs";
+let presenceSaved = "";
+function savePresenceTabs() {
+  const ids = JSON.stringify([...presenceSent.keys()].sort((a, b) => a - b));
+  if (ids === presenceSaved) return;
+  presenceSaved = ids;
+  browser.storage.local.set({ [PRESENCE_KEY]: JSON.parse(ids) }).catch(() => {});
+}
+const presenceCleanup = (async () => {
+  const stored = (await browser.storage.local.get(PRESENCE_KEY).catch(() => ({})))?.[PRESENCE_KEY];
+  for (const tabId of Array.isArray(stored) ? stored : []) {
+    if (!Number.isInteger(tabId) || presenceSent.has(tabId)) continue;
+    try {
+      await browser.tabs.get(tabId);
+      await agent(tabId, "presence", { off: true });
+    } catch {}
+  }
+  savePresenceTabs();
+})();
 
 // The sidebar shortcut as the user sees it (the manifest's Ctrl+E is ⌘E on macOS).
 let openKey = null;
@@ -1002,6 +1088,8 @@ function connectNative() {
       agentSessions = (msg.type === "agents" ? msg.sessions : msg.agents) ?? [];
       const acc = msg.type === "agents" ? msg.access : msg.agentAccess;
       if (Array.isArray(acc)) agentAccess = acc.filter(r => r && typeof r.id === "string" && typeof r.origin === "string").slice(0, 20);
+      const tabsState = msg.agentTabs;
+      if (Array.isArray(tabsState?.marked)) markedTabs = new Set(tabsState.marked.filter(Number.isInteger));
       syncPresence();
     }
     if ((msg.type === "state" || msg.type === "spaces") && Array.isArray(msg.spaces)) {
