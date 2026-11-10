@@ -87,9 +87,15 @@ export function createSendSheet(store) {
       routeNote(sh),
       h("div", { class: "shot-options" },
         toggle("Page URL and title", sh.includePage, v => actions.patchShot({ includePage: v })),
-        errs?.length ? toggle(`Console errors (${errs.length})`, sh.includeErrors, v => actions.patchShot({ includeErrors: v })) : toggle("Console errors", false, () => {}, true, errs ? "(none captured)" : "(console capture is off on this tab)"),
+        errs?.length ? toggle(`Console errors (${errs.length})`, sh.includeErrors, v => actions.patchShot({ includeErrors: v }))
+          : errs ? toggle("Console errors", false, () => {}, true, "none captured yet")
+          : h("div", { class: "shot-console-off" },
+            h("span", { class: "muted" }, "Console errors aren't being captured on this tab."),
+            h("span", { class: "shot-console-acts" },
+              h("button", { type: "button", class: "linklike", onclick: () => actions.startConsole(sh.tab?.tabId) }, "Start capturing"),
+              host ? h("button", { type: "button", class: "linklike", onclick: () => actions.startConsole(sh.tab?.tabId, true) }, `Always on ${host}`) : null)),
         sh.target ? toggle("Always send this tab here", sh.remember, v => actions.patchShot({ remember: v })) : null,
-        t3Target && projectId && sh.targets?.host && linkedHost?.projectId !== projectId ? h("button", { type: "button", class: "linklike", onclick: () => { const t = store.targetInfo(sh.target).thread; actions.linkHost(sh.targets.host, t.projectId, t.projectTitle); actions.patchShot({}); } }, `Use ${store.targetInfo(sh.target).thread.projectTitle} for ${sh.targets.host}`) : null),
+        t3Target && projectId && sh.targets?.host && linkedHost?.projectId !== projectId && store.targetInfo(sh.target)?.thread?.projectTitle && !/^no project$/i.test(store.targetInfo(sh.target).thread.projectTitle) ? h("button", { type: "button", class: "linklike", onclick: () => { const t = store.targetInfo(sh.target).thread; actions.linkHost(sh.targets.host, t.projectId, t.projectTitle); actions.patchShot({}); } }, `Use ${store.targetInfo(sh.target).thread.projectTitle} for ${sh.targets.host}`) : null),
       built.message,
       sh.error ? h("p", { class: "form-error", role: "alert" }, sh.error) : null,
       h("div", { class: "shot-actions" },

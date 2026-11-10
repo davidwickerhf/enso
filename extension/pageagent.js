@@ -315,6 +315,7 @@
   // (Enter or a click without dragging), { mode: "full" } (F) or { cancelled: true } (Esc).
   // The overlay is removed and two frames painted before it resolves, so it never shows in the capture.
   let selecting = null;
+  let regionKey = null; // the open overlay's key handler, also fed by Ensō's sidebar (region_key)
   function regionSelect() {
     if (selecting) return selecting;
     selecting = new Promise(resolve => {
@@ -334,7 +335,10 @@
         .layer.dragging{background:transparent}
         .box{position:fixed;display:none;border:1.5px solid ${ACCENT};border-radius:2px;box-shadow:0 0 0 100vmax rgba(20,16,12,.32);pointer-events:none}
         .size{position:absolute;right:-1px;bottom:-24px;font:600 11px/1 -apple-system,system-ui,sans-serif;color:#fff;background:${ACCENT};padding:4px 6px;border-radius:4px;white-space:nowrap}
-        .hint{position:fixed;left:50%;top:14px;transform:translateX(-50%);display:flex;gap:14px;align-items:center;font:500 12.5px/1.2 -apple-system,system-ui,sans-serif;color:#fff;background:rgba(28,24,20,.92);padding:9px 14px;border-radius:10px;box-shadow:0 6px 24px rgba(0,0,0,.25);pointer-events:none;white-space:nowrap}
+        .hint{position:fixed;left:50%;top:14px;transform:translateX(-50%);display:flex;gap:6px;align-items:center;font:500 12.5px/1.2 -apple-system,system-ui,sans-serif;color:#fff;background:rgba(28,24,20,.92);padding:6px 6px 6px 14px;border-radius:10px;box-shadow:0 6px 24px rgba(0,0,0,.25);white-space:nowrap;cursor:default}
+        .hint > span{margin-right:8px}
+        .hint button{all:unset;display:inline-flex;align-items:center;gap:2px;padding:5px 8px;border-radius:7px;cursor:pointer;color:#fff}
+        .hint button:hover,.hint button:focus-visible{background:rgba(255,255,255,.14)}
         .hint b{font-weight:650;color:#ffd9c7}
         kbd{font:600 11px/1 ui-monospace,SFMono-Regular,monospace;background:rgba(255,255,255,.14);border-radius:4px;padding:3px 5px;margin-right:4px}
         .layer.dragging ~ .hint{opacity:0}
@@ -345,9 +349,14 @@
       boxEl.append(el("span", "size"));
       const hint = el("div", "hint");
       hint.append(el("b", "", "✦ Screenshot"), el("span", "", "Drag to select"));
-      for (const [k, t] of [["↵", "Visible area"], ["F", "Full page"], ["Esc", "Cancel"]]) {
-        const item = el("span");
+      // Buttons as well as keys: keyboard focus is often still in Ensō's sidebar or
+      // the address bar (the shortcut opens the sidebar), so the page may not see keys.
+      for (const [k, t, key] of [["↵", "Visible area", "Enter"], ["F", "Full page", "f"], ["Esc", "Cancel", "Escape"]]) {
+        const item = el("button");
+        item.type = "button";
         item.append(el("kbd", "", k), document.createTextNode(t));
+        item.addEventListener("mousedown", e => e.stopPropagation());
+        item.addEventListener("click", e => { e.preventDefault(); e.stopPropagation(); regionKey?.({ key, preventDefault() {}, stopPropagation() {} }); });
         hint.append(item);
       }
       root.append(style, layerEl, boxEl, hint);
@@ -358,6 +367,7 @@
       let rect = null;
       const finish = result => {
         window.removeEventListener("keydown", onKey, true);
+        regionKey = null;
         host.remove();
         selecting = null;
         requestAnimationFrame(() => requestAnimationFrame(() => resolve(result)));
@@ -391,6 +401,7 @@
         finish({ mode: "region", rect: { x: rect.x + scrollX, y: rect.y + scrollY, width: rect.width, height: rect.height } });
       });
       window.addEventListener("keydown", onKey, true);
+      regionKey = onKey;
       (document.body ?? document.documentElement).append(host);
       layer.focus();
     });
@@ -479,6 +490,7 @@
     },
     presence: setPresence,
     region_select: regionSelect,
+    region_key: ({ key }) => { if (!regionKey) return false; regionKey({ key: String(key), preventDefault() {}, stopPropagation() {} }); return true; },
     page_size() {
       const d = document.documentElement;
       const b = document.body;
@@ -716,7 +728,7 @@
     return { status: res.status, statusText: res.statusText, url: res.url, redirected: res.redirected, headers: hdrs, contentType: type, body: text.length > cap ? text.slice(0, cap) : text, bodyLength: length, truncated: text.length > cap, tabOrigin: location.origin, tabTitle: document.title };
   }
 
-  const PASSIVE = new Set(["presence", "pill_ready", "pill_hint", "text", "console_flush", "region_select", "page_size"]); // not an action by anyone
+  const PASSIVE = new Set(["presence", "pill_ready", "pill_hint", "text", "console_flush", "region_select", "region_key", "page_size"]); // not an action by anyone
   browser.runtime.onMessage.addListener(msg => {
     if (!msg?.enso) return undefined;
     return (async () => {

@@ -73,3 +73,9 @@ Claude Code then gets the screenshot's file path with your message and opens it.
 ## Privacy
 
 Screenshots show whatever is on the page, so look before you send. They stay on your Mac: they go to T3 Code on this machine, to a local agent, or to your clipboard, and from there to that agent's AI provider like anything else you give it. Saved copies are in `~/Library/Application Support/Enso/screenshots` and are deleted after 14 days. Details: [Privacy and data](/docs/privacy-data).
+
+## Console errors
+
+Ensō captures a tab's console errors on development sites by itself (localhost, LAN addresses and `.local`, `.test` or `.localhost` hosts). On other sites, choose **Start capturing** in the send sheet (errors from then on; reload the page to catch errors while it loads) or **Always on <site>** to capture there every time.
+
+If **Enter**, **F** or **Esc** don't respond while you select a region, use the buttons in the bar at the top of the page; Ensō also passes those keys on from its sidebar.
