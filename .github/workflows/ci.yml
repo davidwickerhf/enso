@@ -63,7 +63,7 @@ jobs:
       - name: Helper tarball size
         run: |
           scripts/pack-helper.sh "$(node -p 'require("./helper/package.json").version')" dist
-          size=$(stat -f %z dist/enso-helper-*-darwin.tar.gz)
+          size=$(stat -f %z dist/enso-helper-*.tar.gz)
           echo "Helper tarball: $((size / 1024 / 1024)) MB"
           [ "$size" -lt $((40 * 1024 * 1024)) ] || { echo "::error::helper tarball is over 40 MB"; exit 1; }
 
@@ -108,3 +108,21 @@ jobs:
         env:
           ENSO_TEST_REAL_SECRETS: '1'
         run: npm test
+
+      - name: Installer end to end (Linux)
+        # install.sh in a throwaway HOME with the real helper tarball, then `enso
+        # doctor` starts the installed run.sh the way Zen does and needs its
+        # answer to hello. Also Ensō's own Node, checked against the pinned hash.
+        if: runner.os == 'Linux'
+        run: |
+          set -euo pipefail
+          scripts/pack-helper.sh 0.0.0-ci "$RUNNER_TEMP/dist"
+          a=x64; [ "$(uname -m)" = aarch64 ] && a=arm64
+          curl -fsSL -o "$RUNNER_TEMP/node.tar.xz" "https://nodejs.org/dist/v24.22.2/node-v24.22.2-linux-$a.tar.xz"
+          (cd helper && ENSO_TEST_PRIVATE_NODE=1 ENSO_TEST_NODE_TARBALL="$RUNNER_TEMP/node.tar.xz" node test/install.test.mjs)
+          H="$(mktemp -d)"
+          HOME="$H" ENSO_HELPER_URL="file://$RUNNER_TEMP/dist/enso-helper-0.0.0-ci.tar.gz" ENSO_NO_OPEN=1 ENSO_NODE=system bash scripts/install.sh
+          HOME="$H" "$H/.local/bin/enso" doctor | tee "$RUNNER_TEMP/doctor.txt" || true
+          grep -q "✓ Helper .*answered hello" "$RUNNER_TEMP/doctor.txt"
+          grep -q "✓ Zen/Firefox manifest" "$RUNNER_TEMP/doctor.txt"
+          rm -rf "$H"

@@ -3,20 +3,24 @@ import { findRelease, latest, releaseUrl } from '$lib/server/releases';
 import { getStore, releaseObjectKey } from '$lib/server/storage';
 import type { RequestHandler } from './$types';
 
-const ALIASES: Record<string, 'extension' | 'helper'> = {
-	'enso-latest.xpi': 'extension',
-	'enso-helper-latest-darwin.tar.gz': 'helper'
+const ALIASES: Record<string, ['extension' | 'helper', ('darwin' | 'linux' | 'win32' | 'any')?]> = {
+	'enso-latest.xpi': ['extension'],
+	'enso-helper-latest-darwin.tar.gz': ['helper', 'darwin'],
+	'enso-helper-latest-linux.tar.gz': ['helper', 'linux'],
+	'enso-helper-latest-win32.tar.gz': ['helper', 'win32'],
+	'enso-helper-latest.tar.gz': ['helper', 'any']
 };
 
 /**
  * Release files. With S3 the bytes are public objects and this redirects to
  * them; without S3 they are streamed from Postgres. `enso-latest.xpi` and
- * `enso-helper-latest-darwin.tar.gz` always point at the newest version.
+ * `enso-helper-latest[-darwin|-linux|-win32].tar.gz` always point at the
+ * newest version (for that platform).
  */
 export const GET: RequestHandler = async ({ params }) => {
 	const alias = ALIASES[params.file];
 	if (alias) {
-		const r = await latest(alias);
+		const r = await latest(alias[0], alias[1]);
 		if (!r) error(404, 'No release published yet');
 		redirect(302, releaseUrl(r.filename));
 	}

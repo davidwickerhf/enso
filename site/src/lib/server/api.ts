@@ -9,7 +9,7 @@ import { query } from './db';
 import { listDevices, pollDeviceRequest, revokeDevice, startDeviceRequest } from './devices';
 import { clientIp, etag, json, parseVersionTag, problem, readBody, requireDevice, safeEqual } from './http';
 import { hit } from './ratelimit';
-import { KINDS, publishRelease, releaseUrl, type ReleaseKind, latest } from './releases';
+import { HELPER_PLATFORMS, KINDS, PLATFORMS, publishRelease, releaseUrl, type ReleaseKind, type ReleasePlatform, latest } from './releases';
 import { BLOB_KEY, deleteAccount, deleteBlob, getBlob, manifest, putBlob, usage } from './sync';
 
 const EMAIL = /^[^\s@]{1,64}@[^\s@]{1,190}\.[^\s@]{2,}$/;
@@ -181,10 +181,13 @@ export async function releasePut(request: Request, kind: string, version: string
 	const data = await readBody(request, config.maxReleaseBytes);
 	if (!data) return problem(413, 'too_large', { maxBytes: config.maxReleaseBytes });
 	const url = new URL(request.url);
+	const platform = url.searchParams.get('platform');
+	if (platform !== null && !PLATFORMS.includes(platform as ReleasePlatform)) return problem(400, 'invalid_platform', { platforms: PLATFORMS });
 	const notes = request.headers.get('x-release-notes');
 	const result = await publishRelease({
 		kind: kind as ReleaseKind,
 		version,
+		platform: (platform as ReleasePlatform | null) ?? undefined,
 		data,
 		strictMinVersion: url.searchParams.get('strict_min_version'),
 		notes: notes ? decodeURIComponent(notes).slice(0, 2000) : null,
@@ -193,16 +196,24 @@ export async function releasePut(request: Request, kind: string, version: string
 	if (!result.ok) return problem(result.status, result.error);
 	const r = result.release;
 	return json(
-		{ kind: r.kind, version: r.version, url: releaseUrl(r.filename), sha256: r.sha256, size: r.size, unchanged: result.unchanged },
+		{ kind: r.kind, version: r.version, platform: r.platform, url: releaseUrl(r.filename), sha256: r.sha256, size: r.size, unchanged: result.unchanged },
 		result.unchanged ? 200 : 201
 	);
 }
 
-export async function latestVersions() {
-	const [ext, helper] = await Promise.all([latest('extension'), latest('helper')]);
+/**
+ * GET /api/latest[?platform=darwin|linux|win32]. `helper` is the helper for
+ * that platform (default darwin, which is what installers before Linux and
+ * Windows support expect); `helpers` lists every platform.
+ */
+export async function latestVersions(request?: Request) {
+	const asked = request ? new URL(request.url).searchParams.get('platform') : null;
+	const platform = (HELPER_PLATFORMS as string[]).includes(asked ?? '') ? (asked as (typeof HELPER_PLATFORMS)[number]) : 'darwin';
+	const [ext, helper, ...perPlatform] = await Promise.all([latest('extension'), latest('helper', platform), ...HELPER_PLATFORMS.map((p) => latest('helper', p))]);
 	const view = (r: Awaited<ReturnType<typeof latest>>) =>
-		r ? { version: r.version, url: releaseUrl(r.filename), sha256: r.sha256, size: r.size, publishedAt: r.createdAt.toISOString() } : null;
-	return json({ extension: view(ext), helper: view(helper), extensionIds: config.extensionIds }, 200, {
+		r ? { version: r.version, platform: r.platform, url: releaseUrl(r.filename), sha256: r.sha256, size: r.size, publishedAt: r.createdAt.toISOString() } : null;
+	const helpers = Object.fromEntries(HELPER_PLATFORMS.map((p, i) => [p, view(perPlatform[i])]));
+	return json({ extension: view(ext), helper: view(helper), helpers, extensionIds: config.extensionIds }, 200, {
 		'cache-control': 'public, max-age=300',
 		'access-control-allow-origin': '*'
 	});

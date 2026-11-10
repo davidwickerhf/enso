@@ -70,7 +70,9 @@ env:
 jobs:
   release:
     # macOS runner (Apple silicon). The helper tarball has no native binaries
-    # of its own; it runs on the user's installed Node and Claude Code.
+    # of its own and is the same for every OS; it runs on the user's installed
+    # Node (or Ensō's pinned copy) and Claude Code. CI tests it on Linux and
+    # Windows too (.github/workflows/ci.yml).
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
@@ -237,7 +239,11 @@ jobs:
             echo
           }
           publish extension "dist/enso-$V.xpi" "?strict_min_version=$STRICT_MIN_VERSION"
-          publish helper "dist/enso-helper-$V-darwin.tar.gz"
+          # One helper archive for macOS, Linux and Windows (plain JS; pack-helper.sh
+          # refuses to build if a dependency ever brings native or per-OS files).
+          # platform=any: /api/latest?platform=darwin|linux|win32 all serve it, and
+          # macOS installers from before (no ?platform=) get it as darwin.
+          publish helper "dist/enso-helper-$V.tar.gz" "?platform=any"
           curl -fsS "$SITE/api/latest"
           echo
           curl -fsS "$SITE/updates.json" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const u=Object.values(JSON.parse(s).addons)[0].updates; console.log("updates.json newest:", u[0]?.version); if (u[0]?.version !== process.argv[1]) process.exit(1);})' "$V"

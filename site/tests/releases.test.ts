@@ -82,6 +82,34 @@ describe('releases and the update feed', () => {
 		expect(versions).toEqual(['0.10.0', '0.10.0-beta.1', '0.9.0']);
 	});
 
+	it('serves the helper per platform, with old macOS installers unchanged', async () => {
+		const latestFor = async (platform?: string) =>
+			(await latestVersions(req('GET', `/api/latest${platform ? `?platform=${platform}` : ''}`))).json();
+		// An older release, as CI published it before platforms existed (no ?platform= → darwin).
+		await publish('helper', '1.1.0', bytes(5, 10));
+		// The universal archive, for every OS.
+		const any = await publish('helper', '1.2.0', bytes(5, 11), undefined, '?platform=any');
+		expect(any.status).toBe(201);
+		expect(await any.json()).toMatchObject({ platform: 'any', url: 'http://localhost:5173/releases/enso-helper-1.2.0.tar.gz' });
+		for (const p of [undefined, 'darwin', 'linux', 'win32']) {
+			const body = await latestFor(p);
+			expect(body.helper).toMatchObject({ version: '1.2.0', platform: 'any' });
+		}
+		// A platform build of the same version wins for that platform only.
+		await publish('helper', '1.2.0', bytes(5, 12), undefined, '?platform=win32');
+		const body = await latestFor('win32');
+		expect(body.helper).toMatchObject({ version: '1.2.0', platform: 'win32', url: 'http://localhost:5173/releases/enso-helper-1.2.0-win32.tar.gz' });
+		expect(body.helpers.win32.platform).toBe('win32');
+		expect(body.helpers.linux.platform).toBe('any');
+		expect(body.helpers.darwin.platform).toBe('any');
+		expect((await latestFor()).helper.platform).toBe('any');
+		// An unknown ?platform= on GET falls back to darwin; on PUT it is refused.
+		expect((await latestFor('beos')).helper.platform).toBe('any');
+		expect((await publish('helper', '1.3.0', bytes(5, 13), undefined, '?platform=beos')).status).toBe(400);
+		// The extension ignores platforms.
+		expect((await (await publish('extension', '1.2.0', bytes(5, 14), undefined, '?platform=linux')).json()).platform).toBe('any');
+	});
+
 	it('orders versions like Firefox does for the common cases', () => {
 		expect(compareVersions('1.10', '1.9')).toBeGreaterThan(0);
 		expect(compareVersions('1.0', '1.0.0')).toBe(0);
