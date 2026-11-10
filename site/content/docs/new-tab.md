@@ -34,7 +34,13 @@ The page stays empty until you add something: choose **Add widgets** under the b
 
 Ensō adds itself to Zen as a search engine called **Ensō**. Make it the default and Zen's address bar becomes Ensō's box too: web addresses still open directly, and everything else you type comes to Ensō.
 
-**Turn it on:** Zen Settings → Search → Default Search Engine → **Ensō**. Ensō never changes your default engine by itself. Settings → General → **Address bar** shows whether it's on.
+**When you install Ensō**, Zen asks: *Ensō would like to change your default search engine from Google to Ensō. Is that OK?* Choose **Yes** and the address bar is Ensō's box straight away. Choose **No** (or close the question) and nothing changes: Ensō stays in the list of engines, and Zen doesn't ask again when Ensō updates.
+
+**Turn it on later:** Zen Settings → **Search** → **Default Search Engine** → **Ensō**. Add-ons can't open Zen's settings, so the quickest way is to paste `about:preferences#search` into the address bar. Ensō never changes your default engine by itself.
+
+Until it's on, Ensō shows a small card under the box on the new tab, **Make the address bar Ensō's box**. **Make Ensō the default** shows the three steps with a button that copies `about:preferences#search`; the card says **Done** by itself once you've picked Ensō. **Not now** hides it for 30 days, **Don't ask again** for good. Settings → General → **Address bar** always shows whether it's on, with the same steps, and the first-run card offers it as an optional last step.
+
+**Without changing your default:** type `@enso`, a space and your question in the address bar. It goes to Ensō, and everything else still goes to your usual engine.
 
 What happens when you press <kbd>Enter</kbd> depends on one setting, **Address-bar queries go to**:
 

@@ -1350,6 +1350,13 @@ Want me to draft the reply to Jonas, or open the [Vercel deployment](https://ver
     disconnect() { out({ type: "event", conversationId: null, event: { kind: "error", code: "host_disconnected", text: "Lost Ensō's helper: the native host exited. Reconnecting by itself…", at: iso(now()) } }); },
     // First-run guide: the helper appears (install.sh finished).
     connectHelper,
+    // Whether Ensō is Zen's default search engine (the address-bar card): setEnsoDefault(false) shows it,
+    // setEnsoDefault(true) turns it into "Done". ?ensoDefault=0 starts without it. Undo a dismissal: localStorage.removeItem("enso.searchNudge").
+    setEnsoDefault(on) {
+      try { localStorage.setItem("enso.mockEnsoDefault", on ? "1" : "0"); } catch { /* ignore */ }
+      globalThis.__ensoMockEnsoDefaultSet = true;
+      globalThis.dispatchEvent(new Event("enso:engines"));
+    },
     setActiveTab(tabId) {
       activeTabId = tabId;
       out({ type: "page.current", tab: tabOut(activeTab()), space: spaceRef(currentSpaceId()) });

@@ -9,6 +9,21 @@ the extension updates itself, the helper updates when you run the installer agai
 
 Agents can give pages files, wait for slow work, and send large payloads.
 
+- **Making Ensō the default search engine is one choice away.** New installs
+  get Firefox's own question, *Ensō would like to change your default search
+  engine…*, at install (`search_provider.is_default`); nothing changes unless
+  you choose Yes, and updates never ask. Everyone else sees a small card under
+  the new tab's box, **Make the address bar Ensō's box**, with the three clicks
+  in Zen's settings and a button that copies `about:preferences#search`
+  (add-ons can't open it). It says **Done** once Ensō is the default; **Not
+  now** hides it for 30 days, **Don't ask again** for good. The same card is in
+  Settings → General → Address bar and an optional last step of the first-run
+  card.
+
+- **The new tab's "Your tools" strip fits a narrow sidebar.** The tool icons
+  scroll sideways, faded at the cut-off edge, while the label and the manage
+  and hide buttons stay in view.
+
 - **`page_upload`** attaches files from this computer to a file input, or drops
   them on a drop zone, exactly as they are on disk: streamed in 512 KiB chunks,
   checked by size and SHA-256 before anything is attached, built as `File`

@@ -84,7 +84,7 @@
       "keyword": "@enso",
       "search_url": "https://enso.wicker.life/ask#q={searchTerms}",
       "encoding": "UTF-8",
-      "is_default": false
+      "is_default": true
     }
   }
 }

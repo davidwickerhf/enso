@@ -790,8 +790,14 @@ html[data-mode="newtab"] .hero-slot { margin: 0; position: relative; z-index: 2;
 .omni-sub { color: var(--text-3); }
 .omni-trail { flex: none; font-size: 12px; color: var(--text-3); }
 .tools-strip { display: flex; align-items: center; gap: 10px; margin: -14px 12px 0; padding: 22px 8px 8px 16px; border-radius: 0 0 16px 16px; background: color-mix(in srgb, var(--surface-2) 70%, transparent); font-size: 12.5px; color: var(--text-3); animation: fade-in 300ms var(--ease); }
-.tools-label { flex: 1; }
-.tools-icons { display: flex; gap: 8px; align-items: center; }
+.tools-strip > * { flex: none; }
+.tools-label { white-space: nowrap; }
+/* The icons take the room left by the label and buttons, scroll sideways when
+   that's not enough (narrow sidebar), and fade at whichever edge is cut off. */
+.tools-strip > .tools-icons { flex: 0 1 auto; min-width: 0; margin-left: auto; display: flex; gap: 8px; align-items: center; overflow-x: auto; overscroll-behavior-x: contain; scrollbar-width: none; padding: 2px 0; --fade-l: 0px; --fade-r: 0px; mask-image: linear-gradient(to right, transparent, #000 var(--fade-l), #000 calc(100% - var(--fade-r)), transparent); }
+.tools-icons::-webkit-scrollbar { display: none; }
+.tools-icons.fade-start { --fade-l: 22px; }
+.tools-icons.fade-end { --fade-r: 22px; }
 .tool-icon { display: grid; place-items: center; width: 22px; height: 22px; border-radius: 6px; color: var(--text-2); }
 .tool-icon .icon { width: 16px; height: 16px; }
 .tool-icon.dim { opacity: .45; }

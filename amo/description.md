@@ -4,6 +4,8 @@ Ensō puts Claude in your browser. It is made for Zen (and runs in Firefox 142 o
 
 **A calm new tab.** A daily brief when you turn it on, and widgets for your calendar, mail, tasks (Commonfold, monday.com and other task apps), GitHub, quick links and a note. A search box with your tabs, bookmarks and history, and your search engine's suggestions if you want them.
 
+**The address bar as Ensō's box (optional).** Ensō adds itself as a search engine called Ensō, with the keyword @enso. When you install it, Firefox asks whether Ensō may become your default search engine; it only changes if you choose Yes, and you can switch back any time in Settings → Search. Web addresses still open directly; other searches go to Ensō or to your usual engine, as you set it.
+
 **Your browser as a tool for agents.** Claude Code, Codex, Cursor and other MCP clients can read and act in your signed-in Zen through Ensō, with every action shown on the page and in an activity log, and buttons to pause or stop an agent. You can also send a screenshot of a tab to an agent or to T3 Code with Ctrl+Shift+2 (⌘⇧2 on a Mac).
 
 **It needs a helper app.** Ensō talks to a small local helper (Node.js, for macOS, Linux and Windows) over native messaging; the helper runs Claude through Claude Code on your own Claude plan, or with your Anthropic API key. After installing the add-on, Ensō shows the one-line install command for your system (from enso.wicker.life) and finishes setup itself. On other systems the add-on installs, but chat and the other features that need the helper don't work.

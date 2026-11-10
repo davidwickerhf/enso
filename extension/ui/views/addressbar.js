@@ -3,11 +3,13 @@
 //     bar (background.js → full.html#urlbar; not the new-tab page, which Zen closes when replace-newtab is on). Asks Ensō with a one-click "Search
 //     <engine> instead", or shows the two-option chooser, plus the active rule.
 //   createAddressBarSetting: the one Settings row (mode, web search engine, whether
-//     Ensō is Zen's default engine and how to make it so).
+//     Ensō is Zen's default engine, and the card that shows how to make it so:
+//     ./defaultengine.js).
 // Rules: ../route.js. Setting and browser calls: ../addressbar.js. Docs: site/content/docs/new-tab.md.
 
 import { h, icon, clear } from "../dom.js";
 import { R, addressBarState, setPrefs, takeUrlbarQuery, webSearch } from "../addressbar.js";
+import { createDefaultEngineCard } from "./defaultengine.js";
 
 // Its own stylesheet, so app.css stays untouched (loaded with this module, on every page that shows Settings).
 if (!document.querySelector("link[data-addressbar]")) {
@@ -15,7 +17,6 @@ if (!document.querySelector("link[data-addressbar]")) {
 }
 
 const DOCS = "https://enso.wicker.life/docs/new-tab#the-address-bar";
-const ZEN_PATH = "Zen Settings → Search → Default Search Engine → Ensō";
 
 function openSetting(store) {
   store.actions.go("settings", { section: "general" }); // the address-bar row lives in Settings → General
@@ -139,6 +140,8 @@ export function createUrlbarArrival(store, ctx) {
 export function createAddressBarSetting(store) {
   const el = h("section", { class: "settings-block", id: "settings-addressbar" });
   let st = null;
+  // Prominent while Ensō isn't the default; says "Done" if that changes while Settings is open.
+  const card = createDefaultEngineCard({ place: "settings", onChange: () => load() });
 
   async function load() {
     st = await addressBarState().catch(() => null);
@@ -157,12 +160,13 @@ export function createAddressBarSetting(store) {
       st.engines.map(name => h("option", { value: name, selected: name === st.engine }, name)));
     clear(el,
       h("h3", null, "Address bar"),
+      card.el,
       h("div", { class: "setting stacked" },
         h("div", { class: "setting-text" },
           h("label", null, "Address-bar queries go to"),
           h("p", null, st.ensoIsDefault
             ? [icon("check"), " Ensō is Zen's default search engine, so what you type in the address bar comes here. Start with ", h("kbd", null, "e"), " to ask Ensō or ", h("kbd", null, "g"), " to search the web, whatever you pick below."]
-            : ["Not on yet. To turn it on: ", h("strong", null, ZEN_PATH), ". Until then only searches with the ", h("code", null, "@enso"), " keyword come here."])),
+            : ["Ensō isn't Zen's default search engine yet, so only searches with the ", h("code", null, "@enso"), " keyword come here. The card above shows how to change that."])),
         h("div", { class: "ab-controls" },
           h("div", { class: "segmented", role: "radiogroup", aria: { label: "Address-bar queries go to" } },
             modes.map(([v, label]) => h("button", { type: "button", role: "radio", class: ["seg", v === st.mode && "on"], aria: { checked: String(v === st.mode) }, onclick: () => v !== st.mode && save({ mode: v }) }, label))),
@@ -174,5 +178,6 @@ export function createAddressBarSetting(store) {
   load();
   // Zen's default engine can change while Settings is open.
   document.addEventListener("visibilitychange", () => { if (!document.hidden && el.isConnected) load(); });
+  window.addEventListener("enso:engines", () => { if (el.isConnected) load(); }); // the mock's __ensoMock.setEnsoDefault()
   return { el, update() {} };
 }
