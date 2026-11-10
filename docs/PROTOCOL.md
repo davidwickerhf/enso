@@ -250,7 +250,7 @@ and offer the current space's memory next to the global memory in settings.
   spaceHints: { "{space id}": "what this space is for" } }
 ```
 `profile.md` in the data folder is `# <name>` followed by `about`. Space hints
-come from Settings → Profile (`settings.spaceHints`, by space id or name), else
+come from Settings → You & memory (`settings.spaceHints`, by space id or name), else
 from `spaceHints` in `config.local.json` (by space name).
 
 `engines.subscription` also carries `reason` when Claude Code wasn't found, and
@@ -334,7 +334,7 @@ starts a fresh warm session. A Claude Code registration of the same name
   spaceHints: { "{space id}": "what this space is for" },
   homeWidgets: [{ id, type, size: "S" | "M" }],       // new-tab widget layout
   onboardingDone: true,
-  claudePath: "/path/to/claude"                       // Settings → Engine → Claude Code location
+  claudePath: "/path/to/claude"                       // Settings → Advanced → Claude Code location
 }
 ```
 `sessionAccess` keys are origins; an entry also covers its subdomains (same

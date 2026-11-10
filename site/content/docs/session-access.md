@@ -20,7 +20,7 @@ Ensō can debug web pages with you: read a tab's console and network requests, r
 | Request with your session | An HTTP request made inside a tab of the site, with your login there | The site needs your permission |
 | Headless Zen | A separate, invisible Zen with a throwaway profile, signed out unless you let it copy a site's session | Copying a session needs permission |
 
-Switch them off in **Settings → Developer**: **Developer tools** and **Headless mode**. Every action appears in **Activity**. None of them run on private sites.
+Switch them off in **Settings → Advanced**: **Developer tools** and **Headless mode**. Every action appears in **Activity**. None of them run on private sites.
 
 ## Session access
 
@@ -28,7 +28,7 @@ A list of sites where Claude may use your signed-in session: to make requests as
 
 - **A site that isn't on the list:** Ensō asks each time, with **Allow**, **Always allow on this site** and **Deny**. [Other agents](/docs/other-agents) are refused, because they can't ask you.
 - **Always allow on this site** adds it to the list.
-- **Settings → Developer → Session access** shows the list. Add a site (`github.com` or `https://app.example.com`) or remove one.
+- **Settings → Privacy & safety → Session access** shows the list. Add a site (`github.com` or `https://app.example.com`) or remove one.
 - An entry covers its subdomains: `https://github.com` also allows `api.github.com`.
 - Requests that can change data (anything but GET, HEAD and OPTIONS) also need you to have asked for exactly that, or your approval.
 

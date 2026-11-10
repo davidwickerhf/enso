@@ -3,6 +3,8 @@
 // relays to the native host. Outside the extension (a plain http server during
 // development) it falls back to ui/mock.js, an in-page fake host.
 
+import { addressBarState } from "./addressbar.js";
+
 const ext = globalThis.browser?.runtime?.connect ? globalThis.browser : null;
 
 /**
@@ -107,10 +109,11 @@ export async function getBrowserApi() {
         .slice(0, 12)
         .map(i => ({ title: i.title, url: i.url, visitCount: i.visitCount }));
     },
+    // The web search engine from the address-bar setting, not Zen's default: once
+    // Ensō is the default, searching with it from here would only come back here.
     async engine() {
       if (!ext.search?.get) return null;
-      const engines = await ext.search.get();
-      return engines.find(e => e.isDefault)?.name ?? null;
+      return (await addressBarState()).engine;
     },
     async suggestions(q, kind, signal) {
       const url = kind === "google"
@@ -125,7 +128,7 @@ export async function getBrowserApi() {
       else location.href = url;
     },
     async search(query) {
-      if (ext.search?.search) await ext.search.search({ query, ...(self?.id != null && { tabId: self.id }) });
+      if (ext.search?.search) await ext.search.search({ query, ...(await this.engine().then(engine => engine && { engine })), ...(self?.id != null && { tabId: self.id }) });
       else await this.open(`https://duckduckgo.com/?q=${encodeURIComponent(query)}`);
     },
     async switchTo(tabId, windowId) {

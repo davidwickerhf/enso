@@ -20,9 +20,10 @@ if (!building && process.env.VITEST !== 'true') {
 	setInterval(housekeeping, 24 * 60 * 60_000).unref();
 }
 
-// Cookieless page-view counts (Umami), never on account pages.
+// Cookieless page-view counts (Umami), never on account pages, and never on /ask
+// (the address-bar search fallback: its URL carries what someone typed).
 const analytics = (path: string) =>
-	config.umamiWebsiteId && !path.startsWith('/account')
+	config.umamiWebsiteId && !path.startsWith('/account') && !path.startsWith('/ask')
 		? `<script defer src="https://analytics.wicker.life/wa.js" data-website-id="${config.umamiWebsiteId}" data-domains="enso.wicker.life"></script>`
 		: '';
 

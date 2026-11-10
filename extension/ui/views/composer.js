@@ -391,7 +391,7 @@ export function createComposer(store) {
             : item.all
               ? [h("span", { class: "picker-icon" }, icon("layers")), h("span", { class: "picker-text" }, h("strong", null, "All open tabs"), h("small", null, `${s.tabs.length} tabs in this window`))]
               : [favicon(item.tab.url, item.tab.favIconUrl, "picker-icon"), h("span", { class: "picker-text" }, h("strong", null, item.tab.title || item.tab.url), h("small", null, item.tab.hidden && item.tab.space ? `${item.tab.space} · ${hostOf(item.tab.url)}` : hostOf(item.tab.url))), item.tab.active ? h("span", { class: "tag" }, "current") : item.tab.hidden && item.tab.space ? h("span", { class: "tag" }, item.tab.space) : null])])
-        : h("div", { class: "picker-empty" }, p.kind === "skill" ? "No skill matches. Create one in Settings." : s.tabs.length ? "No tab matches." : "Loading tabs…"));
+        : h("div", { class: "picker-empty" }, p.kind === "skill" ? "No skill matches. Create one in Settings → Skills." : s.tabs.length ? "No tab matches." : "Loading tabs…"));
     picker.hidden = false;
     const active = items[p.index];
     if (active) {

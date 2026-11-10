@@ -27,8 +27,8 @@ the macOS Keychain, and the extension keeps a few UI preferences. Message shapes
 
 | Path | Format | What it holds | Written by |
 |---|---|---|---|
-| `profile.md` | Markdown | `# <name>`, then what you wrote about yourself. | Onboarding, Settings → Profile |
-| `memory.md` | Markdown | Global memory: one fact per line, `- <fact> (<YYYY-MM-DD>)`. | The `remember` tool, Settings → Memory |
+| `profile.md` | Markdown | `# <name>`, then what you wrote about yourself. | Onboarding, Settings → You & memory |
+| `memory.md` | Markdown | Global memory: one fact per line, `- <fact> (<YYYY-MM-DD>)`. | The `remember` tool, Settings → You & memory → Memory |
 | `memory/<space-id>.md` | Markdown | Memory for one Zen space (the id with only letters, digits and `-` kept). | Same |
 | `settings.json` | JSON | Your settings, merged over the defaults in `config.json` ([below](#settings)). | `settings.update`, approvals |
 | `config.local.json` | JSON | Your overlay on the shipped `helper/config.json` ([below](#configuration-overlay)). | You, by hand |
@@ -144,10 +144,10 @@ page actions (`click`, `type`, `select`, `press`, `navigate`, `back`, `eval`,
 | `headless` | on (unset) | `false` switches the headless Zen off. |
 | `sessionAccess` | `{}` | `{ "<origin>": "allow" }`: sites where Claude may use your signed-in session. |
 | `serverOverrides` | `{}` | `{ "<server>": true | false }` from the Tools page switches. |
-| `spaceHints` | `{}` | `{ "<space id>": "what this space is for" }` from Settings → Profile. |
+| `spaceHints` | `{}` | `{ "<space id>": "what this space is for" }` from Settings → You & memory. |
 | `homeWidgets` | unset | The new-tab widget layout `[{ id, type, size }]`. |
 | `onboardingDone` | unset | Set when onboarding is saved or skipped. |
-| `claudePath` | unset | Path to the `claude` CLI, from Settings → Engine. |
+| `claudePath` | unset | Path to the `claude` CLI, from Settings → Advanced → Claude Code location. |
 
 ## Configuration overlay
 

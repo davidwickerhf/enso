@@ -5,7 +5,7 @@ come from MCP servers (Model Context Protocol); GitHub is built in. Claude
 decides when to use a tool; you decide what may run without asking
 ([when Ensō asks first](sidebar-and-new-tab.md#when-ensō-asks-first)).
 
-Open **Settings → Tools** (sidebar), **Tools** (full page), or click an icon in
+Open **Settings → Connections → Manage** (sidebar), **Tools** (full page), or click an icon in
 **Your tools** under the new-tab box.
 
 ## Where do tools come from?
@@ -113,8 +113,8 @@ this; the right file is `config.local.json`.)
 ## Which tools run without asking?
 
 - Reading (searching mail, listing events, reading a document) runs straight
-  away, unless you turned off **Settings → Behaviour → Auto-approve read-only
-  tools**.
+  away, unless you turned off **Settings → Privacy & safety → Run reading tools
+  without asking**.
 - Anything that changes something (sending, creating, moving, deleting) asks
   first, unless you chose **Always allow** for that tool.
 
