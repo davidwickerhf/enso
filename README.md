@@ -45,7 +45,7 @@ Firefox, writes the `enso` command, offers to let Claude Code use Zen, and opens
 the signed extension in Zen. It needs no `sudo` and never touches your data.
 Run it again to update the helper; the extension updates itself.
 
-Step by step, with what each permission is for: [docs/help/getting-started.md](docs/help/getting-started.md).
+Step by step, with what each permission is for: [docs/help/getting-started.md](site/content/docs/install.md).
 
 ## Quick start
 
@@ -66,13 +66,13 @@ Step by step, with what each permission is for: [docs/help/getting-started.md](d
 
 | Area | What it does | More |
 |---|---|---|
-| Sidebar chat | Claude next to the page, with the page, mentioned tabs (`@`), files (up to 25 MB) and screenshots as context; slash commands (`/summarize`, `/reply`, your own). | [help](docs/help/sidebar-and-new-tab.md) |
-| New tab | One box that opens sites, searches with your default engine, or asks Ensō; widgets you add and arrange. | [help](docs/help/sidebar-and-new-tab.md#the-new-tab) |
-| Widgets | Next up, Due soon, Tasks (from task apps such as Commonfold), Mail, Practice, GitHub, Clock, Recent chats, Quick links, Note, Ask. | [help](docs/help/widgets.md) |
-| Acting on pages | Read, click, type, select, press keys, scroll, navigate, go back, screenshot. What you ask for runs; steps Claude proposes and anything irreversible ask first. | [help](docs/help/sidebar-and-new-tab.md#when-ensō-asks-first) |
-| Tools | claude.ai connectors and Claude Code's MCP servers (subscription engine), MCP servers Ensō signs in to itself (OAuth), and built-in GitHub across all your orgs. | [help](docs/help/connecting-tools.md) |
-| Zen spaces | Conversations, memory, tab tools and notes per Zen space, detected from each space's container. | [help](docs/help/spaces-and-containers.md) |
-| Developer tools | Console, network log, JavaScript and storage keys of a tab; requests with your signed-in session on sites you allow; a separate headless Zen for testing. | [help](docs/help/session-access.md) |
+| Sidebar chat | Claude next to the page, with the page, mentioned tabs (`@`), files (up to 25 MB) and screenshots as context; slash commands (`/summarize`, `/reply`, your own). | [help](site/content/docs/sidebar.md) |
+| New tab | One box that opens sites, searches with your default engine, or asks Ensō; widgets you add and arrange. | [help](site/content/docs/new-tab.md) |
+| Widgets | Next up, Due soon, Tasks (from task apps such as Commonfold), Mail, Practice, GitHub, Clock, Recent chats, Quick links, Note, Ask. | [help](site/content/docs/widgets.md) |
+| Acting on pages | Read, click, type, select, press keys, scroll, navigate, go back, screenshot. What you ask for runs; steps Claude proposes and anything irreversible ask first. | [help](site/content/docs/acting-on-pages.md) |
+| Tools | claude.ai connectors and Claude Code's MCP servers (subscription engine), MCP servers Ensō signs in to itself (OAuth), and built-in GitHub across all your orgs. | [help](site/content/docs/tools.md) |
+| Zen spaces | Conversations, memory, tab tools and notes per Zen space, detected from each space's container. | [help](site/content/docs/spaces.md) |
+| Developer tools | Console, network log, JavaScript and storage keys of a tab; requests with your signed-in session on sites you allow; a separate headless Zen for testing. | [help](site/content/docs/session-access.md) |
 | Other agents | A local MCP server, `zen-browser`, that Claude Code, Codex, Cursor and others reach through the `enso mcp` launcher. 44 tools; a read-only scope. | [docs/mcp.md](docs/mcp.md) |
 | Memory and history | `profile.md` and `memory.md` you can edit, per-space memory, every conversation with its tool calls, a per-site activity log, reports with charts. | [data model](docs/data-model.md) |
 | Safety | Banking, payment, password-manager and health sites are never read or acted on; cookie values and tokens are never returned to Claude; every action is logged. | [security](docs/security.md) |
@@ -116,8 +116,9 @@ Details: [docs/architecture.md](docs/architecture.md).
 |---|---|
 | `extension/` | The extension: `manifest.json`, `background.js`, `pageagent.js`, the HTML entry points (`sidebar.html`, `newtab.html`, `full.html`, `report.html`, `app.html`) and the UI in `ui/` (`ui/mock.js` is an in-page mock helper for working on the UI without Zen). |
 | `helper/` | The helper: `host.mjs` (message handling), `lib/` (engines, tools, MCP server, connections, storage), `bin/enso.mjs` (the `enso` command), `config.json` (shipped defaults), `test/`. |
-| `docs/` | Developer documentation, user help (`docs/help/`), decision records and plans. Start at [docs/README.md](docs/README.md). |
-| `scripts/install.sh` | The release installer (also served at `enso.wicker.life/install.sh`). |
+| `docs/` | Developer documentation, decision records and plans. Start at [docs/README.md](docs/README.md). |
+| `site/` | enso.wicker.life: website, help centre (`site/content/docs/`, the user guides), update feed, release downloads and sync server. SvelteKit; see [site/README.md](site/README.md). |
+| `scripts/install.sh` | The release installer: a symlink to `site/static/install.sh`, served at `enso.wicker.life/install.sh`. |
 | `scripts/dev.sh` | Run Ensō from this checkout. |
 | `scripts/pack-helper.sh` | Build the helper tarball for a release. |
 | `.github/workflows/` | `ci.yml` (checks on pushes to `main` and on pull requests) and `release.yml` (signs and publishes on a `v*` tag). |
@@ -147,5 +148,5 @@ Releases: [docs/releasing.md](docs/releasing.md).
 | [Development](docs/development.md) | Setup, tests, mock UI, debugging. |
 | [Releasing](docs/releasing.md) | Versions, tags, signing, the update feed. |
 | [Protocol](docs/PROTOCOL.md) | The message contract between the UI, background.js and the helper. |
-| [User help](docs/help/) | Guides for people using Ensō. |
+| [User help](site/content/docs/) | Guides for people using Ensō. |
 | [CHANGELOG.md](CHANGELOG.md) | What changed in each release. |

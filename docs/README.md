@@ -3,7 +3,7 @@
 Start with the [project README](../README.md) for what Ensō is and how to
 install it. New to the code: read [architecture.md](architecture.md), then
 [development.md](development.md). Cutting a release: [releasing.md](releasing.md).
-Using Ensō rather than working on it: the [help guides](help/) or
+Using Ensō rather than working on it: the [help guides](../site/content/docs/) or
 <https://enso.wicker.life/docs>.
 
 ## Names
@@ -38,14 +38,14 @@ User guides, one per topic. They are the source for the site's help pages.
 
 | Guide | What it covers |
 |---|---|
-| [Getting started](help/getting-started.md) | Requirements, install, permissions, first run, engines, updating, uninstalling. |
-| [The sidebar and the new tab](help/sidebar-and-new-tab.md) | Where Ensō shows up, what goes with a message, skills, approvals, the new-tab box, history, the brief, memory, shortcuts. |
-| [Widgets](help/widgets.md) | Every widget, editing the layout, Tasks and GitHub. |
-| [Connecting tools](help/connecting-tools.md) | claude.ai connectors, the Connect button and OAuth, Claude Code's servers, GitHub across orgs, API-key servers. |
-| [Spaces and containers](help/spaces-and-containers.md) | What follows the Zen space and how detection works; DRM and logins after migrating. |
-| [Session access and developer tools](help/session-access.md) | Console, network, JavaScript, storage, requests with your session, the headless Zen. |
-| [Using Ensō from other agents](help/other-agents.md) | Claude Code, Codex and Cursor through `enso mcp`. |
-| [Troubleshooting](help/troubleshooting.md) | The helper, Claude Code, keys, updates, tools, pages, streaming sites. |
+| [Getting started](../site/content/docs/install.md) | Requirements, install, permissions, first run, engines, updating, uninstalling. |
+| [The sidebar and the new tab](../site/content/docs/sidebar.md) | Where Ensō shows up, what goes with a message, skills, approvals, the new-tab box, history, the brief, memory, shortcuts. |
+| [Widgets](../site/content/docs/widgets.md) | Every widget, editing the layout, Tasks and GitHub. |
+| [Connecting tools](../site/content/docs/tools.md) | claude.ai connectors, the Connect button and OAuth, Claude Code's servers, GitHub across orgs, API-key servers. |
+| [Spaces and containers](../site/content/docs/spaces.md) | What follows the Zen space and how detection works; DRM and logins after migrating. |
+| [Session access and developer tools](../site/content/docs/session-access.md) | Console, network, JavaScript, storage, requests with your session, the headless Zen. |
+| [Using Ensō from other agents](../site/content/docs/other-agents.md) | Claude Code, Codex and Cursor through `enso mcp`. |
+| [Troubleshooting](../site/content/docs/troubleshooting.md) | The helper, Claude Code, keys, updates, tools, pages, streaming sites. |
 
 ## Decisions and plans
 

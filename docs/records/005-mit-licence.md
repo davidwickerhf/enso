@@ -25,5 +25,7 @@ The extension, helper and scripts are released under the MIT licence
 - Contributions come in under the same licence.
 - The licence covers the code as distributed. At the time of writing the GitHub
   repository itself is private; making it public is a separate decision.
-- The website and sync server (enso-site) are a separate repository with their
-  own terms.
+- The website and sync server live in `site/` since the repositories were
+  merged (10 November 2026). They were never released under MIT and the licence
+  file doesn't cover them: `site/` stays all rights reserved unless that is
+  decided separately.

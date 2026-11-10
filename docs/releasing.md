@@ -108,7 +108,7 @@ Repository secrets:
 
 ## The site's side
 
-The site (enso-site repository, deployed from its `main`) stores releases in
+The site (`site/` in this repository, deployed by Coolify when `site/` changes on `main`) stores releases in
 its `releases` table and object storage:
 
 | Route | What |
@@ -117,11 +117,11 @@ its `releases` table and object storage:
 | `GET /api/latest` | `{ extension: { version, url, sha256, size, publishedAt }, helper: {…}, extensionIds }`. The installer reads the helper's URL and SHA-256 from it. |
 | `GET /updates.json` | Firefox's update manifest: for each id in `EXTENSION_IDS`, every non-yanked extension release with `update_link`, `update_hash` (`sha256:…`) and `strict_min_version`. Cached 5 minutes. |
 | `GET /releases/<file>` | Downloads. `enso-latest.xpi` and `enso-helper-latest-darwin.tar.gz` redirect to the newest version. |
-| `GET /install.sh` | The installer, a static file in the site repository (`static/install.sh`). |
+| `GET /install.sh` | The installer, `site/static/install.sh` (`scripts/install.sh` is a symlink to it). |
 
 `EXTENSION_IDS` is a site environment variable (default `enso@wicker.life`);
 production lists `zen-chat@wicker.life,enso@wicker.life`, the old id serving
-pre-release Zen Chat builds. Details are in the site's `docs/HOSTING.md`.
+pre-release Zen Chat builds. Details are in [site/docs/HOSTING.md](../site/docs/HOSTING.md).
 
 ## How installed copies update
 
@@ -140,14 +140,9 @@ helper update and a note in the changelog.
 
 ## The installer
 
-`scripts/install.sh` in this repository is the source. The site serves its own
-copy, `static/install.sh` in the enso-site repository, which is **not** updated
-by the release workflow. When the installer changes, copy it to the site in a
-pull request there:
-
-```sh
-cp scripts/install.sh ../enso-site/static/install.sh
-```
+There is one installer: `site/static/install.sh`, which the site serves as
+`/install.sh`. `scripts/install.sh` is a symlink to it, so editing either path
+changes the same file, and the change goes live when the site deploys.
 
 The installer's environment overrides (`ENSO_SITE`, `ENSO_HELPER_URL`,
 `ENSO_EXTENSION_ID`, `ENSO_SKIP_CHECKSUM`, `ENSO_REGISTER_MCP`, `ENSO_NO_OPEN`)
@@ -176,9 +171,7 @@ ENSO_HELPER_URL="file://$PWD/dist/enso-helper-0.5.3-rc1-darwin.tar.gz" ENSO_NO_O
 - [ ] CHANGELOG.md updated.
 - [ ] `extension/manifest.json` and `helper/package.json` at the new version.
 - [ ] CI green on `main`.
-- [ ] If `scripts/install.sh` changed: copied to enso-site `static/install.sh`.
-- [ ] If the user-visible behaviour changed: `docs/help/` and the site's
-      `content/docs/` updated.
+- [ ] If the user-visible behaviour changed: `site/content/docs/` updated.
 - [ ] Tag pushed; Release workflow green.
 - [ ] `/api/latest` and `/updates.json` show the version.
 - [ ] Installer run on a Mac; extension updated in Zen (Add-ons → Check for updates).
