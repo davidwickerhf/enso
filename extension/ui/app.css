@@ -878,6 +878,7 @@ html[data-mode="full"] .brief-greeting { font-size: 32px; }
 @media (hover: none) { .edit-widgets { opacity: 1; } }
 .widgets { display: grid; grid-template-columns: repeat(auto-fill, minmax(156px, 1fr)); grid-auto-rows: 150px; grid-auto-flow: dense; gap: 14px; }
 .widget { position: relative; display: flex; flex-direction: column; min-width: 0; padding: 14px 16px 14px; border-radius: 20px; background: color-mix(in srgb, var(--surface) 78%, transparent); box-shadow: 0 1px 2px rgba(40, 28, 16, 0.04), 0 8px 24px -16px rgba(40, 28, 16, 0.18); overflow: hidden; animation: rise 220ms var(--ease) both; }
+.widgets.settled .widget:not(.fresh) { animation: none; }
 @media (prefers-color-scheme: dark) { .widget { background: color-mix(in srgb, var(--surface-2) 80%, transparent); box-shadow: none; } }
 .widget.size-M { grid-column: span 2; }
 .w-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; margin-bottom: 6px; }

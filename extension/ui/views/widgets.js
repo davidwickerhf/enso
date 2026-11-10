@@ -98,6 +98,7 @@ export function createWidgets(store, ctx, { onEdit } = {}) {
   let editing = false;
   let pickerOpen = false;
   let layout = readLayout();
+  const seen = new Set(); // widget ids already shown, so only new tiles animate
   const grid = h("div", { class: "widgets", role: "list", aria: { label: "Widgets" } });
   const picker = h("div", { class: "widget-picker", role: "dialog", aria: { label: "Add a widget" }, hidden: true });
   // Quiet way into edit mode once there are widgets (the top-bar button is easy to miss).
@@ -370,6 +371,10 @@ export function createWidgets(store, ctx, { onEdit } = {}) {
     const nodes = layout.map((w, i) => tile(w, i));
     if (editing) nodes.push(h("button", { type: "button", class: "widget add-tile size-S", aria: { haspopup: "dialog", expanded: String(pickerOpen) }, onclick: () => togglePicker() }, icon("plus"), h("span", null, "Add widget")));
     clear(grid, nodes);
+    // Tiles rise in once; redraws (clock ticks, new data) replace the nodes and
+    // would replay it every time. A tile added in edit mode still rises in.
+    if (grid.childElementCount) requestAnimationFrame(() => grid.classList.add("settled"));
+    for (const n of grid.children) if (n.dataset.id && !seen.has(n.dataset.id)) { n.classList.add("fresh"); seen.add(n.dataset.id); n.addEventListener("animationend", () => n.classList.remove("fresh"), { once: true }); }
     el.classList.toggle("editing", editing);
     el.hidden = !editing && !layout.length;
     editLink.hidden = editing || !layout.length;
