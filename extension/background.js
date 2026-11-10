@@ -499,7 +499,7 @@ async function pillClicked(tab, opened) {
   broadcast({ type: "agents.focus", tabId: tab.id });
   if (opened) return;
   const open = await browser.sidebarAction.isOpen({ windowId: tab.windowId }).catch(() => false);
-  if (!open) browser.tabs.sendMessage(tab.id, { enso: true, action: "pill_hint", args: { text: "Press Ctrl+E for Ensō" } }, { frameId: 0 }).catch(() => {});
+  if (!open) browser.tabs.sendMessage(tab.id, { enso: true, action: "pill_hint", args: { text: "Press ⌘E for Ensō" } }, { frameId: 0 }).catch(() => {});
 }
 browser.runtime.onMessage.addListener((msg, sender) => {
   if (!sender.tab) return;
