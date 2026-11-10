@@ -29,7 +29,7 @@ Website and user docs: <https://enso.wicker.life>. Licence: the extension, helpe
 ## Install
 
 The helper runs on macOS, Linux (x86_64, arm64) and Windows 10 or 11 (x64,
-arm64). Two steps, in Zen or Firefox 139 or newer:
+arm64). Two steps, in Zen or Firefox 142 or newer:
 
 1. **Add the extension** from <https://enso.wicker.life> (signed by Mozilla, updates itself):
    the Firefox Add-ons build, or the direct download build with `page_eval`

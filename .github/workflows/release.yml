@@ -69,7 +69,7 @@ env:
   SITE: https://enso.wicker.life
   UPDATE_URL: https://enso.wicker.life/updates.json
   EXTENSION_ID: enso@wicker.life
-  STRICT_MIN_VERSION: '139.0'
+  STRICT_MIN_VERSION: '142.0'
   APPROVAL_MINUTES: '12'
   MODE: ${{ github.event.inputs.mode || 'submit-listed' }}
 

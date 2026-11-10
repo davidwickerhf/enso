@@ -10,7 +10,7 @@ or an Anthropic API key, and keeps what it knows on your computer.
 | | |
 |---|---|
 | System | macOS; Linux (x86_64, arm64); Windows 10 or 11 (x64, arm64). |
-| Browser | [Zen](https://zen-browser.app). Firefox 139 or newer works too, without Zen's spaces. |
+| Browser | [Zen](https://zen-browser.app). Firefox 142 or newer works too, without Zen's spaces. |
 | Claude | Your Claude plan (through Claude Code, which Setup installs for you) or an Anthropic API key. |
 
 Nothing else has to be installed first: if there is no Node.js 18 or newer, the
