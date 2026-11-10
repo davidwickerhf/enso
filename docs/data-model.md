@@ -152,6 +152,7 @@ page actions (`click`, `type`, `select`, `press`, `navigate`, `back`, `eval`,
 | `developerTools` | on (unset) | `false` switches the console, network, eval, storage and session tools off. |
 | `headless` | on (unset) | `false` switches the headless Zen off. |
 | `sessionAccess` | `{}` | `{ "<origin>": "allow" }`: sites where Claude may use your signed-in session. |
+| `sessionAccessAdded` | `{}` | `{ "<origin>": { at, by? } }`: when each entry was allowed and, for an agent's access request, the agent's name. Settings lists recent entries first. |
 | `serverOverrides` | `{}` | `{ "<server>": true | false }` from the Tools page switches. |
 | `spaceHints` | `{}` | `{ "<space id>": "what this space is for" }` from Settings → You & memory. |
 | `homeWidgets` | unset | The new-tab widget layout `[{ id, type, size }]`. |

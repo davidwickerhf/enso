@@ -28,13 +28,25 @@ Switch them off in **Settings → Advanced**: **Developer tools** and **Headless
 
 A list of sites where Claude may use your signed-in session: to make requests as you, or to copy your login on that site into the headless Zen.
 
-- **A site that isn't on the list:** Ensō asks each time, with **Allow**, **Always allow on this site** and **Deny**. [Other agents](/docs/other-agents) are refused, because they can't ask you.
+- **A site that isn't on the list:** Ensō asks each time, with **Allow**, **Always allow on this site** and **Deny**.
 - **Always allow on this site** adds it to the list.
+- **[Other agents](/docs/other-agents)** (Claude Code, Codex…) are refused on a site that isn't on the list, and Ensō asks you for them (below).
 - **Settings → Privacy & safety → Session access** shows the list. Add a site (`github.com` or `https://app.example.com`) or remove one.
 - An entry covers its subdomains: `https://github.com` also allows `api.github.com`.
 - Requests that can change data (anything but GET, HEAD and OPTIONS) also need you to have asked for exactly that, or your approval.
 
 Banking, payment, password-manager, health, tax and government sites can't be added.
+
+## When an agent asks for a site
+
+When Claude Code or another agent needs your login on a site that isn't on the list, its request is refused and Ensō asks you instead of leaving it to fail:
+
+- **On the page:** if you have the site open, the agent pill at the top shows "Claude Code wants to use your login on desec.io" with **Allow** and **Not now**, even when the agent works in another tab.
+- **In the sidebar:** the same request in the agent's card, or above the Agents list when the agent works in another tab.
+
+**Allow** adds exactly that site to the list (with its subdomains, like every entry), and the agent is told on its next step that it can try again. **Not now** adds nothing; the agent is told not to ask again for this task. A request goes away when the agent finishes or you stop it.
+
+Only your click allows a site: agents have no way to allow one themselves, and nothing a web page does counts. Sites you allowed show first in **Settings → Privacy & safety → Session access**, with when and for which agent; remove one with × to undo it. Private sites are never offered: the agent is told they're off-limits.
 
 ## What Claude sees of your session
 

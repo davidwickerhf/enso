@@ -9,13 +9,15 @@
 // (no_api_key error), and Stop while an answer streams.
 // ?onboarding=1 starts without a profile (the first-run card), like a new install (brief off).
 // ?channel=listed | unlisted | dev shows that build's edition (ui/edition.js).
-// ?agents=running | paused | delivered | idle | stopped | list | t3 | sametab shows external
+// ?agents=running | paused | delivered | idle | stopped | list | t3 | sametab | access shows external
 // agents (Claude Code, Codex) working in tabs: the agent card and the Agents row
 // (t3: Claude Code running inside a T3 Code thread; sametab: two Claude Code
 // sessions on the active tab, one card with a tab each, the first "In control"
 // of the tab and the second "waiting for the tab" after a refused click, with
 // Hand over / Let both act; sametab-shared: the same two sharing the tab;
-// Codex elsewhere).
+// Codex elsewhere; access: Claude Code was refused session access on app.dnsdesk.example and
+// asks in its card with Allow / Not now, and Codex, on another tab, asks for
+// deploy.northwind.example.com above the Agents row).
 // Send screenshot: ?shot=sheet | picker | agent | fallback opens the send sheet with a
 // fake capture; ?t3=off | down | revoked | fallback sets the T3 Code connection;
 // ?links=1 adds linked threads (Settings → Agents & screenshots).
@@ -734,6 +736,7 @@ Want me to draft the reply to Jonas, or open the [Vercel deployment](https://ver
   const ago = sec => iso(now() - sec * 1000);
   const step = (sec, tool, title, target, extra = {}) => ({ id: nid("st"), at: ago(sec), tool, title, target, ok: true, irreversible: false, ...extra });
   let agents = [];
+  let agentAccess = []; // agents' session-access requests (?agents=access)
   if (agentPreset) {
     if (agentPreset !== "list") activeTabId = 16;
     const docs = {
@@ -784,6 +787,13 @@ Want me to draft the reply to Jonas, or open the [Vercel deployment](https://ver
       Object.assign(codex, { control: "holder", holderId: codex.id });
       agents = [docs, docs2, codex];
     } else agents = agentPreset === "list" ? [docs, codex, cursor] : agentPreset === "idle" || agentPreset === "t3" ? [docs] : [docs, codex];
+    if (agentPreset === "access") {
+      Object.assign(docs, { task: "Check the DNS records of the staging domain", actions: [step(40, "session_start", "Start a session", ""), step(6, "session_fetch", "Request with the user's session", "GET https://app.dnsdesk.example/api/v1/zones/", { ok: false, refused: true, error: "https://app.dnsdesk.example isn't on Ensō's session-access list" })] });
+      agentAccess = [
+        { id: "ar-dns", client: "Claude Code", clientName: "claude-code", sessionId: docs.id, sessionIds: [docs.id], tabId: docs.tabId, origin: "https://app.dnsdesk.example", tool: "session_fetch", at: ago(6), status: "pending", resolvedAt: null, told: false },
+        { id: "ar-deploy", client: "Codex", clientName: "codex-mcp-client", sessionId: codex.id, sessionIds: [codex.id], tabId: codex.tabId, origin: "https://deploy.northwind.example.com", tool: "headless_start", at: ago(20), status: "pending", resolvedAt: null, told: false },
+      ];
+    }
   }
   // ---- send screenshot: T3 Code threads, connected agents, links ----
   const params = new URLSearchParams(globalThis.location?.search ?? "");
@@ -956,7 +966,7 @@ Want me to draft the reply to Jonas, or open the [Vercel deployment](https://ver
     }
   }
 
-  const sendAgents = () => out({ type: "agents", sessions: agents, connected: connectedAgents() });
+  const sendAgents = () => out({ type: "agents", sessions: agents, connected: connectedAgents(), access: agentAccess });
   const patchAgent = (id, patch) => { agents = agents.map(a => (a.id === id ? { ...a, ...patch } : a)); sendAgents(); };
 
   function handle(msg) {
@@ -1033,6 +1043,20 @@ Want me to draft the reply to Jonas, or open the [Vercel deployment](https://ver
       case "agents.pause":
         patchAgent(msg.id, { paused: true, running: false });
         return;
+      case "access.allow":
+      case "access.dismiss": {
+        const r = agentAccess.find(x => x.id === msg.id && x.status === "pending");
+        if (!r) return;
+        const granted = msg.type === "access.allow";
+        agentAccess = agentAccess.map(x => (x === r ? { ...x, status: granted ? "granted" : "dismissed", resolvedAt: iso(now()), told: false } : x));
+        if (granted) {
+          settings.sessionAccess = { ...settings.sessionAccess, [r.origin]: "allow" };
+          settings.sessionAccessAdded = { ...(settings.sessionAccessAdded ?? {}), [r.origin]: { at: iso(now()), by: r.client } };
+          out({ type: "settings", settings });
+        }
+        sendAgents();
+        return;
+      }
       case "agents.resume":
         patchAgent(msg.id, { paused: false });
         return;
@@ -1076,7 +1100,7 @@ Want me to draft the reply to Jonas, or open the [Vercel deployment](https://ver
         return;
       }
       case "hello":
-        out({ type: "state", settings, engines, servers, connections: connectionsList(), conversations: summaries(), activeConversationId: [...turns.keys()][0] ?? null, dashboard: onboarding && !onboardingDone ? null : dashboard, profile: profileState(), paths: PATHS, skills: SKILLS, reports: REPORTS.map(({ id, title, createdAt }) => ({ id, title, createdAt })), spaces: SPACES, sensitiveHosts: ["*bank*", "*health*", "*patient*", "*.paypal.com"], agents, connectedAgents: connectedAgents() });
+        out({ type: "state", settings, engines, servers, connections: connectionsList(), conversations: summaries(), activeConversationId: [...turns.keys()][0] ?? null, dashboard: onboarding && !onboardingDone ? null : dashboard, profile: profileState(), paths: PATHS, skills: SKILLS, reports: REPORTS.map(({ id, title, createdAt }) => ({ id, title, createdAt })), spaces: SPACES, sensitiveHosts: ["*bank*", "*health*", "*patient*", "*.paypal.com"], agents, connectedAgents: connectedAgents(), agentAccess });
         return;
       case "tabs.list":
         out({ type: "tabs", tabs: TABS

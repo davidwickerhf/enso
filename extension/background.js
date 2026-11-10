@@ -580,6 +580,9 @@ async function browserAction(action, args) {
 const AGENT_BADGE = "#d9643a";
 const AGENT_BADGE_PAUSED = "#8a7f74";
 let agentSessions = [];
+// Agents' session-access requests (helper: lib/agentsessions.mjs accessList): pending ones and
+// ones just answered. Shown on the pill of every tab of the requested site, with Allow / Not now.
+let agentAccess = [];
 let titlePrefixOn = true; // settings.agentTitlePrefix
 const presenceSent = new Map(); // tabId -> last presence sent (JSON)
 
@@ -599,8 +602,27 @@ function clearAgentBadge(tabId) {
 }
 
 // Every session on a tab goes to the page together (newest first): one pill, one title prefix.
-function presenceFor(list) {
-  return { agents: list.map(s => ({ id: s.id, label: s.client, task: s.task, startedAt: s.startedAt ?? "", running: !!s.running, paused: !!s.paused, stopped: !!s.stopped, control: s.control ?? null })), titlePrefix: titlePrefixOn };
+// `access`: requests for this tab's site, shown as rows with Allow / Not now under the pill.
+function presenceFor(list, access = []) {
+  return {
+    agents: list.map(s => ({ id: s.id, label: s.client, task: s.task, startedAt: s.startedAt ?? "", running: !!s.running, paused: !!s.paused, stopped: !!s.stopped, control: s.control ?? null })),
+    titlePrefix: titlePrefixOn,
+    ...(access.length ? { access: access.map(r => ({ id: r.id, label: r.client, origin: r.origin, status: r.status })) } : {}),
+  };
+}
+
+/** Is the tab on the site of a request (same scheme; the same host, or one a subdomain of the other)? */
+function onRequestedSite(tabUrl, origin) {
+  try {
+    const t = new URL(tabUrl);
+    const o = new URL(origin);
+    if (t.protocol !== o.protocol) return false;
+    const a = t.hostname.toLowerCase();
+    const b = o.hostname.toLowerCase();
+    return a === b || a.endsWith(`.${b}`) || b.endsWith(`.${a}`);
+  } catch {
+    return false;
+  }
 }
 
 async function syncPresence() {
@@ -610,16 +632,27 @@ async function syncPresence() {
     if (!byTab.has(s.tabId)) byTab.set(s.tabId, []);
     byTab.get(s.tabId).push(s); // newest first
   }
-  for (const [tabId, list] of byTab) {
-    const p = presenceFor(list);
+  // Access requests go to every tab on the requested site (with or without an agent on it).
+  const accessByTab = new Map();
+  if (agentAccess.length) {
+    for (const t of await browser.tabs.query({}).catch(() => [])) {
+      if (!isWeb(t.url) || isSensitive(t.url)) continue;
+      const mine = agentAccess.filter(r => onRequestedSite(t.url, r.origin));
+      if (mine.length) accessByTab.set(t.id, mine);
+    }
+  }
+  for (const tabId of new Set([...byTab.keys(), ...accessByTab.keys()])) {
+    const list = byTab.get(tabId) ?? [];
+    const p = presenceFor(list, accessByTab.get(tabId));
     const key = JSON.stringify(p);
     if (presenceSent.get(tabId) === key) continue;
     presenceSent.set(tabId, key);
-    setAgentBadge(tabId, list);
+    if (list.length) setAgentBadge(tabId, list);
+    else clearAgentBadge(tabId);
     agent(tabId, "presence", p).catch(() => {}); // unloaded or private tabs: no pill
   }
   for (const tabId of [...presenceSent.keys()]) {
-    if (byTab.has(tabId)) continue;
+    if (byTab.has(tabId) || accessByTab.has(tabId)) continue;
     presenceSent.delete(tabId);
     clearAgentBadge(tabId);
     browser.tabs.sendMessage(tabId, { enso: true, action: "presence", args: { off: true } }, { frameId: 0 }).catch(() => {});
@@ -639,7 +672,7 @@ function actingSession(tabId, who) {
 
 // A navigation drops the content script (and Firefox resets tab-specific badges): show it again.
 browser.tabs.onUpdated.addListener((tabId, info) => {
-  if (info.status !== "complete" || !presenceSent.has(tabId)) return;
+  if (info.status !== "complete" || (!presenceSent.has(tabId) && !agentAccess.length)) return; // with requests open, a tab may have reached the site
   presenceSent.delete(tabId);
   syncPresence();
 });
@@ -664,17 +697,44 @@ async function pillClicked(tab, opened, sessionId = null) {
   const open = await browser.sidebarAction.isOpen({ windowId: tab.windowId }).catch(() => false);
   if (!open) browser.tabs.sendMessage(tab.id, { enso: true, action: "pill_hint", args: { text: `Press ${await openShortcut()} for Ensō` } }, { frameId: 0 }).catch(() => {});
 }
-// With several agents on the tab, the row clicked in the expanded pill picks the card.
-async function pillPick(tabId, y) {
-  const r = await browser.tabs.sendMessage(tabId, { enso: true, action: "pill_pick", args: { y } }, { frameId: 0 }).catch(() => null);
-  return r?.ok ? r.result?.sessionId ?? null : null;
+// With several agents on the tab, the row clicked in the expanded pill picks the card;
+// a click on an access request's Allow / Not now names the request and the choice.
+async function pillPick(tabId, x, y) {
+  const r = await browser.tabs.sendMessage(tabId, { enso: true, action: "pill_pick", args: { x, y } }, { frameId: 0 }).catch(() => null);
+  return r?.ok ? { sessionId: r.result?.sessionId ?? null, access: r.result?.access ?? null } : { sessionId: null, access: null };
 }
+
+/**
+ * Allow / Not now on an access request, clicked in the pill. Called only for a click
+ * in pill.html (an extension page the site's scripts can't reach or script) that
+ * pill.js saw with event.isTrusted. The request must be pending and for the site the
+ * tab is on. The helper then adds exactly that origin to settings.sessionAccess.
+ * Nothing else in the page (the content script's fallback click, page messages) gets here.
+ */
+async function pillAccess(tab, pick) {
+  const choice = pick?.choice === "allow" ? "allow" : pick?.choice === "dismiss" ? "dismiss" : null;
+  const req = agentAccess.find(r => r.id === pick?.id && r.status === "pending");
+  if (!choice || !req) return false;
+  const live = await browser.tabs.get(tab.id).catch(() => null);
+  if (!live || !isWeb(live.url) || isSensitive(live.url) || !onRequestedSite(live.url, req.origin)) return false;
+  connectNative()?.postMessage({ type: choice === "allow" ? "access.allow" : "access.dismiss", id: req.id, via: "pill" });
+  return true;
+}
+
 browser.runtime.onMessage.addListener((msg, sender) => {
   if (!sender.tab) return;
   if (msg?.ensoPill && sender.url === browser.runtime.getURL("pill.html")) {
     if (msg.ensoPill === "ready") browser.tabs.sendMessage(sender.tab.id, { enso: true, action: "pill_ready", args: {} }, { frameId: 0 }).catch(() => {});
-    if (msg.ensoPill === "click") pillPick(sender.tab.id, msg.y).then(id => pillClicked(sender.tab, !!msg.opened, id));
+    if (msg.ensoPill === "click")
+      pillPick(sender.tab.id, Number(msg.x) || 0, Number(msg.y) || 0).then(async pick => {
+        // Allow / Not now only from a real user click (pill.js checks event.isTrusted).
+        if (pick.access && msg.trusted === true && (await pillAccess(sender.tab, pick.access))) return;
+        if (pick.access) return; // a click on the request row that didn't count: do nothing rather than open the sidebar
+        pillClicked(sender.tab, !!msg.opened, pick.sessionId);
+      });
   } else if (msg?.ensoPillFallback && sender.frameId === 0) {
+    // The content script's own click handler (the frame couldn't load). It never allows
+    // session access: only the frame's trusted click does; here it just opens Ensō.
     // Not a user action as far as Firefox is concerned, so open() is usually refused; then focus or hint.
     const id = typeof msg.sessionId === "string" ? msg.sessionId : null;
     let opening;
@@ -874,6 +934,8 @@ function connectNative() {
     }
     if (msg.type === "agents" || (msg.type === "state" && Array.isArray(msg.agents))) {
       agentSessions = (msg.type === "agents" ? msg.sessions : msg.agents) ?? [];
+      const acc = msg.type === "agents" ? msg.access : msg.agentAccess;
+      if (Array.isArray(acc)) agentAccess = acc.filter(r => r && typeof r.id === "string" && typeof r.origin === "string").slice(0, 20);
       syncPresence();
     }
     if ((msg.type === "state" || msg.type === "spaces") && Array.isArray(msg.spaces)) {

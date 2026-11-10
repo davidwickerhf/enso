@@ -24,7 +24,7 @@ import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/
 import { z } from "zod";
 import { log } from "./native.mjs";
 import { PAGE_TOOLS } from "./pagetools.mjs";
-import { SAFETY_NOTE } from "./safety.mjs";
+import { SAFETY_NOTE, isSensitiveHost } from "./safety.mjs";
 import { ALL_BROWSER_TOOLS } from "./toolset.mjs";
 import { PAGE_EVAL_UNAVAILABLE, extensionInfo, pageEvalAvailable, unavailableTools } from "./extinfo.mjs";
 import { DATA, getSettings, logAction, newId, now } from "./store.mjs";
@@ -68,6 +68,7 @@ export function buildServer({ browserRequest, onReports, onAction, sessions = ag
       "page_query (CSS selector → matching elements, text, attributes, rects) and page_inspect (one element's computed styles, rect, visibility, what covers it) answer questions about a page without evaluating code. " +
       `Developer tools for his live tabs: devtools_console, devtools_network, ${unavailableTools().includes("page_eval") ? "" : "page_eval, "}page_storage. ${pageEvalNote()} ` +
       "session_fetch makes a request with his signed-in session, only on sites he allowed in Ensō. " +
+      "If session_fetch or headless_start is refused because a site isn't on Ensō's session-access list, Ensō has already asked the user (on the page and in its sidebar, with Allow and Not now): tell the user Ensō is asking, then wait or continue with other work. A later tool result tells you whether they allowed it; don't retry in a loop, and never ask them to edit config files or settings files to allow it. " +
       "github_* tools read his pull requests, reviews, issues and notifications across all his orgs (github_my_work first); github_comment, github_review, labels, assignees, close/reopen and marking notifications read only when he asked for exactly that. " +
       "headless_* tools drive a separate, invisible Zen with a throwaway profile (headless_start, optionally with sessions copied for sites he allowed) so you can develop and test without touching his windows; stop it with headless_stop when done. " +
       "Files: to give the page a file from this computer, use page_upload (a file input, or a drop zone with mode \"drop\"); never serve files from localhost or paste them into page_eval. Never modify, shrink, compress or re-encode a user's file to get around a limit: if a limit blocks you, stop and tell the user. " +
@@ -129,6 +130,17 @@ export function buildServer({ browserRequest, onReports, onAction, sessions = ag
     },
     confirm: async () => mode() === "full",
     reportsChanged: onReports,
+    /**
+     * A site isn't on the session-access list: Ensō asks the user (lib/agentsessions.mjs
+     * requestAccess) and the tool throws the returned text. Private sites never get here
+     * (the tools refuse them first) and are checked again. Only the user's click in Ensō can allow.
+     */
+    requestAccess({ origins, tool }) {
+      const list = [...new Set([].concat(origins ?? []))].filter(o => !isSensitiveHost(o));
+      if (!list.length) return "This is a private site (banking, health, tax or similar); session access is off here and can't be allowed.";
+      call.accessRefused = true;
+      return list.map(origin => sessions.requestAccess?.(client, { origin, tool, tabId: tabId ?? null })?.text ?? `${origin} isn't on Ensō's session-access list.`).join("\n");
+    },
   });
 
   const text = t => ({ type: "text", text: t });
@@ -181,6 +193,7 @@ export function buildServer({ browserRequest, onReports, onAction, sessions = ag
           sessions.finish(handle, {
             ok,
             error,
+            refused: !ok && !!call.accessRefused, // not on the session-access list: "refused", and Ensō asked the user
             target: call.last?.target ?? describeArgs(t, args),
             url: call.last?.url ?? call.page?.url,
             pageTitle: call.last?.title ?? call.page?.title,

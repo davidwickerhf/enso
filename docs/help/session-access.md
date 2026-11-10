@@ -26,9 +26,15 @@ A list of sites where Claude may use your signed-in session: to make requests
 as you, or to copy your login on that site into the headless Zen.
 
 - **When a site isn't on the list,** Ensō asks each time, with **Allow**,
-  **Always allow on this site** and **Deny**. Other agents (Claude Code, Codex)
-  are refused; they can't ask.
+  **Always allow on this site** and **Deny**.
 - **Always allow on this site** adds it to the list.
+- **Other agents** (Claude Code, Codex) are refused on a site that isn't on the
+  list, and Ensō asks you for them: "Claude Code wants to use your login on
+  desec.io" with **Allow** and **Not now**, on the page pill of a tab of that
+  site and in the sidebar. **Allow** adds exactly that site; the agent is told
+  on its next step. **Not now** tells it not to ask again for this task. Only
+  your click counts; agents can't allow a site themselves.
+- Recently allowed sites come first in the list, with when and for which agent.
 - **Settings → Privacy & safety → Session access** shows the list. Add a site
   (`github.com` or `https://app.example.com`) or remove one with ×.
 - An entry covers its subdomains: `https://github.com` also allows

@@ -67,6 +67,7 @@ export function createStore({ waitMs = WAIT_MS } = {}) {
     prefill: null,           // composer.prefill text waiting for the composer
     agents: [],              // live sessions of external agents (Claude Code, Codex…): see docs/PROTOCOL.md "agents"
     agentNotes: new Map(),   // local id → { sessionId, text, at } notes sent but not yet echoed by the helper
+    agentAccess: [],         // agents' session-access requests: [{ id, client, sessionId, sessionIds, tabId, origin, tool, at, status, told }] (docs/PROTOCOL.md "agents")
     agentFocus: null,        // { tabId, at } when the page pill asked for the agent card
     connectedAgents: [],     // agents connected through `enso mcp` (screenshot targets): [{ id, client, task, tabIds, active, t3ThreadId, pending }]
     // The screenshot send sheet (views/send.js): capture → targets → send.
@@ -246,6 +247,7 @@ export function createStore({ waitMs = WAIT_MS } = {}) {
         if (s.globalError?.code === "host_disconnected") s.globalError = null;
         if (msg.dashboard) s.dashboard = { ...s.dashboard, data: msg.dashboard };
         if (Array.isArray(msg.agents)) { s.agents = msg.agents; emit("agents"); }
+        if (Array.isArray(msg.agentAccess)) { s.agentAccess = msg.agentAccess; emit("agents"); }
         if (Array.isArray(msg.connectedAgents)) s.connectedAgents = msg.connectedAgents;
         if (first && s.settings) s.ui.includePage = s.settings.includePageByDefault !== false;
         emit("state", "settings", "servers", "conversations", "dashboard", "ui", "skills", "reports", "banner", "profile");
@@ -429,6 +431,7 @@ export function createStore({ waitMs = WAIT_MS } = {}) {
       case "agents": {
         if (Array.isArray(msg.connected)) s.connectedAgents = msg.connected;
         s.agents = Array.isArray(msg.sessions) ? msg.sessions : [];
+        if (Array.isArray(msg.access)) s.agentAccess = msg.access;
         // Drop local "sending" notes the helper now knows about.
         for (const [id, n] of s.agentNotes) {
           const sess = s.agents.find(x => x.id === n.sessionId);
@@ -821,6 +824,10 @@ export function createStore({ waitMs = WAIT_MS } = {}) {
       emit("agents");
     },
     switchToTab(tabId) { send({ type: "agents.switch", tabId }); },
+    // An agent's session-access request: the user's Allow adds exactly that origin to
+    // settings.sessionAccess (the helper does it); Not now dismisses it for the agent's task.
+    allowAccess(id) { setAccess(id, { status: "granted", resolvedAt: new Date().toISOString(), told: false }); send({ type: "access.allow", id }); },
+    dismissAccess(id) { setAccess(id, { status: "dismissed", resolvedAt: new Date().toISOString(), told: false }); send({ type: "access.dismiss", id }); },
     getReport(id) { send({ type: "report.get", id }); },
 
     // Screenshots to agents (views/send.js). capture() asks background.js; the mock fakes it.
@@ -918,6 +925,10 @@ export function createStore({ waitMs = WAIT_MS } = {}) {
 
   function setAgent(id, patch) {
     s.agents = s.agents.map(x => (x.id === id ? { ...x, ...patch } : x));
+    emit("agents");
+  }
+  function setAccess(id, patch) {
+    s.agentAccess = s.agentAccess.map(x => (x.id === id && x.status === "pending" ? { ...x, ...patch } : x));
     emit("agents");
   }
 

@@ -87,8 +87,8 @@ Claude never to enter passwords, payment details or one-time codes.
 | `tabs_close` | Asks unless `requested_by_user`. | Runs when external control is **Full**. |
 | `page_eval` | Asks unless `requested_by_user` and not `irreversible`; logged. | Full only; logged. |
 | `page_storage` with `includeValues` | Asks unless `requested_by_user`. | Full only. |
-| `session_fetch` | Needs the site in [session access](#session-access), or your approval (with "Always allow on this site"). Methods other than GET, HEAD and OPTIONS also need `requested_by_user` or approval. | Needs the site allowed **and** Full; non-GET needs `requested_by_user`. Otherwise refused. |
-| `headless_start` with `sites` | Each site needs session access or your approval. | Each site must be allowed, and Full. |
+| `session_fetch` | Needs the site in [session access](#session-access), or your approval (with "Always allow on this site"). Methods other than GET, HEAD and OPTIONS also need `requested_by_user` or approval. | Needs the site allowed **and** Full; non-GET needs `requested_by_user`. Otherwise refused; a site that isn't allowed yet gets an [access request](#access-requests-from-agents) the user answers in Ensō. |
+| `headless_start` with `sites` | Each site needs session access or your approval. | Each site must be allowed, and Full. A site that isn't allowed yet gets an access request. |
 | `headless_click`, `headless_type`, `headless_eval` | Ask like page actions only when the headless Zen carries copied sessions. | Need Full when it carries sessions. |
 | `github_comment`, `github_review`, `github_set_labels`, `github_set_assignees`, `github_close_reopen`, `github_mark_notifications_read` | Run when `requested_by_user`, otherwise ask. | Need Full and `requested_by_user`; refused otherwise. |
 | Third-party MCP tools (Gmail, Calendar, …) | Ask unless always-allowed, or read-only with auto-approve on. | Not offered to MCP clients. |
@@ -153,9 +153,56 @@ tab of that site, in the right container) and `headless_start` with `sites`.
 - Keys are origins (`https://github.com`). An entry covers its subdomains with
   the same scheme; for headless sites given as bare hostnames (`localhost`) the
   scheme is ignored. The most specific matching entry wins.
-- Missing means "ask": Ensō asks each time, MCP clients are refused.
-- Entries are added with "Always allow on this site" or in Settings → Privacy & safety
-  → Session access, and removed there.
+- Missing means "ask": Ensō asks each time; MCP clients are refused, and
+  Ensō asks the user on their behalf (below).
+- Entries are added with "Always allow on this site", with **Allow** on an
+  agent's access request, or in Settings → Privacy & safety → Session access,
+  and removed there (recently allowed first, with the date and the agent it was
+  allowed for, from `sessionAccessAdded`).
+- `allowSessionAccess` refuses private sites, whatever asks it to.
+
+### Access requests from agents
+
+An MCP client can't be shown an approval, so a refusal for a site that isn't
+on the list records a request (`lib/agentsessions.mjs` `requestAccess`: agent
+session, client, origin, tool, time) and tells the agent "Ensō has asked the
+user to allow it; you'll be told in a later tool result if they do. Don't retry
+in a loop." Ensō shows it on the page pill of tabs on that site and in the
+sidebar, with **Allow** and **Not now**. The consent flow:
+
+- **Only the user can allow.** The helper adds the origin only on the native
+  messages `access.allow` / `access.dismiss`, which only background.js sends.
+  The MCP server has no tool, argument or method that reaches them (a test
+  checks `tools/list`, made-up tool names, protocol method names and extra
+  arguments), and its HTTP endpoint refuses requests with an `Origin` header.
+  Agents can't allow themselves.
+- **Ensō's own pages.** The sidebar's buttons send `access.allow` over a `ui`
+  port, which background.js accepts only from extension pages.
+- **The page pill.** Its buttons are drawn in the page, inside a closed shadow
+  root, but a click only counts through `pill.html`, the extension frame laid
+  over the pill: page scripts can't script or click into an extension page,
+  and `pill.js` drops clicks whose `event.isTrusted` is false. background.js
+  accepts the click only from a sender whose URL is `pill.html`, asks the
+  content script which button was under the click (`pill_pick`), and forwards
+  `access.allow` only if the request is pending and for the site the tab is
+  on. The content script's own click handler (used when the frame can't load)
+  only opens Ensō; a raw `access.allow` runtime message from a page or content
+  script is never forwarded. What remains is clickjacking the visible pill,
+  which sits on top of the page at the highest z-index.
+- **Exactly the requested origin** is added (an entry covers its subdomains,
+  as every entry does). The helper checks again that it isn't a private site.
+- **Private sites never prompt.** Banking, payment, health, tax and government
+  sites are refused before any request, with the same "private site" text, and
+  can't be allowed.
+- **Scope.** One request per agent and origin; it ends with the agent's
+  sessions (`session_end`, Stop, two minutes idle) or after 30 minutes
+  unanswered, and an expired request can't be allowed. **Not now** lasts for
+  the task: further refusals for that site say the user declined and don't
+  prompt again. Requests live in memory only.
+- **What the agent hears.** The answer is prepended to its next tool result,
+  like a note: "Note from Ensō: The user allowed <origin> for session access.
+  You can retry." or "… didn't allow <origin>; don't ask again in this task."
+  Allowing is logged in Activity ("allowed <origin> for <client>").
 - `session_fetch` strips `Cookie`, `Authorization` and `Proxy-Authorization`
   from the headers Claude passes; the session supplies them.
 
@@ -326,8 +373,10 @@ Since 0.5.3 the user can steer an external agent from Ensō's agent card
   agent session (30 minutes). They don't reach outside Zen: the agent keeps
   running in its own app.
 - **The pill frame.** `pill.html` is web-accessible so the page pill can open the
-  sidebar from a real click. It reports only "ready" and "clicked" to
-  background.js, which checks the sender is that page. A page can detect that
+  sidebar from a real click. It reports only "ready" and "clicked" (with the
+  click's position and whether it was trusted) to background.js, which checks
+  the sender is that page. A page can post it the request rows' position, which
+  only decides whether a click opens the sidebar. A page can detect that
   Ensō is installed by probing the URL (which includes Firefox's per-install
   extension UUID).
 - **Typed text** is never kept in full in a session: page_type steps show at

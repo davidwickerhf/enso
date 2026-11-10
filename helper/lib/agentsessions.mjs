@@ -37,6 +37,17 @@
 // "waiting for the tab". The user can hand the tab over to another session or
 // let every agent act on it ("shared"). tabs_open by an agent claims the new
 // tabs for it. The user's own clicks and typing never take a lease.
+//
+// Session-access requests: when an agent is refused because a site isn't on
+// the user's session-access list (session_fetch, headless_start with sites),
+// the tool calls requestAccess() and the refusal says Ensō asked the user. One
+// request per agent and origin; Ensō shows it on the page pill of a tab of
+// that site and in the sidebar, with Allow / Not now. Only the user's click in
+// Ensō's own UI or the pill (host.mjs "access.allow" / "access.dismiss", which
+// only background.js can send) resolves it; no MCP tool can. The answer rides
+// on the agent's next tool result as a note, like the hand-back. Requests end
+// with the agent's sessions (session_end, Stop, idle), or after
+// ACCESS_TTL_MS. Private sites never get one (the tools refuse those first).
 
 import { randomBytes } from "node:crypto";
 
@@ -60,6 +71,16 @@ export const LEASE_MS = 90_000;
 export const LEASE_TOOLS = new Set(["page_click", "page_type", "page_upload", "page_navigate", "page_back", "page_press", "page_select", "page_scroll", "page_eval"]);
 export const SHARED_RISK_TEXT = "Every agent on this tab can act on it at once; they may overwrite or undo each other's changes.";
 export const HAND_BACK_TEXT = "Note from Ensō: the user paused you and has now resumed. They may have changed the page meanwhile; call page_read again before your next action.";
+
+export const ACCESS_TTL_MS = 30 * 60_000; // a request nobody answered is dropped after this
+export const ACCESS_SHOWN_MS = 15_000; // an answered request stays visible this long, for the "Allowed" state
+const MAX_ACCESS = 20;
+/** The refusal for a site that isn't on the session-access list; Ensō has asked the user. */
+export const accessRequestedText = origin => `${origin} isn't on Ensō's session-access list. Ensō has asked the user to allow it; you'll be told in a later tool result if they do. Don't retry in a loop.`;
+/** The refusal after the user chose "Not now" for this site in this task. */
+export const accessDeclinedText = origin => `${origin} isn't on Ensō's session-access list, and the user didn't allow it for this task. Don't ask again; continue without it or tell the user what you needed it for.`;
+export const accessGrantedNote = origin => `Note from Ensō: The user allowed ${origin} for session access. You can retry.`;
+export const accessDismissedNote = origin => `Note from Ensō: The user didn't allow ${origin}; don't ask again in this task.`;
 
 /** The refusal an agent gets when another session holds the tab. */
 export function leaseText({ client, task, sameClient }) {
@@ -104,6 +125,7 @@ export function createAgentSessions({ now = Date.now, onChange = () => {}, idleM
   const tasks = new Map(); // client key -> task (from session_start), applies to new tabs too
   const leases = new Map(); // tabId -> { key, client, at }: the agent session that may act on the tab
   const sharedTabs = new Set(); // tabIds the user let every agent act on
+  const access = new Map(); // request id -> { id, key, client, clientName, sessionId, tabId, origin, tool, at, status, resolvedAt, notified }
   const listeners = new Set([onChange]);
   let scheduled = false;
 
@@ -238,10 +260,33 @@ export function createAgentSessions({ now = Date.now, onChange = () => {}, idleM
         out.push(`${NOTE_PREFIX} ${n.text}`);
       }
     }
+    for (const r of access.values()) {
+      if (r.key !== key || r.notified || r.status === "pending") continue;
+      r.notified = true;
+      out.push(r.status === "granted" ? accessGrantedNote(r.origin) : accessDismissedNote(r.origin));
+    }
     const ag = agents.get(key);
     if (ag) out.push(...takeInbox(ag, at, "image"));
     if (out.length) changed();
     return out;
+  }
+
+  /**
+   * Drop requests whose agent has no live session left (they expire with the
+   * session), that nobody answered within ACCESS_TTL_MS, or whose agent was stopped.
+   */
+  function pruneAccess() {
+    let any = false;
+    const t = now();
+    for (const [id, r] of access) {
+      const gone = !ofClient(r.key).length || isStopped(r.key);
+      const stale = r.status === "pending" && t - r.at > ACCESS_TTL_MS;
+      if (gone || stale) {
+        access.delete(id);
+        any = true;
+      }
+    }
+    return any;
   }
 
   /** Remember an agent process (any request from its launcher), so it can be sent screenshots while idle. */
@@ -411,6 +456,7 @@ export function createAgentSessions({ now = Date.now, onChange = () => {}, idleM
       release(key, tabId);
       for (const [k, s] of sessions) if (s.ended) sessions.delete(k);
       dropShared();
+      pruneAccess();
       changed();
       return n;
     },
@@ -462,6 +508,7 @@ export function createAgentSessions({ now = Date.now, onChange = () => {}, idleM
         x.paused = false;
         x.lastAt = now();
       }
+      pruneAccess(); // a stopped agent's requests go
       changed();
       return true;
     },
@@ -521,6 +568,64 @@ export function createAgentSessions({ now = Date.now, onChange = () => {}, idleM
     seen,
 
     /**
+     * A tool was refused because `origin` isn't on the session-access list:
+     * record a request for the user (once per agent and origin) and return the
+     * refusal text. → { text, request, status: "pending" | "dismissed" }.
+     * A site the user already declined in this task isn't asked about again.
+     */
+    requestAccess(client, { origin, tool, tabId = null }) {
+      const key = clientKey(client);
+      const s = ensure(client, tabId);
+      const mine = [...access.values()].find(r => r.key === key && r.origin === origin && r.status !== "granted");
+      if (mine?.status === "dismissed") return { text: accessDeclinedText(origin), request: mine, status: "dismissed" };
+      if (mine) {
+        mine.tool = tool ?? mine.tool;
+        return { text: accessRequestedText(origin), request: mine, status: "pending" };
+      }
+      // A granted one for the same origin (the user removed it from the list again): ask afresh.
+      for (const [id, r] of access) if (r.key === key && r.origin === origin) access.delete(id);
+      const r = { id: `ar-${sid()}`, key, client: client.label ?? "An MCP client", clientName: client.name ?? "", sessionId: s.id, tabId: s.tabId, origin, tool: tool ?? "", at: now(), status: "pending", resolvedAt: null, notified: false };
+      access.set(r.id, r);
+      if (access.size > MAX_ACCESS) access.delete(access.keys().next().value);
+      changed();
+      return { text: accessRequestedText(origin), request: r, status: "pending" };
+    },
+
+    /**
+     * The user answered a request in Ensō: "granted" or "dismissed". Only for
+     * pending requests; returns { id, origin, client } or null. host.mjs calls
+     * this for "access.allow" / "access.dismiss", which only Ensō's own pages
+     * and the trusted pill click (background.js) can send; the MCP server has no path here.
+     */
+    resolveAccess(id, decision) {
+      const r = access.get(String(id ?? ""));
+      if (!r || r.status !== "pending" || (decision !== "granted" && decision !== "dismissed")) return null;
+      if (!ofClient(r.key).length) {
+        access.delete(r.id);
+        changed();
+        return null;
+      }
+      r.status = decision;
+      r.resolvedAt = now();
+      r.notified = false;
+      changed();
+      return { id: r.id, origin: r.origin, client: r.client, status: r.status };
+    },
+
+    /**
+     * Requests for the UI and the page pill: pending ones, and ones answered
+     * within ACCESS_SHOWN_MS (for the "Allowed" state). sessionIds: the agent's live sessions.
+     */
+    accessList() {
+      const t = now();
+      return [...access.values()]
+        .filter(r => r.status === "pending" || t - r.resolvedAt < ACCESS_SHOWN_MS)
+        .filter(r => ofClient(r.key).length && !isStopped(r.key))
+        .sort((a, b) => b.at - a.at)
+        .map(r => ({ id: r.id, client: r.client, clientName: r.clientName, sessionId: r.sessionId, sessionIds: ofClient(r.key).map(x => x.id), tabId: r.tabId, origin: r.origin, tool: r.tool, at: new Date(r.at).toISOString(), status: r.status, resolvedAt: r.resolvedAt ? new Date(r.resolvedAt).toISOString() : null, told: r.notified }));
+    },
+
+    /**
      * Agents connected through the launcher that can be sent screenshots: alive
      * (their process still runs, when known) and seen within AGENT_TTL_MS.
      */
@@ -571,6 +676,7 @@ export function createAgentSessions({ now = Date.now, onChange = () => {}, idleM
       sessions.delete(slot(s.key, s.tabId));
       if (s.tabId != null) release(s.key, s.tabId);
       dropShared();
+      pruneAccess();
       changed();
       return true;
     },
@@ -607,6 +713,9 @@ export function createAgentSessions({ now = Date.now, onChange = () => {}, idleM
         any = true;
       }
       if (dropShared()) any = true;
+      if (pruneAccess()) any = true;
+      // An answered request leaves the UI after ACCESS_SHOWN_MS: push once it has.
+      for (const r of access.values()) if (r.status !== "pending" && !r.hidden && t - r.resolvedAt >= ACCESS_SHOWN_MS) { r.hidden = true; any = true; }
       for (const [k, at] of stopped) if (t - at > STOP_TTL_MS) stopped.delete(k);
       for (const [k, a] of agents)
         if (t - a.lastAt > AGENT_TTL_MS || !alive(a.agentPid)) {

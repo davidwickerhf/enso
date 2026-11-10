@@ -18,6 +18,7 @@ import { turnContext } from "./lib/prompt.mjs";
 import { deleteSkill, expandSkill, listSkills, saveSkill } from "./lib/skills.mjs";
 import { convertAttachment } from "./lib/attachments.mjs";
 import { cleanupStale } from "./lib/headless.mjs";
+import { allowSessionAccess } from "./lib/safety.mjs";
 import { createConnections, friendly } from "./lib/connections.mjs";
 import { forgetGithubToken, githubServerEntry, githubStatus, githubWidgetData, saveGithubToken } from "./lib/github.mjs";
 import { agentSessions, MCP_PORT, mcpListening, setOAuthRoute, startMcpServer } from "./lib/mcpserver.mjs";
@@ -572,7 +573,8 @@ function agentsPayload() {
     const info = t3.threadInfo(a.t3ThreadId);
     return { ...a, t3: { threadId: a.t3ThreadId, title: info?.title ?? null, projectTitle: info?.projectTitle ?? null, openable: !!t3EnvId } };
   });
-  return { type: "agents", sessions, connected: agentSessions.connected().map(({ inbox, ...a }) => a) };
+  // access: agents' pending session-access requests (and just-answered ones), for the pill and the sidebar.
+  return { type: "agents", sessions, connected: agentSessions.connected().map(({ inbox, ...a }) => a), access: agentSessions.accessList() };
 }
 let t3Refreshing = false;
 async function pushAgents() {
@@ -652,6 +654,7 @@ async function handle(msg) {
         reports: store.listReports(),
         agents: agentsPayload().sessions,
         connectedAgents: agentsPayload().connected,
+        agentAccess: agentSessions.accessList(),
       });
       if (DOCTOR) break; // `enso doctor` only checks that we answer: no MCP servers, Claude, dashboard or GitHub
       if (settings.engine === "api") connectMcp(await externalServers(), setServers);
@@ -909,6 +912,28 @@ async function handle(msg) {
       break;
     case "agents.share": // "Let both act" (on) / "One at a time" (off) on a tab
       agentSessions.share(Number(msg.tabId), !!msg.on);
+      break;
+    // An agent's session-access request (lib/agentsessions.mjs requestAccess). Only the
+    // user's click reaches here: Ensō's own pages (background.js accepts "ui" ports from
+    // extension pages only) or the page pill's trusted click (background.js checks the
+    // sender is pill.html, event.isTrusted and that the tab is on the requested site).
+    // The MCP server has no way to send these.
+    case "access.allow": {
+      const r = agentSessions.resolveAccess(msg.id, "granted");
+      if (!r) break;
+      try {
+        allowSessionAccess(r.origin, { by: r.client });
+      } catch (err) {
+        logError("access.allow:", err.message);
+        break;
+      }
+      const action = { id: store.newId(), at: store.now(), conversationId: null, source: "You", url: r.origin, title: "", host: (() => { try { return new URL(r.origin).host; } catch { return ""; } })(), action: "session_access", target: `allowed ${r.origin} for ${r.client}${msg.via === "pill" ? " (from the page)" : ""}`, ok: true };
+      store.logAction(action);
+      send({ type: "actions.added", action });
+      break;
+    }
+    case "access.dismiss":
+      agentSessions.resolveAccess(msg.id, "dismissed");
       break;
     case "agents.note": {
       const note = agentSessions.note(msg.id, msg.text);

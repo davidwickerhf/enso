@@ -91,7 +91,7 @@ Agents can debug your pages with `devtools_console`, `devtools_network`, `page_s
 
 Ensō can't ask you on an agent's behalf; the agent's own permission prompts apply. With external control on **Full**, page actions run when the agent calls them. Some things are refused for agents however you set it:
 
-- requests with your session on sites you haven't allowed in [session access](/docs/session-access);
+- requests with your session on sites you haven't allowed in [session access](/docs/session-access). Ensō then asks you on the agent's behalf: "Claude Code wants to use your login on desec.io", with **Allow** and **Not now**, on the page pill and in the sidebar. The agent hears your answer on its next step;
 - GitHub comments, reviews and other changes you didn't ask for;
 - anything on banking, payment, password-manager, health, tax and government sites.
 

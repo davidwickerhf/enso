@@ -53,6 +53,18 @@ Agents can give pages files, wait for slow work, and send large payloads.
   focus) in the current space, replies with their tab ids, and gives them to
   the agent that opened them. The server instructions now say to prefer an own
   tab.
+- **Agents ask before using your login on a new site.** When an agent's
+  `session_fetch` or `headless_start` is refused because the site isn't on your
+  session-access list, Ensō asks you instead of leaving it to fail: "Claude Code
+  wants to use your login on desec.io" with **Allow** and **Not now**, on the
+  page pill of any tab of that site and in the agent's card (or above the Agents
+  row when it works elsewhere). **Allow** adds exactly that origin; the agent's
+  next result says it can retry. **Not now** tells it not to ask again in this
+  task. One request per agent and site, gone when the agent's session ends.
+  Only your click allows: no MCP tool can, the pill's buttons only count through
+  Ensō's own frame with a trusted click, and private sites never prompt.
+  Settings → Session access lists recently allowed sites first, with when and
+  for which agent.
 - **Agent instructions** (the MCP server's and Ensō's own): use `page_upload` for
   files and never shrink or edit a user's file to fit a limit; use `page_wait`;
   a timeout isn't a failure, so check before retrying.

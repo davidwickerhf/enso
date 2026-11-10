@@ -1270,6 +1270,25 @@ html[data-mode="sidebar"] .tr-head .tp-status { font-size: 0; gap: 0; }
 .agent-lease-actions .btn-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .agent-tab-control { flex: none; font-size: 10.5px; font-weight: 600; padding: 1px 6px; border-radius: 999px; background: var(--accent-soft); color: var(--accent-text); }
 .agent-tab.waiting .agent-tab-state { color: var(--warn); }
+/* Session-access requests (views/agents.js accessItem): an agent asks to use the user's login on a site */
+.agent-access-host { display: grid; gap: 6px; min-width: 0; }
+.agent-access-host[hidden], .agents-access-host[hidden] { display: none; }
+.agents-access-host { display: grid; gap: 6px; min-width: 0; margin-bottom: 8px; }
+.agents-access-host .agent-access { border: 1px solid var(--line); background: var(--bg-elev); }
+.agent-access { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: start; gap: 4px 9px; padding: 9px 10px; border-radius: var(--r-sm); background: var(--accent-softer); box-shadow: inset 0 0 0 1px var(--accent-soft); font-size: 12.5px; min-width: 0; }
+.agents-access-host .agent-access:not(.answered) { border-color: rgba(217, 100, 58, 0.35); background: var(--accent-softer); }
+.agent-access-icon { display: grid; place-items: center; width: 22px; height: 22px; border-radius: 50%; background: var(--accent-soft); color: var(--accent-text); }
+.agent-access-icon svg { width: 14px; height: 14px; }
+.agent-access-text { display: grid; gap: 2px; min-width: 0; }
+.agent-access-title { font-weight: 600; color: var(--text); overflow-wrap: anywhere; line-height: 1.35; }
+.agent-access-detail { color: var(--text-2); line-height: 1.4; }
+.agent-access-actions { grid-column: 2; display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; margin-top: 4px; }
+.agent-access.answered { background: var(--surface-2); box-shadow: none; }
+.agent-access.granted .agent-access-icon { background: rgba(76, 138, 90, 0.16); color: var(--ok); }
+.agent-access.dismissed .agent-access-icon { background: var(--surface); color: var(--text-3); }
+.agents-asks { margin-left: 6px; font-size: 10.5px; }
+.access-site { display: grid; gap: 1px; min-width: 0; }
+.access-site-meta { display: block; font-size: 11px; color: var(--text-3); }
 .agents-row-wrap { border: 1px solid var(--line); border-radius: var(--r); background: var(--bg-elev); overflow: hidden; }
 .agents-toggle { display: flex; align-items: center; gap: 8px; width: 100%; padding: 7px 10px; font-size: 12.5px; font-weight: 500; color: var(--text-2); text-align: left; }
 .agents-toggle:hover { color: var(--text); background: var(--surface-2); }

@@ -101,11 +101,22 @@
   // (through pill.html, an extension frame laid over the pill, because
   // sidebarAction.open() needs a click in an extension page). Every element
   // acted on flashes a soft outline in the acting agent's shade, with its name.
+  //
+  // Session-access requests (lib/agentsessions.mjs): when an agent was refused
+  // because this site isn't on the user's session-access list, the pill shows
+  // a row under it, "<Client> wants to use your login on <site>", with Allow
+  // and Not now, on every tab of that site (with or without an agent on it).
+  // The buttons are drawn here, but a click on them only counts through
+  // pill.html (the extension frame over the pill, event.isTrusted checked
+  // there): background.js asks pill_pick which button was under the click.
+  // This script's own click handler (the fallback when the frame can't load)
+  // never allows anything; it opens Ensō, where the same request waits.
 
   const reduceMotion = () => matchMedia("(prefers-reduced-motion: reduce)").matches;
   let agentName = "Claude"; // who is acting: Ensō's own Claude, or the MCP client (Codex, Cursor…) named in the request
   let actorId = null; // the session acting, when background.js could tell (several agents on one tab)
   let sessions = []; // [{ id, label, task, running, paused, stopped }] while external sessions are active on this tab
+  let accessReqs = []; // [{ id, label, origin, status }]: agents asking to use the user's login on this site
   let titlePrefixWanted = false;
   let pill = null; // { host, wrap, box, text, state, dot, list, frame, ready }
   let liveTimer = null;
@@ -138,6 +149,11 @@
 
   /** The pill's text, state and colour for the current sessions (exported to the tests through the DOM). */
   function pillSummary() {
+    if (!sessions.length && accessReqs.length) {
+      const pending = accessReqs.filter(r => r.status === "pending");
+      const who = (pending[0] ?? accessReqs[0]).label;
+      return { text: pending.length ? `✦ ${who} is asking to use your login here` : `✦ ${who}`, state: "", tone: "idle" };
+    }
     if (!sessions.length) return { text: `✦ ${agentName} is working on this page`, state: "", tone: "working" };
     const order = ranked();
     const top = order[0];
@@ -190,13 +206,25 @@
       background: "#2b231e", color: "#f6efe9", font: "500 12px/1.35 -apple-system, system-ui, sans-serif",
       borderRadius: "12px", boxShadow: "0 8px 24px rgba(0,0,0,.24)", cursor: "pointer", userSelect: "none",
     });
+    // Access requests for this site: a row each with Allow / Not now (clicked through pill.html only).
+    const access = document.createElement("div");
+    access.setAttribute("role", "group");
+    access.setAttribute("aria-label", "Session access requests");
+    Object.assign(access.style, {
+      display: "none", marginTop: "6px", padding: "4px", boxSizing: "border-box", width: "min(480px, calc(100vw - 24px))", maxWidth: "100%",
+      background: "#2b231e", color: "#f6efe9", font: "500 12px/1.35 -apple-system, system-ui, sans-serif",
+      borderRadius: "12px", boxShadow: "0 8px 24px rgba(0,0,0,.24)", userSelect: "none",
+    });
     // Fallback when the extension frame can't load (a page that blocks it): ask background.js.
+    // It only opens Ensō (where the same request waits); it never allows session access.
     const fallback = e => {
+      if (!e.isTrusted) return;
       setExpanded(true, 5000);
       browser.runtime.sendMessage({ ensoPillFallback: true, sessionId: pickAt(e.clientY - wrap.getBoundingClientRect().top) }).catch(() => {});
     };
     box.addEventListener("click", fallback);
     list.addEventListener("click", fallback);
+    access.addEventListener("click", fallback);
     const frame = document.createElement("iframe");
     frame.src = browser.runtime.getURL("pill.html");
     frame.title = "Open Ensō";
@@ -208,10 +236,10 @@
     wrap.addEventListener("mouseleave", () => setExpanded(false));
     frame.addEventListener("focus", () => setExpanded(true));
     frame.addEventListener("blur", () => setExpanded(false));
-    wrap.append(box, list, frame);
+    wrap.append(box, access, list, frame);
     root.append(wrap);
     document.documentElement.appendChild(host);
-    pill = { host, wrap, box, text, state, dot, list, frame, ready: false, pulse: null, rows: [] };
+    pill = { host, wrap, box, text, state, dot, list, access, frame, ready: false, pulse: null, rows: [], accessRows: [], accessSig: "" };
     return pill;
   }
 
@@ -250,10 +278,91 @@
     return ranked()[0]?.id ?? null;
   }
 
+  /** The site a request is for, as the user knows it: "desec.io" (the scheme only when it isn't https). */
+  const siteOf = origin => {
+    try {
+      const u = new URL(origin);
+      return u.protocol === "https:" ? u.host : u.origin;
+    } catch {
+      return String(origin ?? "");
+    }
+  };
+
+  /** The request rows under the pill: always shown while a request for this site is open. */
+  function renderAccess(p) {
+    const show = accessReqs.length > 0;
+    p.access.style.display = show ? "block" : "none";
+    p.host.toggleAttribute("data-access", show);
+    const sig = JSON.stringify(accessReqs);
+    if (sig === p.accessSig) return;
+    p.accessSig = sig;
+    p.access.replaceChildren();
+    p.accessRows = accessReqs.map(r => {
+      const row = document.createElement("div");
+      row.setAttribute("data-access-request", r.id);
+      row.setAttribute("data-status", r.status);
+      Object.assign(row.style, { display: "flex", alignItems: "center", gap: "8px", padding: "7px 8px", borderRadius: "8px", minWidth: 0 });
+      const msg = document.createElement("span");
+      Object.assign(msg.style, { flex: "1 1 auto", minWidth: 0, whiteSpace: "normal", overflowWrap: "anywhere" }); // the site always shows in full
+      const who = document.createElement("strong");
+      who.textContent = r.label;
+      Object.assign(who.style, { fontWeight: "650" });
+      const site = document.createElement("strong");
+      site.textContent = siteOf(r.origin);
+      Object.assign(site.style, { fontWeight: "650" });
+      const buttons = [];
+      if (r.status === "granted") {
+        msg.append("✓ Allowed ", site, ". ", who, " can retry.");
+      } else if (r.status === "dismissed") {
+        msg.append("Not allowed. ", who, " won't ask again in this task.");
+        msg.style.opacity = "0.8";
+      } else {
+        msg.append(who, " wants to use your login on ", site);
+        msg.title = `${r.label} was refused because ${siteOf(r.origin)} isn't on your session-access list. Allow adds it (and its subdomains) to Settings → Privacy & safety → Session access.`;
+        for (const [choice, label] of [["dismiss", "Not now"], ["allow", "Allow"]]) {
+          const b = document.createElement("span");
+          b.textContent = label;
+          b.setAttribute("data-choice", choice);
+          Object.assign(b.style, {
+            flex: "none", fontSize: "11.5px", fontWeight: "650", padding: "4px 10px", borderRadius: "999px", cursor: "pointer",
+            ...(choice === "allow" ? { background: ACCENT, color: "white" } : { background: "rgba(255,255,255,.12)", color: "#f0e6de" }),
+          });
+          buttons.push({ choice, el: b });
+        }
+      }
+      row.append(msg, ...buttons.map(b => b.el));
+      p.access.append(row);
+      return { id: r.id, el: row, buttons };
+    });
+  }
+
+  /** Tell pill.html where the request rows are, so a click there doesn't open the sidebar. */
+  function postZones(p) {
+    try {
+      const top = p.wrap.getBoundingClientRect().top;
+      const zones = accessReqs.length ? p.accessRows.map(r => { const b = r.el.getBoundingClientRect(); return { top: b.top - top, bottom: b.bottom - top }; }) : [];
+      p.frame.contentWindow?.postMessage({ ensoPillZones: zones }, "*");
+    } catch {}
+  }
+
+  /** The Allow / Not now button at (x, y) (pixels from the pill's top left), or null. */
+  function accessAt(x, y) {
+    const p = pill;
+    if (!p || !accessReqs.length) return null;
+    const box = p.wrap.getBoundingClientRect();
+    for (const row of p.accessRows) {
+      for (const b of row.buttons) {
+        const r = b.el.getBoundingClientRect();
+        if (x >= r.left - box.left - 2 && x <= r.right - box.left + 2 && y >= r.top - box.top - 2 && y <= r.bottom - box.top + 2) return { id: row.id, choice: b.choice };
+      }
+    }
+    return null;
+  }
+
   function renderList(p) {
     const show = expanded && sessions.length > 1;
     p.list.style.display = show ? "block" : "none";
-    p.frame.style.borderRadius = show ? "14px" : "999px";
+    p.frame.style.borderRadius = show || accessReqs.length ? "14px" : "999px";
     p.host.toggleAttribute("data-expanded", show);
     if (!show) {
       p.list.replaceChildren();
@@ -315,7 +424,9 @@
       p.pulse.cancel();
       p.pulse = null;
     }
+    renderAccess(p);
     renderList(p);
+    postZones(p);
   }
 
   /** Ensō's own turns, and any action: show the pill; without a session it fades after a few seconds. */
@@ -327,7 +438,7 @@
     }, 1500);
     renderPill();
     clearTimeout(fadeTimer);
-    if (!sessions.length) fadeTimer = setTimeout(() => pill && !sessions.length && (pill.box.style.opacity = "0"), 4000);
+    if (!sessions.length && !accessReqs.length) fadeTimer = setTimeout(() => pill && !sessions.length && !accessReqs.length && (pill.box.style.opacity = "0"), 4000);
   }
 
   const normSession = (x, i) => ({
@@ -345,6 +456,7 @@
     if (!pill) return;
     pill.box.style.opacity = "0";
     pill.list.style.opacity = "0";
+    pill.access.style.opacity = "0";
     const p = pill;
     pill = null;
     expanded = false;
@@ -363,14 +475,21 @@
     if (!next || typeof next !== "object" || next.off) sessions = [];
     else if (Array.isArray(next.agents)) sessions = next.agents.slice(0, 12).map(normSession);
     else sessions = [normSession({ id: "single", ...next }, 0)];
+    accessReqs = next && typeof next === "object" && !next.off && Array.isArray(next.access) ? next.access.slice(0, 3).map(normAccess).filter(r => r.id && r.origin) : [];
     titlePrefixWanted = sessions.length > 0 && next?.titlePrefix !== false;
     assignShades();
     clearTimeout(fadeTimer);
-    if (sessions.length) renderPill();
+    if (sessions.length || accessReqs.length) renderPill();
     else removePill();
     titlePrefix(titlePrefixWanted);
-    return { shown: sessions.length > 0, count: sessions.length, title: document.title };
+    return { shown: sessions.length > 0 || accessReqs.length > 0, count: sessions.length, access: accessReqs.length, title: document.title };
   }
+  const normAccess = x => ({
+    id: String(x?.id ?? "").slice(0, 64),
+    label: String(x?.label ?? "").trim().slice(0, 40) || "An agent",
+    origin: String(x?.origin ?? "").slice(0, 200),
+    status: x?.status === "granted" || x?.status === "dismissed" ? x.status : "pending",
+  });
 
   // "✦ " in front of the page title while any agent is active, exactly once
   // whatever the number of sessions, so Zen's tab list shows it. Pages that
@@ -451,6 +570,7 @@
     clearTimeout(pinTimer);
     clearTimeout(collapseTimer);
     sessions = [];
+    accessReqs = [];
     titleObserver?.disconnect();
     titleObserver = null;
     pill?.host.remove();
@@ -884,20 +1004,24 @@
       if (pill) {
         pill.ready = true;
         pill.frame.style.pointerEvents = "auto"; // clicks now land in pill.html, which can open the sidebar
+        postZones(pill);
       }
       return {};
     },
     /** A click in pill.html at `y` px from its top: which agent it was on (and keep the list open a moment). */
-    pill_pick({ y }) {
-      if (!pill) return { sessionId: null };
+    // A click on an access request's Allow / Not now also says which (only background.js asks, for a trusted click in pill.html).
+    pill_pick({ x, y }) {
+      if (!pill) return { sessionId: null, access: null };
+      const access = accessAt(Number(x) || 0, Number(y) || 0);
       const sessionId = pickAt(Number(y) || 0);
-      if (sessions.length > 1) setExpanded(true, 5000);
-      return { sessionId };
+      if (sessions.length > 1 && !access) setExpanded(true, 5000);
+      return { sessionId, access };
     },
     /** What the pill shows (its shadow root is closed to the page): for diagnostics and the tests. */
     pill_state() {
       if (!pill || !pill.host.isConnected) return { shown: false, count: sessions.length };
-      return { shown: true, count: sessions.length, text: pill.text.textContent, state: pill.state.textContent, expanded: pill.list.style.display !== "none", rows: pill.rows.filter(r => r.el.isConnected).map(r => ({ id: r.id, text: r.el.textContent, state: r.el.getAttribute("data-state") })), shades: Object.fromEntries(shadeOf) };
+      const rect = el => { const w = pill.wrap.getBoundingClientRect(); const r = el.getBoundingClientRect(); return { x: Math.round(r.left - w.left + r.width / 2), y: Math.round(r.top - w.top + r.height / 2) }; };
+      return { shown: true, count: sessions.length, text: pill.text.textContent, state: pill.state.textContent, expanded: pill.list.style.display !== "none", rows: pill.rows.filter(r => r.el.isConnected).map(r => ({ id: r.id, text: r.el.textContent, state: r.el.getAttribute("data-state") })), shades: Object.fromEntries(shadeOf), access: pill.accessRows.filter(r => r.el.isConnected).map(r => ({ id: r.id, text: r.el.textContent, status: r.el.getAttribute("data-status"), buttons: Object.fromEntries(r.buttons.map(b => [b.choice, rect(b.el)])) })) };
     },
     pill_hint({ text }) {
       if (!pill) return {};

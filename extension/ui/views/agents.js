@@ -13,7 +13,14 @@
 //     session) and "Let both act" (shared: everyone may act, with the risk in
 //     one line), and "One at a time" to end sharing;
 //   - the Agents row: every live session across tabs and spaces; a row
-//     switches to that tab, Stop stops it.
+//     switches to that tab, Stop stops it;
+//   - session-access requests (lib/agentsessions.mjs requestAccess): an agent
+//     refused because a site isn't on the session-access list asks through
+//     Ensō. The agent's card shows "<Client> wants to use your login on
+//     <site>" with Allow and Not now; requests of agents that aren't on the
+//     active tab show above the Agents row. Allow adds exactly that origin to
+//     Settings → Privacy & safety → Session access (an entry covers its
+//     subdomains); the agent is told on its next tool result.
 //
 // The card is built once per session and updated in place, so typing a note
 // isn't interrupted by the live updates. New steps are announced politely;
@@ -111,6 +118,38 @@ export function leaseView(a, here) {
   return { text, risk: "", handOver, share: live.length > 1 ? "on" : null, badge };
 }
 
+/** "desec.io" for https origins, the full origin otherwise ("http://localhost:3000"). */
+export function siteOf(origin) {
+  try {
+    const u = new URL(origin);
+    return u.protocol === "https:" ? u.host : u.origin;
+  } catch {
+    return String(origin ?? "");
+  }
+}
+
+/** The lines for one access request: { title, detail } by status. */
+export function accessText(r) {
+  const site = siteOf(r.origin);
+  if (r.status === "granted") return { title: `Allowed ${site}`, detail: r.told ? `${r.client} was told it can retry.` : `${r.client} is told on its next step that it can retry. Remove it in Settings → Privacy & safety → Session access.` };
+  if (r.status === "dismissed") return { title: `Not allowed: ${site}`, detail: `${r.client} ${r.told ? "was told" : "is told on its next step"} not to ask again in this task.` };
+  const what = r.tool === "headless_start" ? "copy your login into its headless browser" : "make requests as you";
+  return { title: `${r.client} wants to use your login on ${site}`, detail: `It was refused because ${site} isn't on your session-access list. Allow lets it ${what} there, and adds ${r.origin} (and its subdomains) to Settings → Privacy & safety → Session access.` };
+}
+
+/** One request with Allow / Not now (or its answer). */
+function accessItem(r, actions) {
+  const t = accessText(r);
+  return h("div", { class: ["agent-access", r.status !== "pending" && `answered ${r.status}`], role: "group", dataset: { access: r.id }, aria: { label: t.title } },
+    h("span", { class: "agent-access-icon", aria: { hidden: "true" } }, icon(r.status === "granted" ? "check" : r.status === "dismissed" ? "x" : "globe")),
+    h("div", { class: "agent-access-text" },
+      h("strong", { class: "agent-access-title" }, t.title),
+      h("span", { class: "agent-access-detail" }, t.detail)),
+    r.status === "pending" ? h("div", { class: "agent-access-actions" },
+      h("button", { type: "button", class: "btn small ghost", dataset: { fk: `access-dismiss-${r.id}` }, title: `Don't let ${r.client} use your login on ${siteOf(r.origin)} in this task`, onclick: () => actions.dismissAccess(r.id) }, "Not now"),
+      h("button", { type: "button", class: "btn small primary", dataset: { fk: `access-allow-${r.id}` }, title: `Add ${r.origin} to your session-access list`, onclick: () => actions.allowAccess(r.id) }, "Allow")) : null);
+}
+
 // The same shades as the page (pageagent.js SHADES): each session keeps the
 // first one free on its tab, oldest first, for as long as it lives.
 export const SHADES = ["#d9643a", "#2f7f86", "#8a4f9e", "#b0802a", "#4a6db0", "#a8455a"];
@@ -170,15 +209,16 @@ export function createAgentsPanel(store) {
     const leaseRisk = h("p", { class: "agent-lease-risk", hidden: true });
     const leaseActions = h("div", { class: "agent-lease-actions" });
     const lease = h("div", { class: "agent-lease", role: "group", aria: { label: "Who may act on this tab" }, hidden: true }, leaseText, leaseRisk, leaseActions);
+    const accessHost = h("div", { class: "agent-access-host", hidden: true });
     const root = h("section", { class: "agent-card", tabindex: "-1", aria: { label: `${a.client} is working on this tab` } },
       h("header", { class: "agent-head" },
         h("span", { class: "agent-mark", aria: { hidden: "true" } }, "✦"),
         h("div", { class: "agent-who" }, h("span", { class: "agent-who-line" }, who, controlBadge), task),
         h("div", { class: "agent-meta" }, stateEl, time)),
-      t3Line, lease, steps, status, notes,
+      t3Line, accessHost, lease, steps, status, notes,
       h("div", { class: "agent-actions" }, form, h("div", { class: "agent-controls" }, pauseBtn, stopBtn, dismissBtn)),
       live);
-    return { id: a.id, root, steps, notes, input, form, pauseBtn, stopBtn, dismissBtn, who, task, stateEl, time, status, live, t3Line, t3Title, t3Open, controlBadge, lease, leaseText, leaseRisk, leaseActions, leaseSig: "", stepIds: "" };
+    return { id: a.id, root, steps, notes, input, form, pauseBtn, stopBtn, dismissBtn, who, task, stateEl, time, status, live, t3Line, t3Title, t3Open, controlBadge, lease, leaseText, leaseRisk, leaseActions, accessHost, accessSig: "", leaseSig: "", stepIds: "" };
   }
 
   function fillCard(a) {
@@ -208,6 +248,16 @@ export function createAgentsPanel(store) {
         lv.share === "on" ? h("button", { type: "button", class: "btn small ghost", dataset: { fk: "share-on" }, title: "Every agent on this tab may act on it at once", onclick: () => actions.shareTab(tabId, true) }, here.filter(x => !x.stopped).length > 2 ? "Let all act" : "Let both act") : null,
         lv.share === "off" ? h("button", { type: "button", class: "btn small", dataset: { fk: "share-off" }, title: "Back to one agent at a time: the last one to act keeps the tab", onclick: () => actions.shareTab(tabId, false) }, "One at a time") : null);
     }
+    // Session-access requests of this agent (any site): Allow / Not now.
+    const mine = s.agentAccess.filter(r => (r.sessionIds ?? [r.sessionId]).includes(a.id));
+    const asig = JSON.stringify(mine.map(r => [r.id, r.status, r.told]));
+    if (asig !== c.accessSig) {
+      const focused = c.accessHost.contains(document.activeElement) ? document.activeElement.dataset.fk : null;
+      c.accessSig = asig;
+      clear(c.accessHost, mine.map(r => accessItem(r, actions)));
+      if (focused) (c.accessHost.querySelector(`[data-fk="${CSS.escape(focused)}"]`) ?? c.root).focus({ preventScroll: true });
+    }
+    c.accessHost.hidden = !mine.length;
     c.task.textContent = a.task || (a.explicit ? "" : "Working in Zen (no task given)");
     c.task.classList.toggle("muted", !a.task);
     // A T3 Code agent: the thread it runs in (screenshots of this tab go there).
@@ -300,7 +350,7 @@ export function createAgentsPanel(store) {
         h("button", { type: "button", class: "agents-go", dataset: { fk: `go-${a.id}` }, disabled: a.tabId == null, title: a.tabId == null ? "Not on a tab yet" : "Switch to this tab", aria: { label: `Switch to the tab where ${a.client} is working${a.title ? `: ${a.title}` : ""}` }, onclick: () => a.tabId != null && actions.switchToTab(a.tabId) },
           host ? hostBadge(host) : h("span", { class: "agent-mark small", aria: { hidden: "true" } }, "✦"),
           h("span", { class: "agents-main" },
-            h("span", { class: "agents-who" }, h("strong", null, a.client), a.task ? ` · ${a.task}` : ""),
+            h("span", { class: "agents-who" }, h("strong", null, a.client), a.task ? ` · ${a.task}` : "", s.agentAccess.some(r => r.status === "pending" && (r.sessionIds ?? [r.sessionId]).includes(a.id)) ? h("span", { class: "tag accent agents-asks" }, "asks for access") : null),
             h("span", { class: "agents-sub" }, [a.control === "waiting" && !a.stopped ? "Waiting for the tab" : stateLabel(a), tab?.space || null, a.title || host || null, last ? stepText(last) : null].filter(Boolean).join(" · ")))),
         a.stopped ? iconButton("x", `Dismiss ${a.client}`, () => actions.dismissAgent(a.id), { class: "small", dataset: { fk: `x-${a.id}` } }) : iconButton("stop", `Stop ${a.client}`, () => actions.stopAgent(a.id), { class: "small danger-icon", dataset: { fk: `stop-${a.id}` } }));
     })) : null;
@@ -311,9 +361,12 @@ export function createAgentsPanel(store) {
   const cardHost = h("div", { class: "agent-card-host" });
   const stack = h("div", { class: "agent-stack" }, tabsHost, cardHost);
   const listHost = h("div", { class: "agents-list-host" });
+  // Requests of agents that aren't on the active tab (another tab, another site): above the Agents row.
+  const accessHost = h("div", { class: "agents-access-host", role: "region", aria: { label: "Session access requests" } });
+  let accessSig = "";
   let listSig = "";
   let tabsSig = "";
-  el.append(stack, listHost);
+  el.append(stack, accessHost, listHost);
 
   function render() {
     const a = current();
@@ -343,7 +396,7 @@ export function createAgentsPanel(store) {
     // The card node (and the note being typed) stays in place; only the list is rebuilt.
     const hereIds = here.map(x => x.id);
     const others = s.agents.filter(x => !hereIds.includes(x.id));
-    const sig = JSON.stringify([listOpen, hereIds, others.map(x => [x.id, x.task, x.paused, x.stopped, x.running, x.control, x.title, x.actions.at(-1)?.id]), listOpen ? s.tabs.map(t => [t.tabId, t.space]) : 0]);
+    const sig = JSON.stringify([listOpen, hereIds, others.map(x => [x.id, x.task, x.paused, x.stopped, x.running, x.control, x.title, x.actions.at(-1)?.id]), listOpen ? s.tabs.map(t => [t.tabId, t.space]) : 0, s.agentAccess.filter(r => r.status === "pending").map(r => r.sessionIds)]);
     let list = listHost.firstChild;
     if (sig !== listSig) {
       listSig = sig;
@@ -352,10 +405,20 @@ export function createAgentsPanel(store) {
       clear(listHost, list);
       if (focused) listHost.querySelector(`[data-fk="${CSS.escape(focused)}"]`)?.focus();
     }
+    // Requests not shown in the card (their agent isn't on this tab).
+    const elsewhere = s.agentAccess.filter(r => !(r.sessionIds ?? [r.sessionId]).some(id => hereIds.includes(id)));
+    const asig = JSON.stringify(elsewhere.map(r => [r.id, r.status, r.told]));
+    if (asig !== accessSig) {
+      const focused = accessHost.contains(document.activeElement) ? document.activeElement.dataset.fk : null;
+      accessSig = asig;
+      clear(accessHost, elsewhere.map(r => accessItem(r, actions)));
+      if (focused) accessHost.querySelector(`[data-fk="${CSS.escape(focused)}"]`)?.focus();
+    }
+    accessHost.hidden = !elsewhere.length;
     cardHost.hidden = !card;
     stack.hidden = !card;
     listHost.hidden = !list;
-    el.hidden = !card && !list;
+    el.hidden = !card && !list && !elsewhere.length;
     if (s.agents.length && !ticker) ticker = setInterval(tick, 1000);
     if (!s.agents.length && ticker) { clearInterval(ticker); ticker = null; }
   }

@@ -67,10 +67,20 @@ export function sessionAccessFor(urlOrSite, { anyScheme = false } = {}) {
   return best?.value === "allow" ? "allow" : "ask";
 }
 
-/** Writes "allow" for an origin (from "Always allow on this site") and tells the UI. */
-export function allowSessionAccess(origin) {
-  const list = { ...(getSettings().sessionAccess ?? {}), [parseSite(origin).origin]: "allow" };
-  send({ type: "settings", settings: updateSettings({ sessionAccess: list }) });
+/**
+ * Writes "allow" for an origin (from "Always allow on this site", or Allow on an
+ * agent's access request) and tells the UI. `by`: who asked (an agent's name),
+ * kept with the date in sessionAccessAdded so Settings can show recent ones first.
+ * Never for a private site.
+ */
+export function allowSessionAccess(origin, { by = null } = {}) {
+  const key = parseSite(origin).origin;
+  if (isSensitiveHost(key)) throw new Error("Private sites (banking, health, tax and similar) can't be allowed.");
+  const st = getSettings();
+  const list = { ...(st.sessionAccess ?? {}), [key]: "allow" };
+  const added = { ...(st.sessionAccessAdded ?? {}), [key]: { at: new Date().toISOString(), ...(by ? { by: String(by).slice(0, 60) } : {}) } };
+  send({ type: "settings", settings: updateSettings({ sessionAccess: list, sessionAccessAdded: added }) });
+  return key;
 }
 
 // ---------- redaction ----------

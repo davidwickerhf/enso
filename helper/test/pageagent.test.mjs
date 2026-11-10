@@ -112,6 +112,7 @@ try {
     route.fulfill({ status: 200, contentType: "text/html", body: docsFixture(app) });
   });
   await context.route("https://work.example.test/**", route => route.fulfill({ status: 200, contentType: "text/html", body: multiFixture }));
+  await context.route("https://desec.io.example.test/**", route => route.fulfill({ status: 200, contentType: "text/html", body: multiFixture }));
   await context.route("https://shop.example.test/**", route => route.fulfill({ status: 200, contentType: "text/html", body: queryFixture }));
   const open = async (url, agentCode = AGENT) => {
     const page = await context.newPage();
@@ -328,6 +329,77 @@ try {
     await send(page, "presence", { off: true });
     assert.equal(await page.title(), "Interview notes!");
     console.log("ok - a re-injected copy replaces the old one: its pill, flashes and title prefix go");
+    await page.close();
+  }
+
+  // ---- a session-access request on the pill: Allow / Not now ----
+  {
+    const page = await open("https://desec.io.example.test/domains");
+    await page.evaluate(() => {
+      window.__sent = [];
+      browser.runtime.sendMessage = async m => void window.__sent.push(m);
+    });
+    const state = async () => (await send(page, "pill_state")).result;
+    const REQ = { id: "ar-1", label: "Claude Code", origin: "https://desec.io.example.test", status: "pending" };
+    const A = { id: "a1", label: "Claude Code", task: "Check the staging DNS records", startedAt: "2026-11-10T10:00:00Z", running: false };
+
+    // No agent on this tab, only the request: the pill shows it, without a title prefix
+    r = await send(page, "presence", { agents: [], titlePrefix: true, access: [REQ] });
+    assert.equal(r.ok, true, r.error);
+    assert.equal(r.result.shown, true);
+    let st = await state();
+    assert.equal(st.text, "✦ Claude Code is asking to use your login here");
+    assert.equal(st.access.length, 1);
+    assert.match(st.access[0].text, /^Claude Code wants to use your login on desec\.io\.example\.test/);
+    assert.equal(st.access[0].status, "pending");
+    assert.equal(await page.title(), "Interview notes", "no ✦ prefix for a request alone");
+    assert.ok(await page.evaluate(() => document.querySelector("[data-enso-pill]").hasAttribute("data-access")), "the request row is shown without hovering");
+
+    // With the agent's session: its pill, and the request row under it
+    await send(page, "presence", { agents: [A], titlePrefix: true, access: [REQ] });
+    st = await state();
+    assert.equal(st.text, "✦ Claude Code · Check the staging DNS records");
+    assert.equal(st.access.length, 1);
+    const { allow, dismiss } = st.access[0].buttons;
+    assert.ok(allow && dismiss, "Allow and Not now");
+
+    // pill_pick (what background.js asks for a trusted click in pill.html) names the button
+    let pick = (await send(page, "pill_pick", allow)).result;
+    assert.deepEqual(pick.access, { id: "ar-1", choice: "allow" });
+    pick = (await send(page, "pill_pick", dismiss)).result;
+    assert.deepEqual(pick.access, { id: "ar-1", choice: "dismiss" });
+    pick = (await send(page, "pill_pick", { x: 20, y: 12 })).result;
+    assert.equal(pick.access, null, "a click on the pill itself isn't an answer");
+    assert.equal(pick.sessionId, "a1");
+
+    // The page can't answer: synthetic clicks (untrusted) and clicks into the closed shadow root do nothing
+    const box = await page.evaluate(() => { const r = document.querySelector("[data-enso-pill]").getBoundingClientRect(); return { x: r.left, y: r.top, w: r.width, h: r.height }; });
+    await page.evaluate(([x, y]) => {
+      const host = document.querySelector("[data-enso-pill]");
+      host.dispatchEvent(new MouseEvent("click", { bubbles: true, composed: true, clientX: x, clientY: y }));
+      document.elementFromPoint(x, y)?.dispatchEvent(new MouseEvent("click", { bubbles: true, composed: true, clientX: x, clientY: y }));
+      host.shadowRoot?.querySelector("span")?.click();
+    }, [box.x + allow.x, box.y + allow.y]);
+    await page.waitForTimeout(50);
+    assert.deepEqual(await page.evaluate(() => window.__sent), [], "a page script's click sends nothing");
+    assert.equal(await page.evaluate(() => document.querySelector("[data-enso-pill]").shadowRoot), null, "the pill's shadow root is closed to the page");
+    // The content script's own (fallback) handler, even on a real click, only opens Ensō: it never names an answer
+    await page.mouse.click(box.x + allow.x, box.y + allow.y);
+    await page.waitForTimeout(50);
+    const sent = await page.evaluate(() => window.__sent);
+    assert.ok(sent.length >= 1, "the real click reached the fallback handler");
+    assert.ok(sent.every(m => m.ensoPillFallback && !("access" in m) && !("choice" in m)), `fallback messages only: ${JSON.stringify(sent)}`);
+
+    // The granted state, then the request goes
+    await send(page, "presence", { agents: [A], titlePrefix: true, access: [{ ...REQ, status: "granted" }] });
+    st = await state();
+    assert.match(st.access[0].text, /Allowed desec\.io\.example\.test\. Claude Code can retry\./);
+    assert.deepEqual(st.access[0].buttons, {}, "no buttons once answered");
+    await send(page, "presence", { agents: [{ ...A }], titlePrefix: true });
+    st = await state();
+    assert.equal(st.access.length, 0);
+    await send(page, "presence", { off: true });
+    console.log("ok - a session-access request on the pill: shown on the site's tab, Allow / Not now named by pill_pick, nothing a page script can trigger");
     await page.close();
   }
 
