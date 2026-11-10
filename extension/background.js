@@ -547,14 +547,37 @@ async function swapForFocus(tabId) {
   if (!tab?.active || !isNewTabUrl(tab.url)) return;
   swapping = true;
   try {
-    const created = await browser.tabs.create({ url: `${NEWTAB}#f`, index: tab.index, active: true, windowId: tab.windowId, ...(tab.cookieStoreId ? { cookieStoreId: tab.cookieStoreId } : {}) });
+    // Load the replacement in the background, right after the original, and
+    // switch only once it has drawn: switching to a tab that is still blank is
+    // what showed as a white flash between two drawings of the page.
+    const created = await browser.tabs.create({ url: `${NEWTAB}#f`, index: tab.index + 1, active: false, windowId: tab.windowId, ...(tab.cookieStoreId ? { cookieStoreId: tab.cookieStoreId } : {}) });
     ours.add(created.id);
     fresh.delete(created.id);
+    await loaded(created.id, 1500);
+    const still = await browser.tabs.get(tabId).catch(() => null);
+    if (!still?.active || !isNewTabUrl(still.url)) {
+      // The user already moved on (typed in the address bar, switched tabs): keep their tab.
+      await browser.tabs.remove(created.id).catch(() => {});
+      return;
+    }
+    await browser.tabs.update(created.id, { active: true });
     await browser.tabs.remove(tabId);
   } catch {
   } finally {
     swapping = false;
   }
+}
+
+/** Resolves when the tab has finished loading, or after `ms`. */
+function loaded(tabId, ms) {
+  return new Promise(resolve => {
+    let done = false;
+    const finish = () => { if (done) return; done = true; browser.tabs.onUpdated.removeListener(onUpd); clearTimeout(timer); resolve(); };
+    const onUpd = (id, info) => { if (id === tabId && info.status === "complete") finish(); };
+    const timer = setTimeout(finish, ms);
+    browser.tabs.onUpdated.addListener(onUpd);
+    browser.tabs.get(tabId).then(t => { if (t?.status === "complete") finish(); }).catch(finish);
+  });
 }
 
 browser.tabs.onCreated.addListener(tab => {
