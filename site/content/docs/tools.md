@@ -25,7 +25,9 @@ Ensō's own tools are always there and aren't listed: reading and [acting on pag
 
 ## The Connect button
 
-For any MCP server that signs in with OAuth, Commonfold for example:
+**monday.com** has its own tile under **Add more**: choose **Connect** and sign in with your monday account. Ensō connects to monday's hosted MCP server (`https://mcp.monday.com/mcp`); no API key is needed.
+
+For any other MCP server that signs in with OAuth, Commonfold for example:
 
 1. On the Tools page, under **Add more**, find **Custom MCP server**.
 2. Give it a short **Name** (letters, digits, `-` or `_`) and its **MCP URL** (`https://…/mcp`).
