@@ -1,0 +1,51 @@
+{
+  "name": "enso-site",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Ensō website, docs, extension update feed and end-to-end-encrypted sync server",
+  "engines": {
+    "node": ">=20.12"
+  },
+  "packageManager": "pnpm@10.28.2",
+  "scripts": {
+    "dev": "vite dev",
+    "build": "vite build",
+    "start": "sh scripts/start.sh",
+    "preview": "vite preview",
+    "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --fail-on-warnings",
+    "lint": "eslint .",
+    "test": "vitest run",
+    "db:migrate": "node scripts/migrate.mjs"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild"
+    ]
+  },
+  "dependencies": {
+    "aws4fetch": "^1.0.20",
+    "better-auth": "^1.7.18",
+    "marked": "^18.1.3",
+    "nodemailer": "^10.4.0",
+    "pg": "^8.23.1"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.5",
+    "@sveltejs/adapter-node": "^5.5.8",
+    "@sveltejs/kit": "^2.70.4",
+    "@sveltejs/vite-plugin-svelte": "^6.2.4",
+    "@types/node": "^22.20.5",
+    "@types/nodemailer": "^8.0.2",
+    "@types/pg": "^8.23.1",
+    "eslint": "^9.39.5",
+    "eslint-plugin-svelte": "^3.24.1",
+    "globals": "^16.5.0",
+    "svelte": "^5.57.3",
+    "svelte-check": "^4.7.8",
+    "typescript": "~5.9.3",
+    "typescript-eslint": "^8.72.2",
+    "vite": "^7.3.8",
+    "vitest": "^4.1.12"
+  }
+}
