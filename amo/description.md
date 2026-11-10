@@ -1,4 +1,4 @@
-Ensō puts Claude in your browser. It is made for Zen (and runs in Firefox 139 or later), on macOS, Linux and Windows.
+Ensō puts Claude in your browser. It is made for Zen (and runs in Firefox 142 or later), on macOS, Linux and Windows.
 
 **Sidebar chat.** Ask about the page you're on, mention other tabs with @, attach files or screenshots. Claude can read the page and, when you ask, click, type and fill forms for you. Actions it starts on its own ask first, and sending, paying or deleting always asks.
 

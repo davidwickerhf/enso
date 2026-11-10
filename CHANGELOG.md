@@ -40,6 +40,11 @@ Agents can give pages files, wait for slow work, and send large payloads.
   files and never shrink or edit a user's file to fit a limit; use `page_wait`;
   a timeout isn't a failure, so check before retrying.
 
+## 0.5.7.1 (10 November 2026)
+
+The same code as 0.5.7, as the direct download build for enso.wicker.life
+(signed unlisted, includes page_eval).
+
 ## 0.5.7 (10 November 2026)
 
 Two builds, clearly labelled; nothing sent automatically on new installs; two
@@ -79,6 +84,9 @@ new page tools that answer questions without running code.
   off by default.
 - `/releases/enso-latest.xpi` on the site always serves the newest direct
   download build (four-part version).
+- **Firefox 142 or newer** (was 139): `data_collection_permissions` needs
+  Firefox 140 on desktop and 142 on Android, and AMO's validator warned about
+  the older minimum. Zen is on Firefox 159.
 
 ## 0.5.6.1 (10 November 2026)
 
