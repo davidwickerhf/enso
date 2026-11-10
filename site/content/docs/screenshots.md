@@ -7,7 +7,7 @@ group: Using Ensō
 
 # Send screenshots to your agents
 
-Press <kbd>⌘</kbd><kbd>⇧</kbd><kbd>2</kbd> on any page (or the camera button at the top of Ensō's sidebar), drag over the part you want, and send it to the agent you're working with: a thread in T3 Code, a Claude Code, Codex, OpenCode or Cursor session, or the clipboard for anything else. A message and the page's address can go with it.
+Press <kbd>⌘</kbd><kbd>⇧</kbd><kbd>2</kbd> (<kbd>Ctrl+Shift+2</kbd> on Linux and Windows) on any page (or the camera button at the top of Ensō's sidebar), drag over the part you want, and send it to the agent you're working with: a thread in T3 Code, a Claude Code, Codex, OpenCode or Cursor session, or the clipboard for anything else. A message and the page's address can go with it.
 
 ## Take the screenshot
 
@@ -18,7 +18,7 @@ With the shortcut, the page dims and a hint appears at the top:
 - <kbd>F</kbd> takes the **full page**, top to bottom (very long pages are scaled down).
 - <kbd>Esc</kbd> cancels.
 
-The sidebar opens with the send sheet. macOS keeps <kbd>⌘</kbd><kbd>⇧</kbd><kbd>3</kbd>, <kbd>4</kbd> and <kbd>5</kbd> for its own screenshots; to use another key, open `about:addons`, click the gear, and choose **Manage Extension Shortcuts**. Screenshots are off on banking, health, tax and other private sites.
+The sidebar opens with the send sheet. macOS keeps <kbd>⌘</kbd><kbd>⇧</kbd><kbd>3</kbd>, <kbd>4</kbd> and <kbd>5</kbd> for its own screenshots; to use another key on any system, open `about:addons`, click the gear, and choose **Manage Extension Shortcuts**. Screenshots are off on banking, health, tax and other private sites.
 
 ## Send it
 
@@ -48,7 +48,7 @@ Connect once: **Settings → Connections → T3 Code → Connect**, or in a term
 enso t3 connect
 ```
 
-This asks T3 Code for a token that can read your threads and send them messages, and nothing else, valid for 30 days. It is kept in your Keychain. `enso t3 status` shows whether it still works; `enso t3 disconnect` revokes it.
+This asks T3 Code for a token that can read your threads and send them messages, and nothing else, valid for 30 days. It is kept in your system's secret store (Keychain, Credential Manager or your Linux keyring). `enso t3 status` shows whether it still works; `enso t3 disconnect` revokes it.
 
 Screenshots arrive in the thread as images, just like pasting one into T3. If the thread is busy, yours is queued as its next message; nothing is interrupted. If your T3 Code can't take images from Ensō, the sheet says so: Ensō then saves the PNG in its folder and sends the file's path, which Claude Code and Codex open.
 
@@ -64,11 +64,11 @@ Claude Code then gets the screenshot's file path with your message and opens it.
 
 ## Any other agent: copy it
 
-**Copy image** puts the screenshot on the clipboard: paste it into Claude Code, Codex or OpenCode in the terminal with <kbd>⌘</kbd><kbd>V</kbd> (some terminals use <kbd>Ctrl</kbd><kbd>V</kbd>). **Save + copy path** saves it in Ensō's folder and copies the file path instead.
+**Copy image** puts the screenshot on the clipboard: paste it into Claude Code, Codex or OpenCode in the terminal with <kbd>⌘</kbd><kbd>V</kbd> on macOS or <kbd>Ctrl</kbd><kbd>V</kbd> on Linux and Windows (some terminals use <kbd>Ctrl</kbd><kbd>Shift</kbd><kbd>V</kbd>). **Save + copy path** saves it in Ensō's folder and copies the file path instead.
 
 ## Privacy
 
-Screenshots show whatever is on the page, so look before you send. They stay on your Mac: they go to T3 Code on this machine, to a local agent, or to your clipboard, and from there to that agent's AI provider like anything else you give it. Saved copies are in `~/Library/Application Support/Enso/screenshots` and are deleted after 14 days. Details: [Privacy and data](/docs/privacy-data).
+Screenshots show whatever is on the page, so look before you send. They stay on your computer: they go to T3 Code on this machine, to a local agent, or to your clipboard, and from there to that agent's AI provider like anything else you give it. Saved copies are in the `screenshots` folder of Ensō's data folder (`~/Library/Application Support/Enso` on macOS, `~/.local/share/enso` on Linux, `%APPDATA%\Enso` on Windows) and are deleted after 14 days. Details: [Privacy and data](/docs/privacy-data).
 
 ## Console errors
 

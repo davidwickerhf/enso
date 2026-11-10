@@ -34,7 +34,7 @@ For any other MCP server that signs in with OAuth, Commonfold for example:
 3. Choose **Connect**. The server's sign-in page opens in a new tab.
 4. Sign in and approve. The tab closes by itself, and the server shows **Connected** with its tools.
 
-Ensō does the sign-in itself: it registers with the server, uses a one-time code with PKCE, and keeps the tokens in your macOS Keychain, never in a file. They are renewed automatically. If renewing fails, the server shows **Needs sign-in** and a **Reconnect** button. Open a server's row to **Disconnect** (Ensō asks the server to revoke the token, then deletes it) or **Remove** a server you added.
+Ensō does the sign-in itself: it registers with the server, uses a one-time code with PKCE, and keeps the tokens in your system's secret store (the macOS Keychain, Windows Credential Manager or your Linux keyring). They are renewed automatically. If renewing fails, the server shows **Needs sign-in** and a **Reconnect** button. Open a server's row to **Disconnect** (Ensō asks the server to revoke the token, then deletes it) or **Remove** a server you added.
 
 Servers you connect this way work on both engines, and their tasks can appear in the [Tasks widget](/docs/widgets#the-tasks-widget).
 
@@ -50,7 +50,7 @@ Open a tool's row on the Tools page and use the switch. Switching a tool off rem
 
 Ensō's GitHub tools read your pull requests, reviews, issues and notifications **across every org and repository your account can see**, and can comment, review, label, assign, close and reopen when you ask. There is no merge or delete.
 
-**Settings → Connections → GitHub** shows whether you're connected. If you use the GitHub CLI, **Sign in with gh** opens Terminal with `gh auth login`; Ensō uses that sign-in, which works in every org that allows the GitHub CLI, without installing a GitHub App. Otherwise, create a token (classic with `repo`, `read:org` and `notifications`, or fine-grained), paste it in Setup (or in **GitHub** on the Tools page) and choose **Save token**. Ensō checks it with GitHub, then stores it in your Keychain. **Remove token** deletes it again.
+**Settings → Connections → GitHub** shows whether you're connected. If you use the GitHub CLI, **Sign in with gh** opens a terminal window with `gh auth login`; Ensō uses that sign-in, which works in every org that allows the GitHub CLI, without installing a GitHub App. Otherwise, create a token (classic with `repo`, `read:org` and `notifications`, or fine-grained), paste it in Setup (or in **GitHub** on the Tools page) and choose **Save token**. Ensō checks it with GitHub, then stores it in your secret store. **Remove token** deletes it again.
 
 An org that blocks both can still be read with your browser session, if you allow `github.com` in [session access](/docs/session-access).
 
@@ -58,7 +58,7 @@ Try: "What's waiting on me on GitHub?" or "Why is CI failing on my latest PR?"
 
 ## Servers with an API key
 
-Servers that use a fixed token go in `~/Library/Application Support/Enso/config.local.json` (create it if it doesn't exist):
+Servers that use a fixed token go in `config.local.json` in Ensō's data folder (`~/Library/Application Support/Enso` on macOS, `~/.local/share/enso` on Linux, `%APPDATA%\Enso` on Windows; create the file if it doesn't exist):
 
 ```json
 {
@@ -69,10 +69,12 @@ Servers that use a fixed token go in `~/Library/Application Support/Enso/config.
 }
 ```
 
-Store the token in the Keychain under that name (it asks for the token and doesn't echo it), then quit and reopen Zen:
+Store the token in your secret store under that name (each command asks for the token and doesn't echo it), then quit and reopen Zen:
 
 ```sh
-security add-generic-password -s enso-notes-token -a "$USER" -w
+security add-generic-password -s enso-notes-token -a enso -w           # macOS
+secret-tool store --label=Ensō service enso-notes-token account enso   # Linux
+cmdkey /generic:enso-notes-token /user:enso /pass                      # Windows
 ```
 
 Ensō sends it as a bearer token and never writes it to disk.

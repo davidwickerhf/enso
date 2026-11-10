@@ -13,7 +13,7 @@ description: What Ensō and enso.wicker.life collect, why, where it is kept, and
 
 ## The extension and the helper
 
-The Ensō extension and local helper run on your Mac. They store your conversations, memory, profile, settings, skills, reports, activity log and saved screenshots as files in your home folder (listed in [Privacy & data](/docs/privacy-data)). With the Claude subscription engine, **Claude Code** also keeps its own transcript of each Ensō conversation in `~/.claude/projects/` on your Mac, under its own rules. **We do not receive any of it.** The extension and helper contain no analytics, telemetry or crash reporting.
+The Ensō extension and local helper run on your computer (macOS, Linux or Windows). They store your conversations, memory, profile, settings, skills, reports, activity log and saved screenshots as files in your home folder (listed in [Privacy & data](/docs/privacy-data)). Keys and sign-in tokens are kept in your system's secret store: the macOS Keychain, the Windows Credential Manager, or your Linux keyring; on Linux without a keyring, in a file in Ensō's folder that only your user account can read. With the Claude subscription engine, **Claude Code** also keeps its own transcript of each Ensō conversation in `~/.claude/projects/` on your computer, under its own rules. **We do not receive any of it.** The extension and helper contain no analytics, telemetry or crash reporting.
 
 When you send a message, the helper sends it to **Anthropic**, together with the context needed to answer it: your profile and memory, the conversation so far, the current page if included, mentioned tabs, attachments, screenshots and tool results. This goes either through Claude Code under your Claude subscription, or to the Anthropic API under your own API key. Anthropic processes it as your provider, under the terms and privacy policy you accepted with them; we are not a party to that and never see it.
 
@@ -23,11 +23,11 @@ When you send a message, the helper sends it to **Anthropic**, together with the
 
 **Address-bar search.** Ensō adds itself to Zen as a search engine whose address is `enso.wicker.life/ask#q=…`. What you type sits after the `#`, which browsers never send to a server, and the extension opens its own page before that address loads. Without the extension, the site's `/ask` page reads it in your browser only, has no analytics and records nothing.
 
-When Ensō uses a tool you enabled, the request goes to that service (for example Google, for Gmail) under your account there. Tools you connect with the *Connect* button (such as monday.com or Commonfold) sign in with OAuth; their tokens are kept in your macOS Keychain, and the helper calls those services directly, including every few minutes for the Tasks and monday.com widgets on the new tab.
+When Ensō uses a tool you enabled, the request goes to that service (for example Google, for Gmail) under your account there. Tools you connect with the *Connect* button (such as monday.com or Commonfold) sign in with OAuth; their tokens are kept in your system's secret store, and the helper calls those services directly, including every few minutes for the Tasks and monday.com widgets on the new tab.
 
 **Other AI agents.** If you connect agents such as Claude Code, Codex or Cursor to Zen through Ensō (`enso mcp`), whatever they read from your browser (tab lists, page text, screenshots, history results, console and network logs, GitHub data) goes to that agent and its own AI provider (for example Anthropic for Claude Code, OpenAI for Codex), under your terms with them. Nothing passes through us.
 
-**Screenshots you send.** "Send screenshot" stays on your Mac: the image goes to your own T3 Code server on this computer, to an agent you connected, or to the clipboard. What that agent then does with it, including sending it to its AI provider, is between you and that agent.
+**Screenshots you send.** "Send screenshot" stays on your computer: the image goes to your own T3 Code server on this computer, to an agent you connected, or to the clipboard. What that agent then does with it, including sending it to its AI provider, is between you and that agent.
 
 **Private sites.** Ensō never reads, screenshots, or acts on these sites, and never uses your session on them or copies it:
 
@@ -95,4 +95,4 @@ Ensō is not meant for children under 16, and we don't knowingly hold their data
 
 If this policy changes in a way that affects your data, we will update the date above and, if you have a sync account, email you before the change takes effect.
 
-- **10 November 2026:** added the Home brief, Claude Code's transcripts, other agents, screenshots, OAuth-connected tools and the addons.mozilla.org listing; tax and government sites are now on the private-site list, which is described in full; sync is marked as not available yet.
+- **10 November 2026:** the helper now also runs on Linux and Windows, with secrets in each system's own store; added the Home brief, Claude Code's transcripts, other agents, screenshots, OAuth-connected tools and the addons.mozilla.org listing; tax and government sites are now on the private-site list, which is described in full; sync is marked as not available yet.

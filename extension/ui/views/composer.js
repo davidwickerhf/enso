@@ -9,7 +9,15 @@ import { localSuggestions, engineInfo, engineSuggestions, buildRows, initialInde
 
 const MAX_BYTES = 25 * 1024 * 1024;
 const isMac = /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
+const isWin = /Win/.test(navigator.platform || navigator.userAgent);
 export const MOD = isMac ? "⌘" : "Ctrl+";
+// The system's own dictation types into this box: macOS Dictation, Windows voice typing.
+// Linux has no standard one, so there is no mic button there.
+const DICTATION = isMac
+  ? { title: "Dictate: press Fn twice (macOS Dictation)", label: "Dictate with macOS Dictation", hint: "Press Fn (🌐) twice to dictate with macOS Dictation. Turn it on in System Settings → Keyboard → Dictation if nothing happens." }
+  : isWin
+    ? { title: "Dictate: press Win+H (Windows voice typing)", label: "Dictate with Windows voice typing", hint: "Press Win+H to dictate with Windows voice typing." }
+    : null;
 
 export function favicon(url, favIconUrl, cls = "") {
   const host = hostOf(url);
@@ -55,10 +63,10 @@ export function createComposer(store) {
 
   const attachBtn = h("button", { type: "button", class: "icon-btn", title: "Attach files (any type, up to 25 MB in total) — or drop or paste them here", aria: { label: "Attach files" }, onclick: () => fileInput.click() }, icon("plus"));
   const shotBtn = h("button", { type: "button", class: "icon-btn", title: "Attach a screenshot of this page", aria: { label: "Attach a screenshot of this page", pressed: "false" }, onclick: () => { local.screenshot = !local.screenshot; render(); textarea.focus(); } }, icon("camera"));
-  // Zen has no speech recognition of its own; macOS Dictation works in this box, so the mic starts there.
-  const micBtn = h("button", { type: "button", class: "icon-btn", title: "Dictate: press Fn twice (macOS Dictation)", aria: { label: "Dictate with macOS Dictation" }, onclick: () => {
+  // Zen has no speech recognition of its own; the system's dictation works in this box, so the mic starts there.
+  const micBtn = h("button", { type: "button", class: "icon-btn", hidden: !DICTATION, title: DICTATION?.title, aria: { label: DICTATION?.label ?? "Dictate" }, onclick: () => {
     textarea.focus();
-    local.error = "Press Fn (🌐) twice to dictate with macOS Dictation. Turn it on in System Settings → Keyboard → Dictation if nothing happens.";
+    local.error = DICTATION?.hint ?? "";
     render();
     setTimeout(() => { if (local.error?.startsWith("Press Fn")) { local.error = null; render(); } }, 6000);
   } }, icon("mic"));

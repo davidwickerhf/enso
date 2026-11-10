@@ -132,7 +132,9 @@ export function checkHello(command, { manifestFile = "", extensionId = EXTENSION
       } catch {}
       setTimeout(() => {
         try {
-          child.kill("SIGKILL");
+          // Windows: killing cmd.exe leaves the node it started; end the whole tree.
+          if (process.platform === "win32" && child.exitCode === null) spawnSync("taskkill", ["/PID", String(child.pid), "/T", "/F"], { stdio: "ignore", windowsHide: true });
+          else child.kill("SIGKILL");
         } catch {}
       }, 1500).unref();
       resolve({ ms: Date.now() - started, ...r });
@@ -276,6 +278,17 @@ export async function runDoctor({ home = process.env.HOME || homedir(), env = pr
   else {
     out(`Last ${lines.length} lines of ${tilde(file)}:`);
     for (const l of lines) out(`  ${l}`);
+  }
+
+  // Windows: run.cmd keeps what the helper printed before its own log started.
+  const stderrFile = path.join(path.dirname(file), "helper-stderr.log");
+  if (platform === "win32" && existsSync(stderrFile)) {
+    const errLines = tailLines(stderrFile, 15);
+    if (errLines.length) {
+      out("");
+      out(`Last ${errLines.length} lines of ${tilde(stderrFile)} (the helper's last start):`);
+      for (const l of errLines) out(`  ${l}`);
+    }
   }
 
   const ok = results.every(r => r.ok !== false);

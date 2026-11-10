@@ -33,7 +33,8 @@ For any MCP server that signs in with OAuth, for example Commonfold:
    **Connected**, with its tools.
 
 Ensō handles the sign-in itself: it registers with the server, uses a one-time
-code with PKCE, and keeps the tokens in your macOS Keychain, never in a file.
+code with PKCE, and keeps the tokens in your system's secret store (macOS
+Keychain, Windows Credential Manager or your Linux keyring).
 They are renewed automatically. If renewing fails, the server shows **Needs
 sign-in** and a **Reconnect** button.
 
@@ -76,11 +77,14 @@ the GitHub CLI, without installing a GitHub App. Otherwise:
 1. Create a token on GitHub: a classic token with `repo`, `read:org` and
    `notifications`, or a fine-grained token.
 2. Open **GitHub** on the Tools page, paste the token and choose **Save**.
-   Ensō checks it with GitHub, then stores it in your Keychain.
+   Ensō checks it with GitHub, then stores it in your secret store.
 
 The row shows how it is connected ("Connected through GitHub CLI as …"). To
-remove a saved token, run `security delete-generic-password -s enso-github`
-(there is no button for it yet). An org that blocks both can still be read with
+remove a saved token, use **Remove token** in **Settings → Setup → GitHub**,
+or delete `enso-github` from your secret store by hand
+(`security delete-generic-password -s enso-github` on macOS,
+`secret-tool clear service enso-github` on Linux,
+`cmdkey /delete:enso-github` on Windows). An org that blocks both can still be read with
 your browser session, if you allow `github.com` in
 [session access](session-access.md).
 
@@ -88,7 +92,9 @@ Try: "What's waiting on me on GitHub?", "Why is CI failing on my latest PR?"
 
 ## How do I add a server that uses an API key?
 
-Servers with a fixed token go in `~/Library/Application Support/Enso/config.local.json`:
+Servers with a fixed token go in `config.local.json` in Ensō's data folder
+(`~/Library/Application Support/Enso` on macOS, `~/.local/share/enso` on
+Linux, `%APPDATA%\Enso` on Windows):
 
 ```json
 {
@@ -99,11 +105,13 @@ Servers with a fixed token go in `~/Library/Application Support/Enso/config.loca
 }
 ```
 
-Store the token in the Keychain under the name you chose (it asks for the
-token and doesn't echo it):
+Store the token in your secret store under the name you chose (each asks for
+the token and doesn't echo it):
 
 ```sh
-security add-generic-password -s enso-notes-token -a "$USER" -w
+security add-generic-password -s enso-notes-token -a enso -w           # macOS
+secret-tool store --label=Ensō service enso-notes-token account enso   # Linux
+cmdkey /generic:enso-notes-token /user:enso /pass                      # Windows
 ```
 
 Quit and reopen Zen. Ensō sends the token as `Authorization: Bearer …` and never

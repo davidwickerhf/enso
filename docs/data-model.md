@@ -2,7 +2,8 @@
 
 Everything Ensō stores, where, and in what shape. Ensō has no database and no
 server of its own: the helper writes plain files in one folder, secrets go to
-the macOS Keychain, and the extension keeps a few UI preferences. Message shapes
+the system's secret store (macOS Keychain, Linux keyring, Windows Credential
+Manager), and the extension keeps a few UI preferences. Message shapes
 (conversation events, settings, servers) are specified in [PROTOCOL.md](PROTOCOL.md).
 
 ## Contents
@@ -14,7 +15,7 @@ the macOS Keychain, and the extension keeps a few UI preferences. Message shapes
 - [Configuration overlay](#configuration-overlay)
 - [Profile and memory](#profile-and-memory)
 - [Connections, servers and tokens](#connections-servers-and-tokens)
-- [Keychain items](#keychain-items)
+- [Secret store items](#secret-store-items)
 - [Outside the data folder](#outside-the-data-folder)
 - [Extension storage](#extension-storage)
 - [The Zen Chat migration](#the-zen-chat-migration)
@@ -22,8 +23,16 @@ the macOS Keychain, and the extension keeps a few UI preferences. Message shapes
 
 ## The data folder
 
-`~/Library/Application Support/Enso/` (override with `ENSO_DATA`; the older
+`dataDir()` in `helper/lib/platform.mjs` (override with `ENSO_DATA`; the older
 `ZEN_CHAT_DATA` is still read). Written by `helper/lib/store.mjs` unless noted.
+
+| System | Data folder | Log folder (`helper.log`) |
+|---|---|---|
+| macOS | `~/Library/Application Support/Enso` | `~/Library/Logs/Enso` |
+| Linux | `$XDG_DATA_HOME/enso` (default `~/.local/share/enso`) | `$XDG_STATE_HOME/enso` (default `~/.local/state/enso`) |
+| Windows | `%APPDATA%\Enso` | `%LOCALAPPDATA%\Enso\Logs` |
+
+With `ENSO_DATA` set, logs go to `<data>/logs`; `ENSO_LOG_DIR` overrides both.
 
 | Path | Format | What it holds | Written by |
 |---|---|---|---|
@@ -204,7 +213,7 @@ flowchart LR
   CFG[config.json + config.local.json<br/>oauthServers] --> DEFS[connection definitions]
   CUSTOM[connections.json<br/>custom servers] --> DEFS
   DEFS --> META[connections.json<br/>public state]
-  DEFS --> KC[(Keychain<br/>enso-mcp-&lt;name&gt;)]
+  DEFS --> KC[(Secret store<br/>enso-mcp-&lt;name&gt;)]
   KC -->|Bearer token| SESS[engine MCP servers]
   CLAUDE[~/.claude.json mcpServers] --> SESS
   EXTRA[extraServers + tokenKeychainService] --> SESS
@@ -212,37 +221,51 @@ flowchart LR
 ```
 
 - The OAuth client registration, access token and refresh token of each
-  connection are one JSON record in the Keychain item `enso-mcp-<name>`.
+  connection are one JSON record in the secret store item `enso-mcp-<name>`.
 - `servers.json` is a cache for the UI; deleting it is harmless.
 - `mcp-token` and `mcp-token-read` are re-read on every MCP request, so
   `enso mcp rotate` takes effect at once.
 
-## Keychain items
+## Secret store items
 
-All in the login keychain, read and written with `/usr/bin/security`. Values
-never appear on a command line: writes go through `security -i` on stdin.
+`helper/lib/secrets.mjs` keeps items as (service, account) in the system's
+store. Values never appear on a command line.
+
+| System | Store | Access |
+|---|---|---|
+| macOS | login Keychain | `/usr/bin/security`; writes through `security -i` on stdin |
+| Linux | libsecret (GNOME Keyring, KWallet, KeePassXC), attributes `service` and `account` | `secret-tool`, secret on stdin. Without `secret-tool`, a D-Bus session or a keyring: `<data>/secrets.json` (0600), with a warning in Setup and `enso doctor` |
+| Windows | Credential Manager, generic credentials (target name = service, user name = account) | Windows PowerShell 5.1 calling `CredRead`/`CredWrite`/`CredDelete`, items as JSON on stdin |
+
+`ENSO_SECRETS=keychain|libsecret|credman|file` forces a backend (tests, CI).
 
 | Service | Account | What | Set by |
 |---|---|---|---|
-| `enso-anthropic` | any (the docs use `$USER`) | Anthropic API key for the API engine. | You: `security add-generic-password -s enso-anthropic -a "$USER" -w` |
+| `enso-anthropic` | `enso` (a read matches any account) | Anthropic API key for the API engine. | Settings → Setup → Claude, or by hand: `security add-generic-password -s enso-anthropic -a enso -w` (macOS), `secret-tool store --label=Ensō service enso-anthropic account enso` (Linux), `cmdkey /generic:enso-anthropic /user:enso /pass` (Windows) |
 | `zen-chat-anthropic` | any | Legacy name, read when `enso-anthropic` is missing. | Older installs |
 | `enso-github` | `enso` | GitHub token, when you don't use the GitHub CLI. | Tools → GitHub (checked against GitHub first) |
-| `enso-mcp-<name>` | `enso` | OAuth record for a connected MCP server. Values over about 3000 characters are base64-encoded and split over `enso-mcp-<name>`, `enso-mcp-<name>~1`, `~2`, …; the head item starts with `enso1:<count>:`. | Connect on the Tools page |
+| `enso-mcp-<name>` | `enso` | OAuth record for a connected MCP server. Values longer than one item holds (about 3000 characters in the Keychain, 6000 with libsecret, 1800 in Credential Manager) are base64-encoded and split over `enso-mcp-<name>`, `enso-mcp-<name>~1`, `~2`, …; the head item starts with `enso1:<count>:`. | Connect on the Tools page |
+| `enso-t3` | `enso` | T3 Code session token, its id and expiry. | `enso t3 connect`, Settings → Send screenshots |
 | the name in `tokenKeychainService` | any | Bearer token for an `extraServers` entry. | You |
 
 ## Outside the data folder
 
 | Where | What | Notes |
 |---|---|---|
-| `~/Library/Application Support/Mozilla/NativeMessagingHosts/enso.json`, `~/Library/Application Support/zen/NativeMessagingHosts/enso.json` | Native-messaging manifests. | `install.sh`, `dev.sh` |
-| `~/.local/bin/enso` | Symlink to `bin/enso`, when `~/.local/bin` exists and the name is free. | `install.sh`, `dev.sh` |
+| macOS: `~/Library/Application Support/Mozilla/NativeMessagingHosts/enso.json`, `~/Library/Application Support/zen/NativeMessagingHosts/enso.json` | Native-messaging manifests. | `install.sh`, `dev.sh` |
+| Linux: `~/.mozilla/native-messaging-hosts/enso.json`, `~/.zen/native-messaging-hosts/enso.json` | Native-messaging manifests. Zen reads Mozilla's folder for now (zen-browser/desktop#10622). | `install.sh`, `dev.sh` |
+| Windows: `HKCU\Software\Mozilla\NativeMessagingHosts\enso` | Registry key whose default value is `%APPDATA%\Enso\enso.json` (the manifest lives in the data folder). Zen reads Mozilla's key. | `install.ps1` |
+| `~/.local/bin/enso` (macOS, Linux) | Symlink to `bin/enso`, when `~/.local/bin` exists (created on Linux) and the name is free. | `install.sh`, `dev.sh` |
+| Windows user `PATH` | `%APPDATA%\Enso\bin` (holds `enso.cmd` and `run.cmd`), unless `ENSO_NO_PATH=1`. | `install.ps1` |
 | `~/.claude/projects/<encoded path of Enso/workspace>/` | Claude Code's own transcripts of subscription-engine conversations (Claude Code persists sessions so they can be resumed). The dashboard run is not persisted. | Claude Code |
-| `~/.claude.json`, `~/.codex/config.toml`, `~/.cursor/mcp.json` | The `zen-browser` registration, plus backups `*.enso-backup-<time>` (0600) of files `enso mcp install` changed. | `enso mcp install` |
+| `~/.claude.json`, `~/.codex/config.toml`, `~/.cursor/mcp.json`, `~/.config/opencode` (same paths under the home folder on every OS) | The `zen-browser` registration (on Windows as `node.exe <data>\helper\bin\enso.mjs mcp`, not the `.cmd` shim), plus backups `*.enso-backup-<time>` (0600) of files `enso mcp install` changed. | `enso mcp install` |
 | System temp folder, `enso-headless-*` | Temporary headless Zen profile, with copied cookies when sites were given. | Deleted on stop, idle timeout, helper exit, or the next start. |
 
 Ensō reads, but never writes: Zen's `installs.ini` and `zen-sessions.jsonlz4`
 (spaces), the live profile's `cookies.sqlite` (copied for the headless Zen),
-and `~/.claude.json` (Claude Code's MCP servers).
+and `~/.claude.json` (Claude Code's MCP servers). Zen's profiles are in
+`~/Library/Application Support/zen` on macOS, `~/.zen` on Linux (Flatpak:
+`~/.var/app/app.zen_browser.zen/.zen`) and `%APPDATA%\zen` on Windows.
 
 ## Extension storage
 
@@ -268,7 +291,8 @@ entries (1000 per tab) in memory only; they are gone when Zen quits. The
 ## The Zen Chat migration
 
 Before 0.5.0 the product was called Zen Chat and kept its data in
-`~/Library/Application Support/zen-chat/`. On first start, `migrateLegacyData`
+`~/Library/Application Support/zen-chat/` (macOS only; there is nothing to
+migrate on Linux and Windows). On first start, `migrateLegacyData`
 copies these items into the new folder, once:
 
 `conversations`, `memory`, `memory.md`, `profile.md`, `reports`,
@@ -284,18 +308,27 @@ engine still reads the old Keychain item `zen-chat-anthropic`. With
 
 ## Backups and deleting data
 
-The data folder is part of Time Machine backups like any other folder. To
-remove everything Ensō stored:
+The data folder is part of your backups (Time Machine, File History, …) like
+any other folder. To remove everything Ensō stored on macOS:
 
 ```sh
 enso mcp uninstall                                      # if you registered MCP clients
-rm -rf ~/Library/Application\ Support/Enso
+rm -rf ~/Library/Application\ Support/Enso ~/Library/Logs/Enso
 rm -f ~/Library/Application\ Support/{Mozilla,zen}/NativeMessagingHosts/enso.json ~/.local/bin/enso
 security delete-generic-password -s enso-anthropic      # if you used an API key
 security delete-generic-password -s enso-github         # if you saved a GitHub token
 ```
 
+On Linux, remove `~/.local/share/enso`, `~/.local/state/enso`, the two
+`enso.json` manifests and `~/.local/bin/enso`, and clear the items with
+`secret-tool clear service enso-anthropic` (and `enso-github`). On Windows,
+remove `%APPDATA%\Enso`, `%LOCALAPPDATA%\Enso`, the registry key
+`HKCU\Software\Mozilla\NativeMessagingHosts\enso` and `%APPDATA%\Enso\bin`
+from the user PATH, and run `cmdkey /delete:enso-anthropic` (and
+`enso-github`). The user guide has the commands:
+[install.md](../site/content/docs/install.md#uninstalling).
+
 Disconnect OAuth servers on the Tools page first, so their tokens are revoked
-and their Keychain items removed. Claude Code's transcripts of Ensō
+and their secret store items removed. Claude Code's transcripts of Ensō
 conversations are in `~/.claude/projects/` (the folder whose name ends in
 `Enso-workspace`).

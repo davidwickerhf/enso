@@ -7,6 +7,7 @@ import { renderMarkdown, codeBlock } from "../markdown.js";
 import { hostOf, duration, pastTense, resultCount, describeAction, actionIcon, compactNumber, fullDate, relTime } from "../format.js";
 import { favicon } from "./composer.js";
 import { loadingOr } from "./helperstate.js";
+import { installInfo, secretStoreName } from "../platform.js";
 
 // ---- model -----------------------------------------------------------------
 
@@ -230,8 +231,8 @@ export function createChatView(store, ctx) {
     if (code === "no_api_key") {
       title = "No Anthropic API key";
       body.push(h("p", null, ev.text || "The API engine needs a key, and none was found."),
-        h("p", null, "Add one to the macOS Keychain, then send again:"),
-        codeBlock('security add-generic-password -s enso-anthropic -a "$USER" -w', "shell"),
+        h("p", null, `Add one in Settings → Setup (it goes into ${s.setup?.status?.secrets?.location ?? secretStoreName(s.platform)}), or ${s.platform === "win" ? "in PowerShell" : "in a terminal"}, then send again:`),
+        codeBlock(s.platform === "win" ? "cmdkey /generic:enso-anthropic /user:enso /pass" : s.platform === "linux" ? "secret-tool store --label=Ensō service enso-anthropic account enso" : 'security add-generic-password -s enso-anthropic -a enso -w', s.platform === "win" ? "powershell" : "shell"),
         h("p", null, "Or switch to your Claude subscription, which needs no key."));
       const sub = s.engines?.subscription;
       body.push(h("div", { class: "error-actions" },
@@ -239,13 +240,13 @@ export function createChatView(store, ctx) {
         h("button", { type: "button", class: "btn", onclick: () => actions.go("settings", { section: "setup" }) }, "Open Setup")));
     } else if (code === "host_disconnected" || code === "host_missing") {
       title = "Ensō's helper isn't running";
-      body.push(h("p", null, ev.text), h("p", null, "Install or update it, then reopen Zen:"), codeBlock("curl -fsSL https://enso.wicker.life/install.sh | bash", "shell"));
+      body.push(h("p", null, ev.text), h("p", null, "Install or update it, then reopen Zen:"), codeBlock(installInfo(s.platform).command, installInfo(s.platform).shell === "powershell" ? "powershell" : "shell"));
     } else if (code === "no_claude_code") {
       title = "Install Claude Code";
       const api = s.engines?.api;
-      body.push(h("p", null, ev.text || "The subscription engine runs on Claude Code, which wasn't found on this Mac."),
+      body.push(h("p", null, ev.text || "The subscription engine runs on Claude Code, which wasn't found on this computer."),
         h("p", null, "Install it, sign in once, then reopen Zen:"),
-        codeBlock("curl -fsSL https://claude.ai/install.sh | bash\nclaude", "shell"),
+        s.platform === "win" ? codeBlock("irm https://claude.ai/install.ps1 | iex\nclaude", "powershell") : codeBlock("curl -fsSL https://claude.ai/install.sh | bash\nclaude", "shell"),
         h("div", { class: "error-actions" },
           api?.available ? h("button", { type: "button", class: "btn primary", onclick: () => actions.updateSettings({ engine: "api" }) }, "Use my API key") : null,
           h("button", { type: "button", class: "btn", onclick: () => actions.go("settings", { section: "setup" }) }, "Open Setup")));

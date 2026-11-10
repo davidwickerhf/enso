@@ -126,3 +126,77 @@ jobs:
           grep -q "✓ Helper .*answered hello" "$RUNNER_TEMP/doctor.txt"
           grep -q "✓ Zen/Firefox manifest" "$RUNNER_TEMP/doctor.txt"
           rm -rf "$H"
+
+  windows-install:
+    # install.ps1 in a temporary profile (USERPROFILE, APPDATA, LOCALAPPDATA in
+    # RUNNER_TEMP) with this checkout's helper: a fresh install with Enso's own
+    # Node (downloaded and checked against the pinned hash), `enso doctor`
+    # (registry key, manifest, run.cmd answering hello), a second run (same
+    # result), and a run while a helper started through run.cmd is running.
+    name: install.ps1 (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, windows-11-arm]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Helper tarball from this checkout
+        shell: pwsh
+        run: |
+          Push-Location helper
+          npm ci --omit=dev --omit=optional --no-audit --no-fund
+          Set-Content -Path VERSION -Value '0.0.0-ci' -Encoding Ascii
+          Pop-Location
+          & "$env:SystemRoot\System32\tar.exe" -czf "$env:RUNNER_TEMP\helper.tar.gz" --exclude=helper/test -C . helper
+          Get-Item "$env:RUNNER_TEMP\helper.tar.gz" | Select-Object Name, Length
+
+      - name: Install, check, reinstall, update while running
+        shell: powershell # Windows PowerShell 5.1, what `irm | iex` runs in for most people
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $profileDir = Join-Path $env:RUNNER_TEMP 'Enso Test User'
+          $env:USERPROFILE = $profileDir
+          $env:APPDATA = Join-Path $profileDir 'AppData\Roaming'
+          $env:LOCALAPPDATA = Join-Path $profileDir 'AppData\Local'
+          New-Item -ItemType Directory -Force -Path $env:APPDATA, $env:LOCALAPPDATA | Out-Null
+          $env:ENSO_HELPER_URL = 'file:///' + ("$env:RUNNER_TEMP\helper.tar.gz" -replace '\\', '/')
+          $env:ENSO_NO_OPEN = '1'
+          $env:ENSO_NODE = 'private'
+          $script = Get-Content -Raw site/static/install.ps1
+
+          Invoke-Expression $script
+          $app = Join-Path $env:APPDATA 'Enso'
+          $node = (Get-Content (Join-Path $app 'install.json') | ConvertFrom-Json).node
+          if ($node.source -ne 'private' -or -not (Test-Path $node.path)) { throw "private Node missing: $($node | ConvertTo-Json)" }
+          $reg = (Get-Item 'HKCU:\Software\Mozilla\NativeMessagingHosts\enso').GetValue('')
+          if ($reg -ne (Join-Path $app 'enso.json')) { throw "registry points at $reg" }
+          if (([Environment]::GetEnvironmentVariable('Path', 'User')).Split(';') -notcontains (Join-Path $app 'bin')) { throw 'bin not on the user PATH' }
+
+          $doctor = & (Join-Path $app 'bin\enso.cmd') doctor | Out-String
+          Write-Host $doctor
+          if ($doctor -notmatch 'Registry key' -or $doctor -notmatch [regex]::Escape('started and answered hello')) { throw 'enso doctor did not get a hello through run.cmd' }
+
+          $before = (Get-ChildItem -Recurse $app | ForEach-Object { $_.FullName.Substring($app.Length) } | Sort-Object) -join "`n"
+          Invoke-Expression $script
+          $after = (Get-ChildItem -Recurse $app | ForEach-Object { $_.FullName.Substring($app.Length) } | Sort-Object) -join "`n"
+          if ($before -ne $after) { throw "second run changed the files:`n$(Compare-Object ($before -split "`n") ($after -split "`n") | Out-String)" }
+          Write-Host 'ok - second run leaves the same files'
+
+          # A helper running from the installed folder (stdin kept open), then update.
+          $psi = New-Object Diagnostics.ProcessStartInfo
+          $psi.FileName = (Join-Path $app 'bin\run.cmd'); $psi.Arguments = "`"$(Join-Path $app 'enso.json')`" enso@wicker.life"
+          $psi.UseShellExecute = $false; $psi.RedirectStandardInput = $true; $psi.RedirectStandardOutput = $true
+          $psi.EnvironmentVariables['ENSO_MCP_PORT'] = '48777'
+          $p = [Diagnostics.Process]::Start($psi)
+          Start-Sleep -Seconds 3
+          Invoke-Expression $script
+          if (-not (Test-Path (Join-Path $app 'helper\host.mjs'))) { throw 'helper missing after an update while running' }
+          Write-Host 'ok - update while the helper runs'
+          $p.StandardInput.Close(); if (-not $p.WaitForExit(10000)) { $p.Kill() }
+          Get-ChildItem (Join-Path $env:LOCALAPPDATA 'Enso\Logs') | Select-Object Name, Length

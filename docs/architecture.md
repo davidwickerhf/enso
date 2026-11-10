@@ -62,7 +62,7 @@ All pages load the same app (`ui/app.js`) and pick a mode from the HTML entry po
 
 | Page | Where it shows | What it is |
 |---|---|---|
-| `sidebar.html` | Zen's sidebar (`sidebar_action`, <kbd>⌘E</kbd>, or the toolbar button) | Chat next to the page, with history and settings behind icons. |
+| `sidebar.html` | Zen's sidebar (`sidebar_action`, <kbd>⌘E</kbd> or <kbd>Ctrl+E</kbd>, or the toolbar button) | Chat next to the page, with history and settings behind icons. |
 | `newtab.html` | Every new tab and the home page (`chrome_url_overrides.newtab`, `chrome_settings_overrides.homepage`) | The search-or-ask box, the "Your tools" strip and widgets. |
 | `full.html` | A normal tab ("Open Ensō as a page" in the toolbar button's context menu) | Three columns: navigation (Home, Activity, Tools, Settings, conversations, reports), the chat, and a context panel (page, pages in this conversation, actions, memory). |
 | `report.html?id=…` | A tab opened by `create_report` | One report, Markdown with fenced `chart` blocks drawn by `ui/chart.js`. |
@@ -136,16 +136,25 @@ Docs' hidden input frame.
 
 ## Native messaging
 
-Zen starts the helper when the extension connects, using the manifest `enso.json`
-in `~/Library/Application Support/Mozilla/NativeMessagingHosts/` and
-`~/Library/Application Support/zen/NativeMessagingHosts/`:
+Zen starts the helper when the extension connects, using the manifest
+`enso.json`. Where the browser finds it depends on the system
+(`nativeHostDirs()` in `lib/platform.mjs`, and the installers):
+
+| System | Manifest | Launcher (`path`) |
+|---|---|---|
+| macOS | `~/Library/Application Support/Mozilla/NativeMessagingHosts/` and `~/Library/Application Support/zen/NativeMessagingHosts/` | `<data>/helper/run.sh` |
+| Linux | `~/.mozilla/native-messaging-hosts/` and `~/.zen/native-messaging-hosts/` (Zen reads Mozilla's folder for now, zen-browser/desktop#10622) | `<data>/helper/run.sh` |
+| Windows | `%APPDATA%\Enso\enso.json`, found through the registry key `HKCU\Software\Mozilla\NativeMessagingHosts\enso` (Zen reads Mozilla's key) | `%APPDATA%\Enso\bin\run.cmd` |
 
 ```json
 { "name": "enso", "path": ".../Enso/helper/run.sh", "type": "stdio", "allowed_extensions": ["enso@wicker.life"] }
 ```
 
-`run.sh` runs `host.mjs` with an absolute path to `node`, because Zen starts
-programs with a minimal environment. Messages are framed as a 4-byte
+The launcher runs `host.mjs` with an absolute path to `node`, because Zen
+starts programs with a minimal environment. On Windows `run.cmd` lives in
+`bin\`, outside `helper\`, so a running helper never holds the folder an
+update replaces; its stderr goes to `%LOCALAPPDATA%\Enso\Logs\helper-stderr.log`.
+On macOS and Linux `run.sh` appends stderr to `helper.log`. Messages are framed as a 4-byte
 little-endian length followed by UTF-8 JSON (`lib/native.mjs`); a frame to the
 browser must stay under 1 MB, so larger messages are replaced by a short
 "message too large" notice. Nothing else may be written to stdout; the helper
@@ -156,9 +165,11 @@ which happens when Zen quits.
 
 `helper/host.mjs` handles every message from the extension (see the table in
 [PROTOCOL.md](PROTOCOL.md#ui--host)), runs chat turns, and starts the MCP
-server. On start it also adds `~/.volta/bin`, `~/.local/bin`,
-`/opt/homebrew/bin` and `/usr/local/bin` to `PATH`, and removes temporary
-profiles left by a headless Zen from an earlier crash.
+server. On start it also puts the usual install folders in front of `PATH`
+(`extraPath()` in `lib/platform.mjs`: `~/.volta/bin`, `~/.local/bin` and
+Homebrew on macOS and Linux, `/snap/bin` on Linux, npm's and Node's folders on
+Windows), and removes temporary profiles left by a headless Zen from an
+earlier crash.
 
 | Module | Role |
 |---|---|
@@ -167,12 +178,14 @@ profiles left by a headless Zen from an earlier crash.
 | `lib/native.mjs` | Native-messaging framing and the stderr logger. |
 | `lib/engine-sub.mjs` | The subscription engine (Claude Agent SDK on the user's `claude` CLI), warm sessions. |
 | `lib/claude-cli.mjs` | Finds the `claude` CLI. |
-| `lib/engine-api.mjs` | The API engine (Anthropic Messages API) and its own MCP clients; reads the API key from the Keychain. |
+| `lib/engine-api.mjs` | The API engine (Anthropic Messages API) and its own MCP clients; reads the API key from the secret store. |
 | `lib/prompt.mjs` | The system prompt (profile, memory, rules) and the per-turn `<context>` block (time, Zen space, space memory). |
 | `lib/pagetools.mjs`, `lib/browsertools.mjs`, `lib/devtools.mjs`, `lib/headless.mjs`, `lib/github.mjs` | Tool definitions, collected in `lib/toolset.mjs`. |
 | `lib/safety.mjs` | Private-site matching, the session-access allowlist, redaction, the safety note added to tool descriptions. |
 | `lib/tools-meta.mjs` | Human labels for tool calls and the read-only heuristic for third-party MCP tools. |
-| `lib/connections.mjs`, `lib/keychain.mjs` | OAuth sign-in to remote MCP servers; secrets in the Keychain. |
+| `lib/platform.mjs` | Everything that differs per OS: data, log and profile folders, native-messaging locations, the `enso` command, terminals, MCP client config paths, `PATH`. |
+| `lib/secrets.mjs` | The secret store: Keychain (macOS), libsecret through `secret-tool` or a 0600 file (Linux), Credential Manager (Windows). |
+| `lib/connections.mjs`, `lib/keychain.mjs` | OAuth sign-in to remote MCP servers; secrets (split into chunks when too long) through `lib/secrets.mjs`. |
 | `lib/mcpserver.mjs`, `lib/mcpauth.mjs` | The `zen-browser` MCP server; tokens, scopes and client identity. |
 | `lib/mcplauncher.mjs`, `lib/mcpinstall.mjs`, `bin/enso.mjs` | The `enso` command: the stdio launcher and client registration. |
 | `lib/dashboard.mjs` | The Home briefing (one read-only agent run, structured output). |
@@ -247,7 +260,7 @@ Claude Code binary (it is an optional dependency, left out with
 ### API engine (`lib/engine-api.mjs`)
 
 Calls the Messages API with `@anthropic-ai/sdk` and an API key from
-`ANTHROPIC_API_KEY`, else the Keychain item `enso-anthropic` (or the legacy
+`ANTHROPIC_API_KEY`, else the secret store item `enso-anthropic` (or the legacy
 `zen-chat-anthropic`). The helper connects to MCP servers itself with
 `@modelcontextprotocol/sdk` (stdio or Streamable HTTP; 20-second timeout).
 claude.ai connectors aren't available here, because they belong to the claude.ai
@@ -300,7 +313,7 @@ sequenceDiagram
   Z->>S: user signs in
   S->>H: redirect to 127.0.0.1:47823/oauth/callback?code&state
   H->>S: token exchange (code + verifier)
-  H->>H: tokens to Keychain (enso-mcp-<name>)
+  H->>H: tokens to the secret store (enso-mcp-<name>)
   H->>Z: tabs_close
   H-->>UI: connections (done: ok) + servers
 ```
@@ -312,7 +325,7 @@ port when the helper holds it, otherwise on an ephemeral loopback port. A
 sign-in link expires after 10 minutes. Access tokens are refreshed when they are
 within 5 minutes of expiry; a token that can't be refreshed marks the server
 "expired" and the Tools page offers Reconnect. Disconnect revokes the token at
-the server when it publishes a revocation endpoint, then deletes the Keychain
+the server when it publishes a revocation endpoint, then deletes the secret store
 item. A Claude Code registration with the same name as an Ensō connection is
 ignored.
 
@@ -373,7 +386,7 @@ active tab and the Agents row. See [mcp.md](mcp.md#sessions-and-steering) and
   `actions.jsonl`. claude.ai connectors can't be called directly; their tasks
   arrive through the dashboard.
 - **GitHub** (`lib/github.mjs`). Built in, not an MCP server. The token comes
-  from `gh auth token`, else `GH_TOKEN` / `GITHUB_TOKEN`, else the Keychain item
+  from `gh auth token`, else `GH_TOKEN` / `GITHUB_TOKEN`, else the secret store item
   `enso-github`; it is kept in memory and never shown to Claude. `github_my_work`
   is one GraphQL request, cached five minutes, which also feeds the GitHub
   widget (`github.widget`).
@@ -387,7 +400,8 @@ touching the user's windows:
 /Applications/Zen.app/Contents/MacOS/zen -headless -no-remote -profile <tmp>/profile --marionette
 ```
 
-with a Marionette port from 2829 up, driven through `lib/marionette.mjs`
+(the Zen binary is found per OS by `browserBinaries()` in `lib/platform.mjs`;
+`ENSO_BROWSER_BIN` overrides) with a Marionette port from 2829 up, driven through `lib/marionette.mjs`
 (length-prefixed JSON over TCP). The profile is a fresh temporary folder
 (`enso-headless-*` in the system temp directory). With `sites`, the helper
 copies `cookies.sqlite` (and its `-wal`) from the live profile into the temp
@@ -429,7 +443,7 @@ flowchart LR
 ```
 
 Private sites are cut out in `background.js` before anything reaches the
-helper. What leaves the Mac is described in [privacy.md](privacy.md).
+helper. What leaves the computer is described in [privacy.md](privacy.md).
 
 ## Ports, paths and environment variables
 
@@ -437,10 +451,13 @@ helper. What leaves the Mac is described in [privacy.md](privacy.md).
 |---|---|---|
 | MCP server port | `127.0.0.1:47823` (`ENSO_MCP_PORT`) | `mcpserver.mjs`, the launcher, the OAuth callback |
 | Headless Marionette ports | 2829 and up | `headless.mjs` |
-| Data folder | `~/Library/Application Support/Enso` (`ENSO_DATA`) | everything |
-| Legacy data folder | `~/Library/Application Support/zen-chat` (`ENSO_LEGACY_DATA`) | the one-time migration |
+| Data folder | `~/Library/Application Support/Enso` on macOS, `$XDG_DATA_HOME/enso` (default `~/.local/share/enso`) on Linux, `%APPDATA%\Enso` on Windows (`ENSO_DATA`) | everything |
+| Log folder | `~/Library/Logs/Enso`, `$XDG_STATE_HOME/enso` (default `~/.local/state/enso`), `%LOCALAPPDATA%\Enso\Logs` (`ENSO_LOG_DIR`) | `helper.log`, `enso doctor` |
+| Legacy data folder | `~/Library/Application Support/zen-chat`, macOS only (`ENSO_LEGACY_DATA`) | the one-time migration |
+| Secret store | Keychain, libsecret (or `<data>/secrets.json`), Credential Manager (`ENSO_SECRETS`) | `lib/secrets.mjs` |
+| Headless browser | per OS (`ENSO_BROWSER_BIN`) | `headless.mjs` |
 | Claude CLI | found on `PATH` (`ENSO_CLAUDE_PATH`) | subscription engine, dashboard |
-| API key | Keychain `enso-anthropic` (`ANTHROPIC_API_KEY`) | API engine |
+| API key | secret store `enso-anthropic` (`ANTHROPIC_API_KEY`) | API engine |
 | GitHub token | `gh auth token` (`GH_TOKEN`, `GITHUB_TOKEN`) | GitHub tools |
 | Launcher label | client's `clientInfo` (`ENSO_MCP_CLIENT`, `--client`) | `enso mcp` |
 | Launcher poll interval | 5000 ms (`ENSO_MCP_POLL_MS`) | `enso mcp` while Zen is closed |

@@ -15,7 +15,7 @@ soon, Tasks and Clock.
 | Mail | How many emails need you, and the top one. | The brief (your mail) |
 | Practice | Today's practice (for example a language app) in one line. | The brief |
 | GitHub | Reviews waiting for you, your PRs that need you, assigned issues. | GitHub, directly |
-| Clock | The time and date. | Your Mac |
+| Clock | The time and date. | Your computer |
 | Recent chats | Your last three conversations in this space. | Your history |
 | Quick links | Up to eight sites, one click away. | You |
 | Note | A small scratchpad, saved as you type. | You |
@@ -54,7 +54,7 @@ Tasks lists open tasks from task apps you connected:
   minutes. Ticking a task marks it done in the app, and the change appears in
   Activity.
 - **claude.ai connectors** (Todoist, Notion and others connected on claude.ai):
-  their tasks come through the brief. Ticking one hides it on this Mac only;
+  their tasks come through the brief. Ticking one hides it on this computer only;
   finish it in the app itself.
 
 The wide size shows up to four tasks with the app's name and the due date; the

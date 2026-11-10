@@ -1,9 +1,9 @@
 # Security
 
 What Ensō protects, from whom, and how. Ensō runs as your user account on your
-Mac with access to your browser, your signed-in sessions and your tools, so most
+computer (macOS, Linux or Windows) with access to your browser, your signed-in sessions and your tools, so most
 of this page is about keeping an AI agent, and the web pages it reads, inside
-the limits you set. Privacy (what leaves the Mac) is in [privacy.md](privacy.md).
+the limits you set. Privacy (what leaves the computer) is in [privacy.md](privacy.md).
 
 ## Contents
 
@@ -30,14 +30,14 @@ the limits you set. Privacy (what leaves the Mac) is in [privacy.md](privacy.md)
 | An agent doing more than you asked | Claude clicks Submit when you only asked it to fill a form | The approval rule; every action in the activity log and on the page pill; external agents can be paused or stopped from the agent card. |
 | Leaking credentials to a model | Cookie values or auth headers ending up in a transcript | Cookie values are never returned; secret-looking headers, query values and storage values are redacted; `document.cookie` is refused in `page_eval`. |
 | A web page calling the local MCP server | `fetch("http://127.0.0.1:47823/mcp")` from a site | Requests with an `Origin` header get 403; a bearer token is required. |
-| Another user on the same Mac | Reading tokens or data | Token files are 0600; secrets are in the login Keychain; the data folder is in your home folder. |
-| Tampered helper download | A modified tarball | `install.sh` checks the SHA-256 published at `/api/latest` and refuses without one. |
-| Tampered Node download | A modified Node.js archive (only fetched when the Mac has no Node 18+) | `install.sh` pins the SHA-256 of Node's darwin-arm64 and darwin-x64 archives (taken from nodejs.org's signed SHASUMS256.txt) and refuses anything else. |
-| Setup running commands | A page or another extension asking the helper to run something | `setup.run` only accepts its fixed steps; Terminal steps open fixed commands written by the helper, never one from the UI. Ensō's `ui` port only accepts Ensō's own pages. Keys and tokens typed in Setup go to the Keychain through `security -i` on stdin and are never logged or echoed. |
+| Another user on the same computer | Reading tokens or data | Token files are 0600 (on Windows the data folder is in your profile, which other users can't read); secrets are in the system's secret store (see [Secrets](#secrets)); the data folder is in your home folder. |
+| Tampered helper download | A modified tarball | `install.sh` and `install.ps1` check the SHA-256 published at `/api/latest` and refuse without one. |
+| Tampered Node download | A modified Node.js archive (only fetched when there is no Node 18+) | The installers pin the SHA-256 of Node 24.22.2's archives for darwin, linux and win, each for x64 and arm64 (taken from nodejs.org's signed SHASUMS256.txt), and refuse anything else. |
+| Setup running commands | A page or another extension asking the helper to run something | `setup.run` only accepts its fixed steps; terminal steps (Terminal on macOS, a terminal emulator on Linux, a PowerShell window on Windows) open fixed commands written by the helper, never one from the UI. Ensō's `ui` port only accepts Ensō's own pages. Keys and tokens typed in Setup go to the secret store on stdin and are never logged or echoed. |
 | Tampered extension | An unsigned or modified `.xpi` | Release builds are signed by addons.mozilla.org; Zen refuses unsigned extensions unless signature checks are switched off. |
 
 Out of scope: malware running as your user (it can read the data folder, the
-token files and, with your Keychain unlocked, the Keychain items), a compromised
+token files and, with the secret store unlocked, its items), a compromised
 Zen, Claude Code or Node, and the security of the MCP servers you connect.
 
 ## Trust boundaries
@@ -45,10 +45,10 @@ Zen, Claude Code or Node, and the security of the MCP servers you connect.
 | Boundary | Enforced by |
 |---|---|
 | Web page ↔ extension | `pageagent.js` runs as a content script; page code can't call the extension or the helper. The helper never accepts a request carrying a browser `Origin`. |
-| Extension ↔ helper | Native messaging: Zen only starts the helper for the extension id listed in `enso.json` (`allowed_extensions: ["enso@wicker.life"]`). |
+| Extension ↔ helper | Native messaging: Zen only starts the helper for the extension id listed in `enso.json` (`allowed_extensions: ["enso@wicker.life"]`). On Windows the browser finds `enso.json` through `HKCU\Software\Mozilla\NativeMessagingHosts\enso`. |
 | Helper ↔ other local programs | The `zen-browser` MCP server listens on `127.0.0.1` only and needs one of two bearer tokens. |
 | Helper ↔ Claude | Tools decide what runs; the model only proposes. Approval prompts are shown in the UI, not decided by the model. |
-| Helper ↔ your tools | Each MCP server gets its own credentials (Claude Code's, Ensō's OAuth tokens, or a Keychain token); none are shown to Claude. |
+| Helper ↔ your tools | Each MCP server gets its own credentials (Claude Code's, Ensō's OAuth tokens, or a token in the secret store); none are shown to Claude. |
 | Your sessions ↔ Claude | Signed-in requests and session copies need a per-site allow; cookie values stay inside the extension and helper. |
 
 ## The permissions model
@@ -219,14 +219,24 @@ suggests opening tabs is blocked in Read mode; it isn't.
 
 Rules the code follows, and that changes must keep:
 
-- Secrets live in the macOS login Keychain (`enso-anthropic`, `enso-github`,
-  `enso-mcp-<name>`, `enso-t3`, and names you choose for `extraServers`), except the two
+- Secrets live in the system's secret store (`lib/secrets.mjs`) under the
+  names `enso-anthropic`, `enso-github`, `enso-mcp-<name>`, `enso-t3`, and
+  names you choose for `extraServers`, account `enso`. The exception is the two
   MCP tokens, which are 0600 files so the launcher can read them without a
-  Keychain prompt.
-- Values never appear on a command line, where `ps` could read them. Writes go
-  through `security -i` with commands on stdin; reads use
-  `find-generic-password -w`, which prints to a pipe. Values over about 3 KB
-  are split across several items.
+  prompt from the store.
+
+  | System | Store | How |
+  |---|---|---|
+  | macOS | login Keychain | `/usr/bin/security`: writes through `security -i` with commands on stdin; reads with `find-generic-password -w`, which prints to a pipe. |
+  | Linux | libsecret (GNOME Keyring, KWallet, KeePassXC) | `secret-tool`, with the secret on stdin. Without `secret-tool`, a D-Bus session or a running keyring, `<data>/secrets.json` (0600), and Setup and `enso doctor` warn. |
+  | Windows | Credential Manager, generic credentials (target = service, user = account) | Windows PowerShell 5.1 calling `CredRead`/`CredWrite`/`CredDelete`, with the items as JSON on stdin. No native Node module. |
+
+- Values never appear on a command line, where another process could read
+  them. Reads come back on a pipe. Values too long for one item (about 3 KB on
+  macOS) are split across several items.
+- The Linux file fallback is weaker than a keyring: anything running as your
+  user can read it without unlocking anything. It exists so Ensō works on
+  machines without a desktop session.
 - Secrets are never logged, never written to `connections.json` or
   `servers.json`, and never sent to the UI or to Claude. The GitHub token is
   read at use time and kept in memory.
@@ -245,9 +255,9 @@ Rules the code follows, and that changes must keep:
 - the authorization page opens in a Zen tab; the redirect goes to a loopback
   URL (`http://127.0.0.1:47823/oauth/callback` or an ephemeral port), never to
   a remote server;
-- tokens are stored in the Keychain and refreshed 5 minutes before expiry;
+- tokens are stored in the secret store and refreshed 5 minutes before expiry;
 - Disconnect revokes the token at the server's revocation endpoint when it has
-  one, then deletes the Keychain item.
+  one, then deletes the secret store item.
 
 Custom servers must use `https://` (or `http://` on a loopback address).
 
@@ -302,14 +312,14 @@ Since 0.5.3 the user can steer an external agent from Ensō's agent card
 
 ## Screenshots to agents and T3 Code
 
-"Send screenshot" (⌘⇧2) captures what the user sees, so a screenshot can hold
+"Send screenshot" (⌘⇧2 on macOS, Ctrl+Shift+2 on Linux and Windows) captures what the user sees, so a screenshot can hold
 anything on the page: mail, documents, tokens printed in a console.
 
 - **Only the user starts one.** Capture runs from the `send-screenshot` command
   or the camera button in Ensō's own pages; agents can't trigger it (they have
   `page_screenshot` for their own use, under External control). Private sites
   (banking, health, tax) are refused, like every other tool.
-- **It stays on this Mac.** The image goes to the helper over native messaging,
+- **It stays on this computer.** The image goes to the helper over native messaging,
   then to one of: the user's T3 Code server, which must be on a loopback
   address (`127.0.0.1`, `localhost`, `[::1]`; anything else in T3's runtime file
   is ignored); an agent connected through `enso mcp` (in memory until
@@ -328,7 +338,7 @@ anything on the page: mail, documents, tokens printed in a console.
   read threads and send messages, and nothing else (no settings, terminal,
   filesystem, source-control or access scopes). The helper reads the CLI's
   stdout from a pipe and writes the token, its session id and expiry into the
-  login Keychain (service `enso-t3`) through `security -i` on stdin. It is never
+  secret store (service `enso-t3`), on stdin. It is never
   printed, logged, written to a file, put on a command line, or sent to the UI;
   `enso t3 status` and the UI show only whether it works. `enso t3 disconnect`
   revokes the session in T3 (`t3 auth session revoke <id>`; the id is not a
@@ -367,7 +377,8 @@ anything on the page: mail, documents, tokens printed in a console.
   against accidents, not a sandbox: code in the page world can reach whatever
   the page's own scripts can (not `HttpOnly` cookies).
 - The private-site list is pattern-based and short (see above).
-- The data folder is not encrypted at rest beyond FileVault.
+- The data folder is not encrypted at rest beyond full-disk encryption
+  (FileVault, BitLocker, LUKS).
 
 ## Reporting a problem
 

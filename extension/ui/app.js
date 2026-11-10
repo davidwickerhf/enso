@@ -46,7 +46,7 @@ async function start() {
   const transport = await connect({ onMessage: store.receive, onStatus: st => actions.setConnection(st) });
   actions.attach(transport);
   root.dataset.transport = transport.kind;
-  // The helper is macOS-only for now; the mock fakes another system with ?platform=linux.
+  // Install command, paths and shortcuts follow the system (ui/platform.js); the mock fakes one with ?platform=linux|win|cros.
   actions.detectPlatform(transport.kind === "mock" ? new URLSearchParams(location.search).get("platform") || "mac" : undefined);
   actions.hello();
 }

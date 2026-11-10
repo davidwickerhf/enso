@@ -11,7 +11,7 @@ Ensō is meant to know you, so you don't have to explain yourself every time. Wh
 
 ## Profile
 
-A short description of you: name, what you do, how you like answers. It is included in every conversation and gives Home its greeting. Ensō asks for it the first time you open it (your name, a few lines about you, and optionally what each Zen space is for); change it any time in **Settings → You & memory**. It is the file `~/Library/Application Support/Enso/profile.md`.
+A short description of you: name, what you do, how you like answers. It is included in every conversation and gives Home its greeting. Ensō asks for it the first time you open it (your name, a few lines about you, and optionally what each Zen space is for); change it any time in **Settings → You & memory**. It is the file `profile.md` in Ensō's data folder (`~/Library/Application Support/Enso` on macOS, `~/.local/share/enso` on Linux, `%APPDATA%\Enso` on Windows).
 
 ## Memory
 
@@ -29,4 +29,4 @@ Memory doesn't contain your conversations. Ensō only learns from a past convers
 
 ## Privacy
 
-Profile and memory never leave your Mac on their own. They are sent to Anthropic as part of each request, as context, because that is how Claude can use them, and with the hourly [brief](/docs/sidebar#the-brief).
+Profile and memory never leave your computer on their own. They are sent to Anthropic as part of each request, as context, because that is how Claude can use them, and with the hourly [brief](/docs/sidebar#the-brief).

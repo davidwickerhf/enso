@@ -15,8 +15,10 @@ UI (app.html: sidebar / new tab / full page)  ⇄  background.js  ⇄  helper (h
 - **background.js** relays UI ⇄ host, fills in page context, and executes page
   actions in tabs for the host.
 - The **host** owns all state: conversations, history, settings, memory,
-  dashboard. It persists to `~/Library/Application Support/Enso/` (override with
-  `ENSO_DATA`). On first start it copies an older `~/Library/Application Support/zen-chat/`
+  dashboard. It persists to its data folder (override with `ENSO_DATA`):
+  `~/Library/Application Support/Enso/` on macOS, `$XDG_DATA_HOME/enso/`
+  (default `~/.local/share/enso/`) on Linux, `%APPDATA%\Enso\` on Windows. On
+  first start on macOS it copies an older `~/Library/Application Support/zen-chat/`
   folder there once, if the new one has no conversations yet.
 
 All messages are objects with a `type`. Times are ISO strings. Ids are strings.
@@ -46,7 +48,7 @@ All messages are objects with a `type`. Times are ISO strings. Ids are strings.
 | `connections.status` | | `connections` + `servers` |
 | `connections.start` | `server` (name of an OAuth server) | `connections` (`state: "connecting"`, opens the sign-in page in a new tab), later `connections` with `done` |
 | `connections.add` | `name` (letters, digits, `-`, `_`), `url` (MCP URL, https or loopback http), `label?` | adds a custom OAuth server, then as `connections.start`; a bad name/URL answers `connections` with `done: { ok: false, add: true, error }` |
-| `connections.disconnect` | `server` | revokes the token at the server when it supports it, deletes the Keychain item; `connections` + `servers` |
+| `connections.disconnect` | `server` | revokes the token at the server when it supports it, deletes the secret store item; `connections` + `servers` |
 | `connections.remove` | `server` (custom only) | disconnects and forgets it; `connections` + `servers` |
 | `connections.probe` | `server` (an OAuth server) | Retry for a server that is signed in but failed: lists its tools again with the stored token (no new sign-in); `servers` + `connections.probed` |
 | `skills.save` | `skill: { name, description, prompt }` (name without `/`; `prompt` may contain `{input}` for the text typed after the command) | `skills` |
@@ -57,8 +59,8 @@ All messages are objects with a `type`. Times are ISO strings. Ids are strings.
 | `tasks.widget` | `force?` (skip the helper's 5-minute cache), `maxAge?` (ms: refetch only if the cache is older; at least 15 s) | `tasks` |
 | `monday.widget` | `force?`, `maxAge?` (as `tasks.widget`) | `monday` |
 | `tasks.complete` | `server`, `id` (a task from the last `tasks` list; the user ticked it, so no approval) | `tasks.completed` + `tasks` (marks it done with the app's `update_task` / `complete_task`; logged in actions.jsonl as `complete_task`) |
-| `github.token` | `token` (pasted in Tools → GitHub; checked against GitHub, then saved to the Keychain service `enso-github` through `security -i` on stdin) | `github.saved` + `servers` |
-| `github.forget` | | `servers` (deletes the Keychain token) |
+| `github.token` | `token` (pasted in Tools → GitHub; checked against GitHub, then saved to the secret store, service `enso-github`, on stdin) | `github.saved` + `servers` |
+| `github.forget` | | `servers` (deletes the stored token) |
 | `agents.list` | | `agents` |
 | `agents.pause` | `id` (an `AgentSession` id) | `agents` (that agent's calls on that tab, and its tab-less actions, are refused until resumed) |
 | `agents.resume` | `id` | `agents` (its next call carries the hand-back note) |
@@ -71,10 +73,10 @@ All messages are objects with a `type`. Times are ISO strings. Ids are strings.
 | `send.link` | `link`: `{ type: "tab", tabId, host, kind, id, title, pageTitle }` or `{ type: "host", host, projectId, projectTitle }` | `settings` (`sendLinks`) |
 | `send.unlink` | `link`: `{ type: "tab", tabId }` or `{ type: "host", host }` | `settings` |
 | `t3.status` | | `t3` `{ status: T3Status }` |
-| `t3.connect` | | `t3` `{ status, done: { action: "connect", ok, error? } }` (runs `t3 auth session issue`, token into the Keychain) |
+| `t3.connect` | | `t3` `{ status, done: { action: "connect", ok, error? } }` (runs `t3 auth session issue`, token into the secret store) |
 | `t3.disconnect` | | `t3` `{ status, done }` (revokes the session, deletes the item) |
 | `t3.open` | `threadId` | none: opens `t3code://threads/<environment>/<thread>` in the T3 Code app the `t3` CLI belongs to |
-| `helper.log` | `lines?` (1–200, default 40) | `helper.log` `{ version, node: { version, path }, platform, file, lines: [string] }`: the helper's version and the last lines of `~/Library/Logs/Enso/helper.log`, redacted (Copy diagnostics) |
+| `helper.log` | `lines?` (1–200, default 40) | `helper.log` `{ version, node: { version, path }, platform, file, lines: [string] }`: the helper's version and the last lines of `helper.log` (`~/Library/Logs/Enso` on macOS, `$XDG_STATE_HOME/enso` on Linux, `%LOCALAPPDATA%\Enso\Logs` on Windows), redacted (Copy diagnostics) |
 | `setup.status` | `fresh?` (bool: re-check for a helper update now instead of using the 30-minute cache) | `setup` `{ status: SetupStatus }` (see [Setup](#setup)) |
 | `setup.run` | `step` (one of the [setup steps](#setup)), `options?` (per step) | `setup` `{ status, done: { step, ok, message?, error?, restart? } }`; also `engines` after `engine.*`, `servers` after `github.*`, `t3` after `t3.*`, and `helper.restarting` then an exit after a successful `helper.update` |
 
@@ -106,7 +108,7 @@ background.js also sends messages of its own to every UI:
   tab (the sidebar scrolls to the agent card and focuses "Tell the agent…");
 - `screenshot.captured`: `{ type, image, mode, tab: { tabId, url, title, … },
   consoleErrors: [{ t, text, source }] | null, at }`, or `{ cancelled: true }`, or
-  `{ error }`. After the `send-screenshot` command (⌘⇧2) it goes to the sidebar
+  `{ error }`. After the `send-screenshot` command (⌘⇧2, Ctrl+Shift+2 off macOS) it goes to the sidebar
   only, which the command opens; if the sidebar isn't connected yet it is kept
   for up to a minute and sent when it connects. `consoleErrors` is null when
   console capture never ran on that tab. Private sites are refused.
@@ -124,8 +126,9 @@ background.js also sends messages of its own to every UI:
   with backoff (up to 30 s) when it fails or keeps crashing, and every minute
   (missing) or 5 minutes (failed) with no page open. Zen reads the manifest on each
   attempt, so a fresh install is picked up without restarting Zen. The UI shows the
-  first-run guide (`ui/views/setup.js`) for `missing` and `failed` (on macOS; on
-  other systems a "macOS only for now" notice instead), "Ensō's helper isn't
+  first-run guide (`ui/views/setup.js`) for `missing` and `failed` (on macOS,
+  Linux and Windows, with that system's install command; on other systems a
+  notice that lists the supported ones instead), "Ensō's helper isn't
   running" (`ui/views/helperstate.js`) for `stopped`, and sends `hello` again, plus
   any request a view was still waiting for, when the state comes back to
   `connected`. Requests a view shows a spinner for that get no answer within 8 s
@@ -152,7 +155,7 @@ engine without a key).
   activeConversationId: string | null,    // the one with a running turn, if any
   dashboard: Dashboard | null,            // cached, may be stale
   profile: Profile,                       // see below; onboarding: true on first run
-  paths: { data, localConfig },           // data folder and config.local.json on this Mac
+  paths: { data, localConfig },           // data folder and config.local.json on this computer
   skills: [Skill],                        // slash commands, built-ins first
   sensitiveHosts: ["*.bank*", ...],       // patterns where page reading/acting is off
   spaces: [Space],                        // the user's Zen spaces
@@ -309,7 +312,7 @@ registration, PKCE, code exchange, refresh) with `@modelcontextprotocol/sdk`.
 The sign-in page opens through `browser.request` `tabs_open`; the server
 redirects to `http://127.0.0.1:47823/oauth/callback` (an ephemeral loopback port
 when another helper holds 47823), which checks `state`, stores the tokens in the
-Keychain (service `enso-mcp-<name>`) and closes the tab with `tabs_close`.
+secret store (service `enso-mcp-<name>`) and closes the tab with `tabs_close`.
 Connected servers go to Claude as `{ type: "http", url, headers: { Authorization: "Bearer …" } }`
 with a token refreshed when it is within 5 minutes of expiry; a changed token
 starts a fresh warm session. A Claude Code registration of the same name
@@ -446,13 +449,16 @@ secret:
   engine:  { selected: "subscription" | "api",
              subscription: { found, path?, version?, loggedIn (from `claude auth status --json`; null if unknown),
                              authMethod?, subscriptionType?, email?, reason?, installCommand? },
-             api: { stored, source: "keychain" | "environment" | null } },
+             api: { stored, source: "keychain" | "environment" | null } },   // "keychain": the secret store
   agents:  { launcher, clients: [{ id: "claude" | "codex" | "cursor" | "opencode", name, detected,
              registration: "launcher" | "launcher-read" | "http" | "other" | null }], readOnly (every registered one is), hook },
   t3:      { installed (its CLI or /Applications/T3 Code*.app), connected, reachable, tokenValid, serverVersion?, error },
-  github:  { ghInstalled, connected, login, via: "GitHub CLI" | "environment" | "Keychain" | null, error },
+  github:  { ghInstalled, connected, login, via: "GitHub CLI" | "environment" | "Keychain" | null, error },  // "Keychain": the secret store, on every OS
   tools:   { total, on, needsAuth },
-  mcp:     { port, listening }
+  mcp:     { port, listening },
+  platform: { os: "darwin" | "linux" | "win32", arch, installCommand },
+  secrets: { backend: "keychain" | "libsecret" | "credman" | "file", location, secure, warning },  // warning: Linux without a keyring
+  paths:   { data, logs }
 }
 ```
 
@@ -460,24 +466,28 @@ Steps for `setup.run` (anything else is refused):
 
 | step | options | does |
 |---|---|---|
-| `helper.update` | | downloads `<site>/install.sh` and runs it with `bash -s` (`ENSO_NO_OPEN=1`, `ENSO_REGISTER_MCP=0`), output in `<data>/logs/update.log`; on success `done.restart` is true and the helper exits so background.js starts the new one. Refused in a checkout. |
-| `engine.login` | | opens Terminal with `<claude> auth login` |
-| `engine.install` | | opens Terminal with `curl -fsSL https://claude.ai/install.sh \| bash && ~/.local/bin/claude auth login` |
-| `engine.apiKey` | `key` | checks the format (`sk-ant-…`) and asks `GET api.anthropic.com/v1/models` (401/403 refuse it; no network stores it anyway), then stores it in the Keychain (service `keychainService`, account `enso`) through `security -i` on stdin |
-| `engine.forgetApiKey` | | deletes that Keychain item |
+| `helper.update` | | downloads `<site>/install.sh` and runs it with `bash -s` (on Windows `<site>/install.ps1` with Windows PowerShell, `-ExecutionPolicy Bypass -File`) (`ENSO_NO_OPEN=1`, `ENSO_REGISTER_MCP=0`), output in `<data>/logs/update.log`; on success `done.restart` is true and the helper exits so background.js starts the new one. Refused in a checkout. |
+| `engine.login` | | opens a terminal with `<claude> auth login` |
+| `engine.install` | | opens a terminal with `curl -fsSL https://claude.ai/install.sh \| bash && ~/.local/bin/claude auth login` (Windows: `irm https://claude.ai/install.ps1 \| iex; & "$env:USERPROFILE\.local\bin\claude.exe" auth login`) |
+| `engine.apiKey` | `key` | checks the format (`sk-ant-…`) and asks `GET api.anthropic.com/v1/models` (401/403 refuse it; no network stores it anyway), then stores it in the secret store (service `keychainService`, account `enso`), on stdin |
+| `engine.forgetApiKey` | | deletes that secret store item |
 | `agents.register` | `client`, `readOnly?` (default: the current read-only state) | `enso mcp install --client <client> [--read-only]` |
 | `agents.unregister` | `client` | `enso mcp uninstall --client <client>` (for Claude Code also removes the hook) |
 | `agents.readOnly` | `readOnly` | registers every registered client again, read only or full |
 | `agents.hook` | `on` | adds or removes Claude Code's UserPromptSubmit hook (`enso mcp install --hooks`) |
 | `t3.connect`, `t3.disconnect` | | as `t3.connect` / `t3.disconnect` |
-| `github.login` | | opens Terminal with `gh auth login --hostname github.com --git-protocol https --web` (needs gh) |
+| `github.login` | | opens a terminal with `gh auth login --hostname github.com --git-protocol https --web` (needs gh) |
 | `github.token` | `token` | as `github.token` |
 | `github.forget` | | as `github.forget` |
 | `mcp.rotate` | | `enso mcp rotate` |
 
-Terminal steps write `<data>/run/<name>.command` (0700) with that fixed command
-and open it with `open -a Terminal`; no Automation permission is needed and the
-UI can't choose the command. `options.key` and `options.token` are never logged,
+Terminal steps write `<data>/run/<name>` (0700) with that fixed command and open it in
+a visible terminal (`openTerminal` in `lib/platform.mjs`): on macOS a
+`.command` file with `open -a Terminal`, so no Automation permission is
+needed; on Linux a `.sh` file in `$TERMINAL`, `x-terminal-emulator`,
+`gnome-terminal`, `konsole` or the next one found (with none, the step fails
+with the command to copy); on Windows a `.ps1` file in a new Windows PowerShell
+console. The UI can't choose the command. `options.key` and `options.token` are never logged,
 echoed in `done`, or kept by the UI after sending; error texts have anything that
 looks like a key or token replaced by `[hidden]`.
 
@@ -528,7 +538,7 @@ whole session.
 | `console` | `since?` (ms), `level?`, `limit?` | `{ tabId, url, now, started, dropped, entries: [{ t, level, text, source?, stack? }] }`; the first call for a tab starts capture (`started: true`); `level: "nav"` entries mark navigations |
 | `eval` | `expression` | `{ ok, world: "page", type?, json?, error?, stack?, url, title, description }` (page world only; a page whose CSP blocks eval returns an error, since 0.5.5) |
 | `presence` | `{ label, task, running, paused, stopped, titlePrefix }`, or `{ off: true }` | `{ shown, title }`. Sent by background.js itself (not the host) from `agents`: shows or updates the session pill and the "✦ " title prefix, or removes both (the page's latest own title restored exactly). |
-| `pill_ready` / `pill_hint` | — / `{ text }` | background.js → page agent: the pill's frame loaded (clicks go to it now) / a short hint on the pill ("Press ⌘E for Ensō") |
+| `pill_ready` / `pill_hint` | — / `{ text }` | background.js → page agent: the pill's frame loaded (clicks go to it now) / a short hint on the pill ("Press ⌘E for Ensō", or Ctrl+E off macOS) |
 | `storage` | `includeValues?` | `{ url, local: [{ key, length, value? }], session: [...], cookies: [{ name, domain, path, secure, httpOnly, sameSite, session, expires, partitioned }], container }`; cookie values are never included, credential-looking storage values are redacted |
 
 The envelope's `tabId` can be any tab, not only the active one: developer tools
@@ -595,8 +605,8 @@ All of these are refused on `sensitiveHosts`, switched off by
 Defined in `helper/lib/github.mjs` and listed in `lib/toolset.mjs`, so
 Ensō's chat (both engines) and zen-browser get them. The token comes from
 `gh auth token` (GitHub CLI; works in every org that allows the CLI's OAuth
-app, no GitHub App needed), else `GH_TOKEN` / `GITHUB_TOKEN`, else the Keychain
-(`enso-github`). It is read at use time, kept in memory, never logged or shown
+app, no GitHub App needed), else `GH_TOKEN` / `GITHUB_TOKEN`, else the secret
+store (`enso-github`). It is read at use time, kept in memory, never logged or shown
 to Claude. Orgs that block it can still be read with `session_fetch` on
 github.com, if the user allowed that site.
 

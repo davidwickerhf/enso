@@ -77,7 +77,7 @@ export function createOnboarding(store) {
     const body = which === "you"
       ? [
           h("h1", { id: "ob-title", class: "ob-title" }, "Welcome to Ensō"),
-          h("p", { class: "ob-lede" }, "Tell Ensō a little about yourself, so its answers fit you. This stays on your Mac, and you can change it any time in Settings → You & memory."),
+          h("p", { class: "ob-lede" }, "Tell Ensō a little about yourself, so its answers fit you. This stays on this computer, and you can change it any time in Settings → You & memory."),
           profileFields(store, draft, { idPrefix: "ob" }).el,
         ]
       : [

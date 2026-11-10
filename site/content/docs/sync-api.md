@@ -17,7 +17,7 @@ Base URL: `https://enso.wicker.life`. All responses are JSON unless noted. Error
 
 | Name | Derivation | Purpose |
 |---|---|---|
-| `K` (account key) | 32 random bytes from a CSPRNG, made once on the first device | Root of everything; stored in the macOS Keychain (service `enso-sync`) |
+| `K` (account key) | 32 random bytes from a CSPRNG, made once on the first device | Root of everything; stored in the system's secret store (service `enso-sync`: the macOS Keychain, Windows Credential Manager or the Linux keyring) |
 | Recovery phrase | BIP-39 English mnemonic of `K` (256 bits + 8-bit checksum = 24 words) | Restores `K` on a new device |
 | `K_enc` | `HKDF-SHA256(ikm=K, salt="enso-sync-v1", info="blob-encryption", L=32)` | Encrypts blob contents |
 | `K_name` | `HKDF-SHA256(ikm=K, salt="enso-sync-v1", info="blob-names", L=32)` | Hashes blob names |
@@ -83,7 +83,7 @@ Content-Type: application/json
 | Status | Body | Meaning |
 |---|---|---|
 | `202` | `{"status": "pending"}` | Not approved yet; keep polling |
-| `200` | `{"status": "approved", "token": "enso_…", "device": {"id", "name"}}` | Store the token in the Keychain. It is returned **once** |
+| `200` | `{"status": "approved", "token": "enso_…", "device": {"id", "name"}}` | Store the token in the secret store. It is returned **once** |
 | `410` | `{"status": "denied"}` or `{"status": "expired"}` | Start again |
 
 ### Tokens

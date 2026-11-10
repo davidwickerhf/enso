@@ -20,7 +20,7 @@ Small tiles under the box on the new tab. The page stays empty until you add som
 | Mail | How many emails need you, and the top one | The brief (your mail) |
 | Practice | Today's practice, for example in a language app, in one line | The brief |
 | GitHub | Reviews waiting for you, your PRs that need you, assigned issues | GitHub |
-| Clock | The time and date | Your Mac |
+| Clock | The time and date | Your computer |
 | Recent chats | Your last three conversations in this space | Your history |
 | Quick links | Up to eight sites, one click away | You |
 | Note | A small scratchpad, saved as you type | You |
@@ -44,13 +44,13 @@ Choose **Done** or press <kbd>Esc</kbd> to finish. The layout is saved in your s
 Tasks lists open tasks from task apps you connected:
 
 - **Apps Ensō signs in to itself**, with the **Connect** button on the Tools page (for example Commonfold): Ensō asks the app for its open tasks directly, about every five minutes. Ticking a task marks it done in the app, and the change shows in **Activity**.
-- **claude.ai connectors** (Todoist, Notion and others): their tasks come through the brief. Ticking one hides it on this Mac only; finish it in the app itself.
+- **claude.ai connectors** (Todoist, Notion and others): their tasks come through the brief. Ticking one hides it on this computer only; finish it in the app itself.
 
 The wide size shows up to four tasks with the app's name, due date and reminder time; the small size shows the count and the top task. Overdue tasks come first, then today's, then the rest by date, then tasks without a date. Tasks due today or tomorrow stand out. Items assigned to you on monday.com that have a due date show here too.
 
 The list keeps itself up to date:
 
-- When you ask Ensō in a chat to add, change or finish a task, the widget fetches the list again a moment later and the new task appears with a small **New** tag (it briefly lights up unless your Mac is set to reduce motion).
+- When you ask Ensō in a chat to add, change or finish a task, the widget fetches the list again a moment later and the new task appears with a small **New** tag (it briefly lights up unless your system is set to reduce motion).
 - When you open a new tab or come back to one, it fetches again if the list is more than a minute old, and every five minutes while the page is open.
 - Changes another agent (Claude Code, Codex) makes in your task app show at the next of these refreshes.
 

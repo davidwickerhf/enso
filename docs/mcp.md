@@ -1,7 +1,7 @@
 # Using Zen from other agents (MCP)
 
 While Zen is open, Ensō's helper serves an MCP server named `zen-browser`. Claude
-Code, Codex, Cursor and other MCP clients on the same Mac can use it to list and
+Code, Codex, Cursor and other MCP clients on the same computer can use it to list and
 read your tabs, act on pages, inspect a page's console and network, make
 requests with your signed-in session on sites you allowed, drive a separate
 headless Zen, and read and act on GitHub. Every call is logged in Ensō's
@@ -38,9 +38,18 @@ enso mcp status        # is the helper reachable, and who is registered
 
 Then restart the client or start a new session. Try "list my open tabs".
 
-`enso` is `~/Library/Application Support/Enso/bin/enso`, also linked as
-`~/.local/bin/enso` when that folder exists and the name is free. If your shell
+`enso` is `<data>/bin/enso` (`~/Library/Application Support/Enso` on macOS,
+`~/.local/share/enso` on Linux), also linked as `~/.local/bin/enso` when that
+folder exists and the name is free. On Windows it is
+`%APPDATA%\Enso\bin\enso.cmd`, and the installer adds that folder to the
+user PATH (new terminals pick it up; `ENSO_NO_PATH=1` skips it). If your shell
 doesn't find it, use the full path.
+
+On Windows, `enso mcp install` registers clients with
+`node.exe <data>\helper\bin\enso.mjs mcp` rather than the `.cmd` shim, since
+many clients can't start a `.cmd` file directly. The client config files are
+at the same paths under the home folder on every system (`~/.claude.json`,
+`~/.codex/config.toml`, `~/.cursor/mcp.json`, `~/.config/opencode`).
 
 ## The `enso` command
 
@@ -153,9 +162,15 @@ Any client that can start a stdio MCP server can use the launcher. Point it at:
 }
 ```
 
-Add `"--read-only"` to `args` for read access, and `"--client", "Name"` to set
-the label. For Claude Desktop this goes in
-`~/Library/Application Support/Claude/claude_desktop_config.json`.
+That is the macOS path; on Linux use `~/.local/share/enso/bin/enso`. On
+Windows point `command` at `node.exe` (the one the installer used is in
+`%APPDATA%\Enso\install.json`) and pass the full path of the launcher script,
+for example
+`"args": ["C:\\Users\\you\\AppData\\Roaming\\Enso\\helper\\bin\\enso.mjs", "mcp"]`.
+Add `"--read-only"` to `args` for read access, and
+`"--client", "Name"` to set the label. For Claude Desktop this goes in
+`claude_desktop_config.json` (`~/Library/Application Support/Claude/` on macOS,
+`%APPDATA%\Claude\` on Windows).
 
 Clients that only speak Streamable HTTP can still use
 `http://127.0.0.1:47823/mcp` with `Authorization: Bearer <contents of mcp-token>`.
@@ -214,7 +229,7 @@ Refused calls still carry pending notes, and show in the card as "refused".
 
 ### Screenshots from the user
 
-The user can send an agent a screenshot from Ensō (⌘⇧2 or the camera button,
+The user can send an agent a screenshot from Ensō (⌘⇧2, Ctrl+Shift+2 on Linux and Windows, or the camera button,
 then pick the agent). Each launcher process is a **connected agent** as soon as
 its client initializes it, idle or not; it stays listed while its process runs
 (the launcher sends its parent's pid, `X-Enso-Agent-Pid`) and for at most 12
@@ -229,7 +244,7 @@ and arrives:
 
 Codex has no prompt hook for this and OpenCode only has JavaScript plugins, so
 for them screenshots arrive with the next tool call or `inbox_read`. For any
-terminal agent the send sheet also has **Copy image** (paste with ⌘V) and
+terminal agent the send sheet also has **Copy image** (paste with ⌘V or Ctrl+V) and
 **Save + copy path**.
 
 When a T3 Code agent starts the launcher, `$T3CODE_THREAD_ID` is sent as
@@ -375,7 +390,7 @@ In short:
 |---|---|
 | Every call returns "Zen isn't running: open Zen and try again." | The helper runs inside Zen. Open Zen; the launcher notices within five seconds. |
 | `enso: command not found` | `~/.local/bin` isn't on your `PATH` or didn't exist at install time. Use `~/Library/Application\ Support/Enso/bin/enso`, or run the installer again. If that file is missing (installs from before 0.5.2), run `node ~/Library/Application\ Support/Enso/helper/bin/enso.mjs mcp install`; it writes the launcher. |
-| `enso mcp status` says "token rejected" | A helper started before `enso mcp rotate` (or before 0.5.2) still holds the old token. Quit Zen with <kbd>⌘Q</kbd> and reopen it. |
+| `enso mcp status` says "token rejected" | A helper started before `enso mcp rotate` (or before 0.5.2) still holds the old token. Quit Zen completely (<kbd>⌘Q</kbd> on macOS) and reopen it. |
 | `status` says "registered over http with the token in its config" | An older registration. Run `enso mcp install`. |
 | "The user has switched off external control of Zen" | Settings → Agents & screenshots → Access is Off. |
 | "Ensō only lets … read Zen right now" | External control is Read, or the connection is `--read-only`. |
@@ -387,6 +402,6 @@ In short:
 | Two Zen windows or helpers | Only the first helper gets port 47823; the other logs "MCP server not started". Quit Zen fully and reopen. |
 | "The user paused you on this tab" | The user pressed Pause on the agent card. The agent should wait and call `session_status`; Resume lifts it. |
 | "The user stopped this task in Ensō" | The user pressed Stop. It lasts 30 minutes for that agent session; a new agent session (restart the client) isn't affected. |
-| The pill doesn't open the sidebar | The page may block Ensō's frame; the pill then says "Press ⌘E for Ensō". |
+| The pill doesn't open the sidebar | The page may block Ensō's frame; the pill then says "Press ⌘E for Ensō" (Ctrl+E on Linux and Windows). |
 | The page title keeps "✦ " | It is removed when the session ends (two minutes after the agent's last call). Turn it off in Settings → Agents & screenshots → Mark the tab an agent uses. |
 | Codex doesn't see it | Check `CODEX_HOME`; `enso mcp install --client codex` edits `$CODEX_HOME/config.toml` when it is set. |

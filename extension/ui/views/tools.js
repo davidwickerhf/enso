@@ -3,6 +3,7 @@
 // an "Add more" catalog modelled on Dia's Settings → Apps.
 
 import { h, icon, clear } from "../dom.js";
+import { guessOs, secretStoreName } from "../platform.js";
 import { loadingOr } from "./helperstate.js";
 
 const CONNECTORS_URL = "https://claude.ai/customize/connectors";
@@ -125,7 +126,7 @@ export function serverDetails(store, sv, ctx, { onDone } = {}) {
     st.key === "failed" && !oauth ? h("p", { class: "tp-auth bad" }, "It failed to start. Check chat/host/config.json or its sign-in.") : null);
 }
 
-/** Built-in tools (GitHub): their status line, and a token box that saves to the Keychain. */
+/** Built-in tools (GitHub): their status line, and a token box that saves to the system's secret store. */
 function builtInStatus(store, sv) {
   const g = store.state.github ?? {};
   const line = h("p", { class: ["tp-detail", sv.status === "connected" ? "ok" : "tp-auth"] }, sv.detail.split(/`([^`]+)`/).map((part, i) => (i % 2 ? h("code", null, part) : part)));
@@ -133,7 +134,7 @@ function builtInStatus(store, sv) {
   const input = h("input", { type: "password", class: "tp-token-input", placeholder: "ghp_… or github_pat_…", autocomplete: "off", spellcheck: "false", aria: { label: "GitHub token" } });
   const submit = () => { if (input.value.trim()) { store.actions.saveGithubToken(input.value.trim()); input.value = ""; } };
   input.addEventListener("keydown", e => { e.stopPropagation(); if (e.key === "Enter") { e.preventDefault(); submit(); } });
-  const note = g.saving ? "Checking the token…" : g.saved?.ok === false ? g.saved.error : g.saved?.ok ? `Saved for ${g.saved.login}.` : "No GitHub CLI? Paste a token (classic with repo, read:org, notifications; or fine-grained). It is checked, then stored in your macOS Keychain.";
+  const note = g.saving ? "Checking the token…" : g.saved?.ok === false ? g.saved.error : g.saved?.ok ? `Saved for ${g.saved.login}.` : `No GitHub CLI? Paste a token (classic with repo, read:org, notifications; or fine-grained). It is checked, then stored in ${secretStoreName(guessOs())}.`;
   return h("div", { class: "tp-token" }, line,
     h("form", { class: "tp-token-row", onsubmit: e => { e.preventDefault(); submit(); } }, input, h("button", { type: "submit", class: "btn small", disabled: !!g.saving }, "Save")),
     h("p", { class: ["tp-token-note", g.saved?.ok === false && "bad"] }, note));
@@ -239,7 +240,7 @@ export function createToolsPage(store, ctx) {
     store.actions.addServer({ name, url });
   } },
     h("div", { class: "cat-top" }, h("span", { class: "tool-glyph big" }, icon("server")), h("strong", null, "Custom MCP server")),
-    h("p", { class: "cat-adds" }, "Any MCP server that signs in with OAuth. Ensō opens its sign-in page and keeps the token in your Keychain."),
+    h("p", { class: "cat-adds" }, `Any MCP server that signs in with OAuth. Ensō opens its sign-in page and keeps the token in ${secretStoreName(guessOs())}.`),
     h("label", { class: "field" }, h("span", null, "Name"), nameIn),
     h("label", { class: "field" }, h("span", null, "MCP URL"), urlIn),
     addErr,

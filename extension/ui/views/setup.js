@@ -4,7 +4,8 @@
 // the native helper (`helper.status` missing or failed). A WebExtension can't
 // install or start a program itself: native messaging needs the helper's
 // manifest on disk first. So there is exactly one terminal step (copy the
-// command, paste it in Terminal). An extension can't open Terminal either (no
+// command, paste it in Terminal / a terminal / PowerShell: ui/platform.js
+// installInfo per system). An extension can't open a terminal either (no
 // WebExtension API launches apps, and external protocol links such as
 // x-man-page:// only open a man page window), so the card says how. It then
 // waits: background.js retries every 2 seconds and the card moves on by itself.
@@ -13,14 +14,17 @@
 // Connections, Agents & screenshots, Advanced). Every item is checked by the
 // helper (`setup.status`) and its buttons run there (`setup.run`), with the
 // same code as the `enso` command. Secrets typed here go straight to the helper, which
-// puts them in the Keychain; they are not kept in the UI.
+// puts them in the system's secret store (Keychain, keyring, Credential
+// Manager; the helper says which); they are not kept in the UI.
 
 import { h, icon, clear, iconButton } from "../dom.js";
 import { inExtension } from "../transport.js";
-import { copyDiagnosticsButton, describeHelper, LOG_PATH } from "./helperstate.js";
+import { copyDiagnosticsButton, describeHelper } from "./helperstate.js";
+import { installInfo, keys as osKeys, logPath, secretStoreName } from "../platform.js";
 
 export const SITE = "https://enso.wicker.life";
-export const INSTALL_COMMAND = `curl -fsSL ${SITE}/install.sh | bash`;
+/** The macOS/Linux command (Windows: installInfo("win").command). */
+export const INSTALL_COMMAND = installInfo("mac").command;
 const TOKEN_URL = "https://github.com/settings/tokens/new?scopes=repo,read:org,notifications&description=Ens%C5%8D";
 const POLL_MS = 4000;
 const POLL_FOR_MS = 3 * 60_000;
@@ -51,6 +55,8 @@ export function commandBox(text, onCopied) {
 }
 
 const kbd = t => h("kbd", null, t);
+/** installInfo's step text: strings, [key] for <kbd>, { em } for emphasis. */
+const stepText = parts => parts.map(p => (Array.isArray(p) ? kbd(p[0]) : p && typeof p === "object" ? h("em", null, p.em) : p));
 
 // ---------------------------------------------------------------------------
 // First-run guide
@@ -65,6 +71,7 @@ export function createHelperGuide(store) {
 
   function render() {
     const failed = s.helper.state === "failed";
+    const info = installInfo(s.platform);
     const connected = phase === "connected";
     const head = h("div", { class: "ob-head" }, h("img", { class: "ob-mark", src: "icons/enso.svg", alt: "", width: 36, height: 36 }));
     if (connected) {
@@ -79,20 +86,22 @@ export function createHelperGuide(store) {
     const steps = h("ol", { class: "hg-steps" },
       h("li", { class: copied ? "done" : "" },
         h("span", { class: "hg-num" }, copied ? icon("check") : "1"),
-        h("div", { class: "hg-step" }, h("strong", null, "Copy this command"), commandBox(INSTALL_COMMAND, markCopied))),
+        h("div", { class: "hg-step" }, h("strong", null, "Copy this command"), commandBox(info.command, markCopied))),
       h("li", null,
         h("span", { class: "hg-num" }, "2"),
-        h("div", { class: "hg-step" }, h("strong", null, "Open Terminal"),
-          h("p", null, "Press ", kbd("⌘"), " ", kbd("Space"), ", type ", h("em", null, "Terminal"), " and press ", kbd("Return"), "."))),
+        h("div", { class: "hg-step" }, h("strong", null, `Open ${info.terminal}`),
+          h("p", null, ...stepText(info.open)))),
       h("li", null,
         h("span", { class: "hg-num" }, "3"),
-        h("div", { class: "hg-step" }, h("strong", null, "Paste it and press Return"),
-          h("p", null, kbd("⌘"), " ", kbd("V"), ", then ", kbd("Return"), ". It takes under a minute and asks no questions."))));
+        h("div", { class: "hg-step" }, h("strong", null, info.pasteTitle),
+          h("p", null, ...stepText(info.paste)))));
+    const where = s.platform === "win" ? "PowerShell" : s.platform === "linux" ? "a terminal" : "Terminal";
+    const machine = s.platform === "mac" || !s.platform ? "your Mac" : "your computer";
     clear(el, h("div", { class: "ob-card hg-card" }, head,
-      h("h1", { id: "hg-title", class: "ob-title" }, failed ? "Ensō's helper didn't start" : "One step in Terminal"),
+      h("h1", { id: "hg-title", class: "ob-title" }, failed ? "Ensō's helper didn't start" : `One step in ${where}`),
       failed
-        ? h("p", { class: "ob-lede" }, "The helper is installed, but it stopped as soon as it started", describeHelper(s.helper).reason ? ` (${describeHelper(s.helper).reason})` : "", ". Running the install command again repairs it. If it doesn't, copy the diagnostics and send them with ", h("code", null, LOG_PATH), ".")
-        : h("p", { class: "ob-lede" }, "Ensō's assistant runs in a small helper program on your Mac. Browsers don't let extensions install programs, so this one step happens in Terminal. Everything after it is buttons in Ensō."),
+        ? h("p", { class: "ob-lede" }, "The helper is installed, but it stopped as soon as it started", describeHelper(s.helper).reason ? ` (${describeHelper(s.helper).reason})` : "", ". Running the install command again repairs it. If it doesn't, copy the diagnostics and send them with ", h("code", null, logPath(s.platform)), ".")
+        : h("p", { class: "ob-lede" }, `Ensō's assistant runs in a small helper program on ${machine}. Browsers don't let extensions install programs, so this one step happens in ${where}. Everything after it is buttons in Ensō.`),
       failed ? h("div", { class: "hg-diag" }, copyDiagnosticsButton(store, "btn ghost small")) : null,
       steps,
       h("div", { class: ["hg-wait", copied && "on"], role: "status", aria: { live: "polite" } },
@@ -104,12 +113,12 @@ export function createHelperGuide(store) {
       h("details", { class: "hg-more" },
         h("summary", null, "What does it install?"),
         h("ul", null,
-          h("li", null, "The helper, in ", h("code", null, "~/Library/Application Support/Enso"), ", and a file that tells Zen where it is."),
-          h("li", null, "Its own copy of Node.js (about 27 MB to download) only if your Mac doesn't have Node 18 or newer."),
-          h("li", null, "Nothing outside your home folder, no administrator password. Safe to run again: it's also how you update."),
+          h("li", null, "The helper, in ", h("code", null, info.folder), `, and ${info.where}.`),
+          h("li", null, info.nodeNote),
+          h("li", null, info.noAdmin),
           h("li", null, "Claude Code is optional and comes later, in Setup.")),
         h("p", null,
-          h("a", { href: `${SITE}/install.sh`, target: "_blank", rel: "noopener" }, "Read the script"), " · ",
+          h("a", { href: info.script, target: "_blank", rel: "noopener" }, "Read the script"), " · ",
           h("a", { href: `${SITE}/docs/install`, target: "_blank", rel: "noopener" }, "Install guide"), " · ",
           h("a", { href: `${SITE}/docs/troubleshooting`, target: "_blank", rel: "noopener" }, "It didn't work")),
         failed ? null : h("p", null, "Still stuck? ", copyDiagnosticsButton(store, "btn ghost small"))),
@@ -160,11 +169,14 @@ export function setupSummary(st, settings) {
   return { essentialsReady: engine.level === "good", todo, optionalOn };
 }
 
-function engineState(st, settings) {
+/** Where the helper keeps secrets ("your macOS login Keychain", "the Windows Credential Manager"…). */
+export const vaultOf = (st, os) => st?.secrets?.location ?? secretStoreName(os);
+
+function engineState(st, settings, os) {
   const selected = settings?.engine ?? st.engine.selected;
   if (selected === "api") {
     return st.engine.api.stored
-      ? { level: "good", text: st.engine.api.source === "environment" ? "Using the API key from ANTHROPIC_API_KEY." : "An API key is in your Keychain.", short: "" }
+      ? { level: "good", text: st.engine.api.source === "environment" ? "Using the API key from ANTHROPIC_API_KEY." : `An API key is in ${vaultOf(st, os)}.`, short: "" }
       : { level: "warn", text: "No API key yet. Paste one below.", short: "Add an API key" };
   }
   const c = st.engine.subscription;
@@ -193,6 +205,10 @@ export function switchRow(label, desc, checked, onChange, { disabled = false, bu
  */
 export function createSetupKit(store, { rerender = () => {}, isActive = () => true } = {}) {
   const { state: s, actions } = store;
+  // Per system: the terminal Setup opens, what to call this computer, where secrets go.
+  const term = () => (s.platform === "win" ? "PowerShell" : s.platform === "linux" ? "a terminal" : "Terminal");
+  const here = () => (s.platform === "mac" || !s.platform ? "this Mac" : "this computer");
+  const vault = st => vaultOf(st, s.platform);
   const drafts = { apiKey: "", ghToken: "" };
   let poll = null; // { step, until, timer, isDone(st) }
   let installType = null;
@@ -241,7 +257,7 @@ export function createSetupKit(store, { rerender = () => {}, isActive = () => tr
     } }, h("div", { class: "form-actions" }, input, save), hint ? h("p", { class: "hint" }, hint) : null);
   }
 
-  const waiting = () => h("p", { class: "si-wait" }, h("span", { class: "spinner" }), "Waiting for you to finish in Terminal…");
+  const waiting = () => h("p", { class: "si-wait" }, h("span", { class: "spinner" }), `Waiting for you to finish in ${term()}…`);
 
   function helperItem(st) {
     const hp = st.helper;
@@ -259,20 +275,20 @@ export function createSetupKit(store, { rerender = () => {}, isActive = () => tr
 
   function engineItem(st) {
     const selected = s.settings?.engine ?? st.engine.selected;
-    const e = engineState(st, s.settings);
+    const e = engineState(st, s.settings, s.platform);
     const c = st.engine.subscription;
     let acts = [];
     let extra = null;
     if (selected === "api") {
-      if (st.engine.api.stored && st.engine.api.source === "keychain") acts = [btn("engine.forgetApiKey", "Remove key", "trash", { ghost: true, confirmText: "Remove the Anthropic API key from your Keychain?" })];
-      extra = secretForm({ id: "su-api-key", label: "Anthropic API key", placeholder: "sk-ant-…", draftKey: "apiKey", step: "engine.apiKey", optionKey: "key", submit: st.engine.api.stored ? "Replace key" : "Save to Keychain",
-        hint: ["Goes straight to the helper and your macOS Keychain. Get one at ", h("a", { href: "https://console.anthropic.com/settings/keys", target: "_blank", rel: "noopener" }, "console.anthropic.com"), "."] });
+      if (st.engine.api.stored && st.engine.api.source === "keychain") acts = [btn("engine.forgetApiKey", "Remove key", "trash", { ghost: true, confirmText: `Remove the Anthropic API key from ${vault(st)}?` })];
+      extra = secretForm({ id: "su-api-key", label: "Anthropic API key", placeholder: "sk-ant-…", draftKey: "apiKey", step: "engine.apiKey", optionKey: "key", submit: st.engine.api.stored ? "Replace key" : s.platform === "mac" || !s.platform ? "Save to Keychain" : "Save key",
+        hint: [`Goes straight to the helper and ${vault(st)}. Get one at `, h("a", { href: "https://console.anthropic.com/settings/keys", target: "_blank", rel: "noopener" }, "console.anthropic.com"), "."] });
     } else if (!c.found) {
       acts = [btn("engine.install", "Install Claude Code", "arrowUpRight", { primary: true })];
-      extra = h("p", { class: "hint" }, "Opens Terminal with Anthropic's installer (", h("code", null, c.installCommand ?? "curl -fsSL https://claude.ai/install.sh | bash"), "), then asks you to sign in. Or switch to an API key in General.");
+      extra = h("p", { class: "hint" }, `Opens ${term()} with Anthropic's installer (`, h("code", null, c.installCommand ?? (s.platform === "win" ? "irm https://claude.ai/install.ps1 | iex" : "curl -fsSL https://claude.ai/install.sh | bash")), "), then asks you to sign in. Or switch to an API key in General.");
     } else if (c.loggedIn === false) {
       acts = [btn("engine.login", "Sign in", "arrowUpRight", { primary: true })];
-      extra = h("p", { class: "hint" }, "Opens Terminal with ", h("code", null, "claude auth login"), "; your browser asks you to sign in to claude.ai.");
+      extra = h("p", { class: "hint" }, `Opens ${term()} with `, h("code", null, "claude auth login"), "; your browser asks you to sign in to claude.ai.");
     }
     return item({ id: "engine", level: e.level, title: selected === "api" ? "Claude · API key" : "Claude · subscription", keys: "claude code engine sign in install api key keychain anthropic", status: e.text, actions: acts,
       extra: [extra, poll && poll.step.startsWith("engine.") ? waiting() : null], done: doneLine(["engine."]) });
@@ -283,7 +299,7 @@ export function createSetupKit(store, { rerender = () => {}, isActive = () => tr
     const keys = "github gh token sign in pull requests notifications";
     if (g.connected) {
       return item({ id: "github", level: "good", title: "GitHub", keys, status: `Signed in as ${g.login}${g.via ? ` (${g.via})` : ""}.`,
-        actions: g.via === "Keychain" ? [btn("github.forget", "Remove token", "trash", { ghost: true, confirmText: "Remove Ensō's GitHub token from your Keychain?" })] : [],
+        actions: g.via === "Keychain" ? [btn("github.forget", "Remove token", "trash", { ghost: true, confirmText: `Remove Ensō's GitHub token from ${vault(st)}?` })] : [],
         done: doneLine(["github."]) });
     }
     return item({
@@ -291,7 +307,7 @@ export function createSetupKit(store, { rerender = () => {}, isActive = () => tr
       status: g.error ? `Not connected: ${g.error}` : "Pull requests, reviews and notifications across your orgs, for chat, the new tab and your agents.",
       actions: g.ghInstalled ? [btn("github.login", "Sign in with gh", "arrowUpRight")] : [],
       extra: h("div", { class: "si-sub" },
-        g.ghInstalled ? h("p", { class: "hint" }, "Opens Terminal with ", h("code", null, "gh auth login"), ". Or paste a token:") : h("p", { class: "hint" }, "Paste a token (", h("a", { href: TOKEN_URL, target: "_blank", rel: "noopener" }, "create one"), " with repo, read:org and notifications), or install the GitHub CLI and run ", h("code", null, "gh auth login"), "."),
+        g.ghInstalled ? h("p", { class: "hint" }, `Opens ${term()} with `, h("code", null, "gh auth login"), ". Or paste a token:") : h("p", { class: "hint" }, "Paste a token (", h("a", { href: TOKEN_URL, target: "_blank", rel: "noopener" }, "create one"), " with repo, read:org and notifications), or install the GitHub CLI and run ", h("code", null, "gh auth login"), "."),
         secretForm({ id: "su-gh-token", label: "GitHub token", placeholder: "ghp_… or github_pat_…", draftKey: "ghToken", step: "github.token", optionKey: "token", submit: "Save token" }),
         poll && poll.step === "github.login" ? waiting() : null),
       done: doneLine(["github."]),
@@ -306,7 +322,7 @@ export function createSetupKit(store, { rerender = () => {}, isActive = () => tr
       const desc = c.registration === "http" ? "Older entry with the token in its config. Turn it off and on again to fix."
         : c.registration === "launcher-read" ? "Uses Zen, read only"
         : c.registration ? "Uses Zen"
-        : c.detected ? "Found on this Mac" : "Not installed";
+        : c.detected ? `Found on ${here()}` : "Not installed";
       return switchRow(c.name, desc, !!c.registration, on => run(on ? "agents.register" : "agents.unregister", { client: c.id, readOnly: a.readOnly }),
         { disabled: !c.detected && !c.registration, busy: busyClient === c.id, keys: "agent mcp zen-browser enso mcp install register claude code codex cursor opencode" });
     });
@@ -339,7 +355,7 @@ export function createSetupKit(store, { rerender = () => {}, isActive = () => tr
       h("div", { class: "setting-text" }, h("label", null, "Unsigned builds"), h("p", null, "Zen installs an unsigned build (scripts/dev.sh) only with xpinstall.signatures.required set to false in about:config.")), b);
   }
 
-  // After a Terminal step, check every few seconds until it took effect (or 3 minutes passed).
+  // After a terminal step, check every few seconds until it took effect (or 3 minutes passed).
   function startPoll(step, isDone) {
     stopPoll();
     poll = { step, until: Date.now() + POLL_FOR_MS, isDone, timer: setInterval(() => {
@@ -367,5 +383,19 @@ export function createSetupKit(store, { rerender = () => {}, isActive = () => tr
     if (poll && s.setup.status && poll.isDone(s.setup.status)) stopPoll();
   }
 
-  return { helperItem, engineItem, githubItem, agentRows, readOnlyRow, hookRow, tokenRow, devRow, onTopics, stopPoll, doneLine };
+  /** Where the helper keeps its files, logs and secrets, as the helper reports them (older helpers: nothing). */
+  function placesRows(st) {
+    if (!st?.paths && !st?.secrets) return [];
+    const isPath = v => /^([~/]|[A-Za-z]:\\|%)/.test(String(v));
+    const row = (label, value, note, keys) => h("div", { class: "set-row place-row", dataset: { search: `${label} ${value} ${keys}`.toLowerCase() } },
+      h("span", { class: "place-label" }, label), isPath(value) ? h("code", { class: "place-path" }, value) : h("span", null, value), note ? h("p", { class: "hint" }, note) : null);
+    return [
+      st.paths?.data ? row("Data and helper", st.paths.data, null, "folder data helper path") : null,
+      st.paths?.logs ? row("Log", st.paths.logs, "enso doctor shows its end. Send it with Copy diagnostics when something breaks.", "log helper.log doctor") : null,
+      st.secrets ? row("Sign-ins and keys", st.secrets.location, null, "secrets keychain keyring credential manager") : null,
+      st.secrets?.warning ? h("p", { class: "setup-warn set-row", role: "note", dataset: { search: "keyring secrets warning" } }, icon("alert"), st.secrets.warning) : null,
+    ].filter(Boolean);
+  }
+
+  return { helperItem, engineItem, githubItem, agentRows, readOnlyRow, hookRow, tokenRow, devRow, placesRows, onTopics, stopPoll, doneLine };
 }

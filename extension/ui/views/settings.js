@@ -15,7 +15,7 @@ import { relTime } from "../format.js";
 import { sortTools, labelOf, statusOf, toolGlyph, openToolPopover, signedInButFailing } from "./tools.js";
 import { profileFields, spaceHintFields } from "./onboarding.js";
 import { SCREENSHOT_SHORTCUT } from "./send.js";
-import { setupSummary, createSetupKit, switchRow, SITE } from "./setup.js";
+import { setupSummary, createSetupKit, switchRow, SITE, vaultOf } from "./setup.js";
 import { inExtension } from "../transport.js";
 import { loadingOr } from "./helperstate.js";
 
@@ -49,8 +49,8 @@ export const SECTIONS = [
   { id: "skills", label: "Skills", icon: "command", desc: "Your own slash commands. Type / at the start of a message.", docs: "skills" },
   { id: "connections", label: "Connections", icon: "link", desc: "Tools, GitHub and T3 Code.", docs: "tools" },
   { id: "agents", label: "Agents & screenshots", icon: "cursor", desc: "Let Claude Code, Codex, Cursor and OpenCode use Zen, and choose where screenshots go.", docs: "other-agents" },
-  { id: "privacy", label: "Privacy & safety", icon: "shield", desc: "What runs without asking, where agents may use your sign-ins, and what leaves this Mac.", docs: "privacy-data" },
-  { id: "setup", label: "Setup", icon: "check", desc: "The helper and Claude on this Mac. The helper checks each item.", docs: "install" },
+  { id: "privacy", label: "Privacy & safety", icon: "shield", desc: "What runs without asking, where agents may use your sign-ins, and what leaves this computer.", docs: "privacy-data" },
+  { id: "setup", label: "Setup", icon: "check", desc: "The helper and Claude on this computer. The helper checks each item.", docs: "install" },
   { id: "advanced", label: "Advanced", icon: "tool", desc: "For developers and unusual setups. Most people never change these.", docs: "troubleshooting" },
 ];
 const SECTION_IDS = SECTIONS.map(x => x.id);
@@ -111,6 +111,7 @@ const learnMore = (path, text = "Learn more") => h("a", { class: "set-learn", hr
 
 export function createSettings(store, ctx) {
   const { state: s, actions } = store;
+  const here = () => (s.platform === "mac" || !s.platform ? "this Mac" : "this computer");
   const drill = document.documentElement.dataset.mode === "sidebar";
   const prof = { dirty: false, draft: null, error: null };
   const mem = { dirty: false, preview: false, draft: "", scope: "global" };
@@ -418,7 +419,7 @@ export function createSettings(store, ctx) {
       iconButton("refresh", "Check T3 Code again", () => actions.t3Status(), { class: "small" }));
     return row({ label: "T3 Code", keys: "t3 code threads screenshots token keychain connect",
       desc: [h("span", { class: ["t3-state", state[0]] }, h("i"), state[1]), done && !done.ok ? h("span", { class: "form-error", role: "alert" }, ` ${done.error}`) : null,
-        !t3?.connected ? h("span", { class: "set-sub" }, "Lets Ensō read and message your T3 threads for 30 days. The token stays in your Keychain.") : null],
+        !t3?.connected ? h("span", { class: "set-sub" }, `Lets Ensō read and message your T3 threads for 30 days. The token stays in ${vaultOf(s.setup.status, s.platform)}.`) : null],
       control: buttons });
   }
 
@@ -461,7 +462,7 @@ export function createSettings(store, ctx) {
         switchRow("Mark the tab an agent uses", "Puts ✦ in front of the tab's title while an agent works there.", st.agentTitlePrefix !== false, v => save({ agentTitlePrefix: v }), { keys: "title prefix star tab list" }),
         setup ? kit.readOnlyRow(setup) : null),
       group("Screenshots",
-        row({ label: "Take a screenshot", desc: `${SCREENSHOT_SHORTCUT} or the camera button. Send it to a T3 Code thread or a connected agent, or copy it. Screenshots stay on this Mac.`, keys: "screenshot capture camera shortcut send" }),
+        row({ label: "Take a screenshot", desc: `${SCREENSHOT_SHORTCUT} or the camera button. Send it to a T3 Code thread or a connected agent, or copy it. Screenshots stay on ${here()}.`, keys: "screenshot capture camera shortcut send" }),
         row({ label: "T3 Code", desc: !t3 ? "Checking…" : t3.connected ? (t3.tokenValid === false ? "Needs a new connection." : "Connected.") : "Not connected.", keys: "t3 code threads",
           control: h("button", { type: "button", class: "btn small ghost", onclick: () => open("connections") }, "Connections", icon("chevronRight")) }),
         setup ? kit.hookRow(setup) : null,
@@ -524,17 +525,17 @@ export function createSettings(store, ctx) {
             h("form", { class: "form-actions", onsubmit: ev => { ev.preventDefault(); add(); } }, input, h("button", { type: "submit", class: "btn small" }, icon("plus"), "Allow")),
             err] }),
         row({ label: "Private sites", keys: "blocked private sites banking health tax sensitive off-limits", desc: "Banking, health, tax and similar sites are always off-limits: no reading, acting, sharing or session access." })),
-      group("What leaves this Mac",
+      group(`What leaves ${here()}`,
         row({ label: "Your messages", desc: "What you send, and the page or tabs you include, go to Anthropic to answer.", keys: "anthropic data messages page" }),
         row({ label: "The Home brief", desc: "Your profile, memory and what read-only tools return go to Anthropic on each refresh (General → Home).", keys: "brief dashboard anthropic data" }),
-        row({ label: "Everything else", desc: "Conversations, memory, screenshots and settings stay in Ensō's folder on this Mac.", keys: "local data folder screenshots storage",
+        row({ label: "Everything else", desc: `Conversations, memory, screenshots and settings stay in Ensō's folder on ${here()}.`, keys: "local data folder screenshots storage",
           control: h("span", { class: "set-links" }, learnMore("privacy", "Privacy policy"), learnMore("docs/privacy-data", "Where data lives")) })),
     ];
   };
 
   renderers.setup = () => {
     const st = s.setup.status;
-    if (!st) return [loading("setup", "Checking this Mac…")];
+    if (!st) return [loading("setup", `Checking ${here()}…`)];
     const sum = setupSummary(st, s.settings);
     const agentsOn = st.agents.clients.filter(c => c.registration);
     const t = st.t3;
@@ -554,10 +555,11 @@ export function createSettings(store, ctx) {
       group("Essentials", h("ul", { class: "setup-list bare" }, kit.helperItem(st), kit.engineItem(st))),
       group("Optional",
         glance("Agents", agentsOn.length ? "good" : "off", agentsOn.length ? `${agentsOn.map(c => c.name).join(", ")} can use Zen.` : "No agent uses Zen yet.", "agents", "Agents", "claude code codex cursor opencode mcp"),
-        glance("T3 Code", !t.installed || !t.connected ? "off" : t.tokenValid === false ? "warn" : "good", !t.installed ? "Not on this Mac." : !t.connected ? "Not connected." : t.tokenValid === false ? "Needs a new connection." : "Connected.", "connections", "Connections", "t3 screenshots"),
+        glance("T3 Code", !t.installed || !t.connected ? "off" : t.tokenValid === false ? "warn" : "good", !t.installed ? `Not on ${here()}.` : !t.connected ? "Not connected." : t.tokenValid === false ? "Needs a new connection." : "Connected.", "connections", "Connections", "t3 screenshots"),
         glance("GitHub", st.github.connected ? "good" : st.github.error ? "warn" : "off", st.github.connected ? `Signed in as ${st.github.login}.` : "Not connected.", "connections", "Connections", "github gh"),
         glance("Tools", tools.needsAuth ? "warn" : tools.on ? "good" : "off", tools.total ? `${tools.on} of ${tools.total} on${tools.needsAuth ? ` · ${tools.needsAuth} need${tools.needsAuth === 1 ? "s" : ""} a sign-in` : ""}.` : "None yet.", "tools", "Tools", "connectors mcp")),
-      h("p", { class: "hint set-foot" }, "Everything here also works from the ", h("code", null, "enso"), " command in Terminal (", h("code", null, "enso setup"), ")."),
+      kit.placesRows(st).length ? group("Where Ensō keeps things", ...kit.placesRows(st)) : null,
+      h("p", { class: "hint set-foot" }, "Everything here also works from the ", h("code", null, "enso"), ` command in ${s.platform === "win" ? "PowerShell" : s.platform === "linux" ? "a terminal" : "Terminal"} (`, h("code", null, "enso setup"), ")."),
     ];
   };
 
@@ -570,14 +572,14 @@ export function createSettings(store, ctx) {
     return [
       group("Claude Code",
         row({ label: "Claude Code location", forId: pathId, keys: "claude path cli binary location",
-          desc: eng.subscription?.path ? `Using ${eng.subscription.path}. Leave empty to find it automatically.` : "Found automatically on your PATH, in ~/.local/bin or Homebrew. Set a path only if yours lives elsewhere.",
+          desc: eng.subscription?.path ? `Using ${eng.subscription.path}. Leave empty to find it automatically.` : `Found automatically on your PATH, in ${s.platform === "win" ? "%USERPROFILE%\\.local\\bin or npm" : s.platform === "linux" ? "~/.local/bin, npm or Linuxbrew" : "~/.local/bin or Homebrew"}. Set a path only if yours lives elsewhere.`,
           control: h("input", { type: "text", class: "input mono set-path", id: pathId, value: st.claudePath ?? "", placeholder: "/path/to/claude", spellcheck: "false", onchange: ev => save({ claudePath: ev.target.value.trim() }) }) })),
       group("Developer tools",
         switchRow("Developer tools", "Console, network, JavaScript and storage of your tabs, for Claude and your agents. Running JavaScript asks first.", st.developerTools !== false, v => save({ developerTools: v }), { keys: "devtools console network eval storage debugging" }),
         switchRow("Headless browser", "A separate, invisible Zen with a throwaway profile for testing pages. Stops after 10 minutes idle.", st.headless !== false, v => save({ headless: v }), { keys: "headless zen testing marionette" }),
         row({ label: "Session access", desc: "Which sites these tools may use as you.", keys: "session access", control: h("button", { type: "button", class: "btn small ghost", onclick: () => open("privacy") }, "Privacy & safety", icon("chevronRight")) })),
       group("Files",
-        paths ? row({ label: "Profile", stacked: true, keys: "profile.md data folder file", control: h("code", { class: "set-code" }, `${paths.data}/profile.md`) }) : null,
+        paths ? row({ label: "Profile", stacked: true, keys: "profile.md data folder file", control: h("code", { class: "set-code" }, `${paths.data}${/^[A-Za-z]:\\/.test(paths.data) ? "\\" : "/"}profile.md`) }) : null,
         paths ? row({ label: "Personal config", desc: "Extra tools, space notes and other overrides, edited by hand.", stacked: true, keys: "config.local.json extraServers overrides file", control: h("code", { class: "set-code" }, paths.localConfig) }) : null,
         kit.devRow(s.setup.status)),
     ];

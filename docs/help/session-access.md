@@ -56,7 +56,7 @@ optionally local storage). It stops after 10 minutes without use, when Claude
 stops it, or when Zen quits, and its profile, including copied sessions, is
 deleted.
 
-Copying sessions needs Node.js 22.5 or newer on your Mac.
+Copying sessions needs Node.js 22.5 or newer on your computer.
 
 ## Which sites should I allow?
 

@@ -7,11 +7,11 @@ group: Using Ensō
 
 # Use Zen from other agents
 
-While Zen is open, other AI agents on your Mac can use it through Ensō: Claude Code in a terminal, Codex, Cursor, T3 Code and other apps that support MCP. They can list and read your tabs, act on pages, read a page's console and network, search your history, use GitHub, and test pages in a separate headless Zen.
+While Zen is open, other AI agents on your computer can use it through Ensō: Claude Code in a terminal, Codex, Cursor, T3 Code and other apps that support MCP. They can list and read your tabs, act on pages, read a page's console and network, search your history, use GitHub, and test pages in a separate headless Zen.
 
 ## Set it up
 
-Open **Settings → Agents & screenshots**. Ensō lists Claude Code, Codex, Cursor and OpenCode and shows which are on your Mac; turn on the ones that may use Zen. Two more switches there: **Register read only** (below) and the **Claude Code hook**, which delivers your [screenshots](/docs/screenshots) to an idle Claude Code with your next message. Start a new session in that agent and ask "what tabs do I have open?".
+Open **Settings → Agents & screenshots**. Ensō lists Claude Code, Codex, Cursor and OpenCode and shows which are on your computer; turn on the ones that may use Zen. Two more switches there: **Register read only** (below) and the **Claude Code hook**, which delivers your [screenshots](/docs/screenshots) to an idle Claude Code with your next message. Start a new session in that agent and ask "what tabs do I have open?".
 
 Each switch runs the same code as the `enso` command, so you can also do it in a terminal:
 
@@ -31,13 +31,13 @@ That registers Ensō as `zen-browser` with every client it finds.
 | `enso mcp rotate` | New access tokens; registered clients keep working (Setup: **Agent access token → Rotate**) |
 | `enso setup` | The whole Setup checklist in the terminal |
 
-No password or token ends up in the agents' settings: they start the `enso` command, which reads the token on your Mac and connects to Zen. `install` backs up the files it changes and prints what changed, never values.
+No password or token ends up in the agents' settings: they start the `enso` command, which reads the token on your computer and connects to Zen. `install` backs up the files it changes and prints what changed, never values.
 
-`enso` is `~/Library/Application Support/Enso/bin/enso`, also linked as `~/.local/bin/enso`. If your shell doesn't find it, use the full path.
+`enso` is `~/Library/Application Support/Enso/bin/enso` on macOS and `~/.local/share/enso/bin/enso` on Linux, both linked as `~/.local/bin/enso`. On Windows it is `%APPDATA%\Enso\bin\enso.cmd`, which the installer adds to your user PATH (open a new terminal to pick it up). If your shell doesn't find it, use the full path.
 
 ### Other apps
 
-Any app that can start an MCP server command can use it. Point it at the command `~/Library/Application Support/Enso/bin/enso` with the argument `mcp` (add `--read-only` for read access). For Claude Desktop, that goes in `~/Library/Application Support/Claude/claude_desktop_config.json` under `mcpServers`.
+Any app that can start an MCP server command can use it. Point it at the `enso` command above with the argument `mcp` (add `--read-only` for read access). On Windows, use `node.exe` with the arguments `%APPDATA%\Enso\helper\bin\enso.mjs mcp` instead, which is what `enso mcp install` registers there; many apps can't start a `.cmd` file directly. For Claude Desktop, that goes in its `claude_desktop_config.json` under `mcpServers` (`~/Library/Application Support/Claude/` on macOS, `%APPDATA%\Claude\` on Windows).
 
 ## Look, but don't touch
 
@@ -64,7 +64,7 @@ From the card in the sidebar:
 - **Pause** holds the agent on this tab: its next steps there are refused and it is told to wait. **Resume** lets it continue, and tells it to read the page again, since you may have changed it.
 - **Stop** ends the task: everything it tries in Zen is refused, and it is told to stop. It keeps running in its own app; a new session there can use Zen again.
 
-You can also send an agent a screenshot of the page, even while it's idle: press <kbd>⌘</kbd><kbd>⇧</kbd><kbd>2</kbd> and pick it under **Agents**. It gets the image with its next step, or when it calls `inbox_read`. See [Send screenshots to your agents](/docs/screenshots).
+You can also send an agent a screenshot of the page, even while it's idle: press <kbd>⌘</kbd><kbd>⇧</kbd><kbd>2</kbd> (<kbd>Ctrl+Shift+2</kbd> on Linux and Windows) and pick it under **Agents**. It gets the image with its next step, or when it calls `inbox_read`. See [Send screenshots to your agents](/docs/screenshots).
 
 Agents are asked to say what they are doing when they start (`session_start`). Those that don't still show up, with their name and their latest step.
 
@@ -90,9 +90,9 @@ What an agent reads in Zen goes to that agent's AI provider, like anything else 
 |---|---|
 | `enso: command not found` | Use the full path above, or run the installer again. |
 | Every call says "Zen isn't running" | Open Zen. |
-| `enso mcp status` says "token rejected" | Quit Zen with <kbd>⌘Q</kbd> and reopen it. |
+| `enso mcp status` says "token rejected" | Quit Zen completely (<kbd>⌘Q</kbd> on macOS) and reopen it. |
 | `status` says "registered over http with the token in its config" | An older setup. Run `enso mcp install`. |
 | "external control" or "read-only" errors | Check the settings above. |
 | An agent doesn't see new tools after an update | Restart the agent. |
-| Clicking the pill doesn't open Ensō | Some pages block it; the pill then says "Press ⌘E for Ensō". |
+| Clicking the pill doesn't open Ensō | Some pages block it; the pill then says "Press ⌘E for Ensō" (Ctrl+E on Linux and Windows). |
 | A tab title still starts with ✦ | It goes when the agent has been quiet for two minutes. |

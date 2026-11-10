@@ -1,17 +1,17 @@
 ---
 title: Privacy & data
-description: Exactly what Ensō stores, where it is stored, and what leaves your Mac.
+description: Exactly what Ensō stores, where it is stored, and what leaves your computer.
 order: 20
 group: Your data
 ---
 
 # Privacy & data
 
-The short version: Ensō stores everything on your Mac. What you send in a conversation goes to Anthropic so Claude can answer, and tool calls go to the services you connected. Nothing goes to us. The formal version is the [privacy policy](/privacy).
+The short version: Ensō stores everything on your computer. What you send in a conversation goes to Anthropic so Claude can answer, and tool calls go to the services you connected. Nothing goes to us. The formal version is the [privacy policy](/privacy).
 
-## Stored on your Mac
+## Stored on your computer
 
-In `~/Library/Application Support/Enso/` unless noted:
+In Ensō's data folder unless noted: `~/Library/Application Support/Enso` on macOS, `~/.local/share/enso` on Linux (or `$XDG_DATA_HOME/enso`), `%APPDATA%\Enso` on Windows.
 
 | What | Where |
 |---|---|
@@ -26,16 +26,19 @@ In `~/Library/Application Support/Enso/` unless noted:
 | Access tokens for [other agents](/docs/other-agents) | `mcp-token`, `mcp-token-read` (readable only by you) |
 | The helper program | `helper/` |
 | Claude Code's own record of subscription-engine conversations | `~/.claude/projects/` (kept by Claude Code) |
-| API key (if you use one) | macOS Keychain, item `enso-anthropic` |
-| GitHub token (if you saved one) | macOS Keychain, item `enso-github` |
-| Sign-ins to tools you connected with the Connect button (monday.com, Commonfold, …) | macOS Keychain, items `enso-mcp-<name>` |
-| T3 Code access token (if you connected T3) | macOS Keychain, item `enso-t3` |
-| Tokens for servers in `config.local.json` | macOS Keychain, items you name |
+| API key (if you use one) | Secret store, item `enso-anthropic` |
+| GitHub token (if you saved one) | Secret store, item `enso-github` |
+| Sign-ins to tools you connected with the Connect button (monday.com, Commonfold, …) | Secret store, items `enso-mcp-<name>` |
+| T3 Code access token (if you connected T3) | Secret store, item `enso-t3` |
+| Tokens for servers in `config.local.json` | Secret store, items you name |
 | Widget layout, quick links, note | Your settings and the extension's own storage |
+| The helper's log (startup lines and errors, never your messages, keys or tokens) | `~/Library/Logs/Enso` on macOS, `~/.local/state/enso` on Linux, `%LOCALAPPDATA%\Enso\Logs` on Windows |
 
-These are ordinary files in your home folder, readable by your user account, and included in your Time Machine backups like everything else. The network and console logs Ensō keeps of your tabs for the [developer tools](/docs/session-access) are held in memory only, until Zen quits.
+The secret store is your system's own: the login Keychain on macOS, Credential Manager on Windows, and on Linux your desktop keyring (GNOME Keyring, KWallet or KeePassXC, through `secret-tool`). On Linux without a keyring, Ensō keeps these in `secrets.json` in the data folder, readable only by you, and Settings → Setup warns about it.
 
-## What leaves your Mac
+These are ordinary files in your home folder, readable by your user account, and included in your backups (Time Machine, File History or whatever you use) like everything else. The network and console logs Ensō keeps of your tabs for the [developer tools](/docs/session-access) are held in memory only, until Zen quits.
+
+## What leaves your computer
 
 **To Anthropic, when you send a message.** Your message, your profile and memory, the time and your Zen space with your note about it, the conversation so far, and whatever context you included: the current page's text, mentioned tabs, attachments, screenshots, and the results of tools Ensō used to answer. With the subscription engine this goes through Claude Code; with an API key, directly to the Anthropic API. Anthropic handles it under the terms you agreed with them.
 
@@ -49,7 +52,7 @@ These are ordinary files in your home folder, readable by your user account, and
 
 **To other agents' providers, when you use Zen from them.** What Claude Code, Codex, Cursor or another agent reads through Ensō (`enso mcp`) goes to that agent's AI provider: Anthropic for Claude Code, OpenAI for Codex, and so on.
 
-**Screenshots you send** stay on your Mac: they go to your own T3 Code server on this computer, to a connected agent, or to the clipboard. Whatever that agent does with them next is up to the agent.
+**Screenshots you send** stay on your computer: they go to your own T3 Code server on this computer, to a connected agent, or to the clipboard. Whatever that agent does with them next is up to the agent.
 
 **To addons.mozilla.org**, if you installed Ensō from there: Zen gets updates from Mozilla, like any listed add-on.
 
@@ -58,7 +61,7 @@ These are ordinary files in your home folder, readable by your user account, and
 - the update check of copies installed from our site (Zen fetches `updates.json` and the new version, which puts your IP address in the server's request log), until their next update moves them to the addons.mozilla.org version;
 - the helper download when you run the install script.
 
-## What never leaves your Mac
+## What never leaves your computer
 
 - Anything from [private sites](#private-sites): banking, payment, password-manager, health, tax and government sites. Ensō doesn't read or act on them at all.
 - Your browsing history, except search results Ensō looks up when you ask it to, which become part of that conversation.
@@ -74,7 +77,7 @@ Ensō never reads, screenshots or acts on these sites, never makes requests with
 - **Health:** any address containing `health` or `patient`.
 - **Tax and government:** Belastingdienst, Toeslagen, MijnOverheid and DigiD (Netherlands); IRS, Social Security and Login.gov (US); HMRC, GOV.UK tax services and GOV.UK One Login (UK); ELSTER (Germany); impots.gouv.fr (France); Agenzia delle Entrate (Italy); Agencia Tributaria (Spain); MyMinfin (Belgium); the Australian Taxation Office and myGov; Inland Revenue (New Zealand).
 
-The exact patterns are `sensitiveHosts` in [helper/config.json](https://github.com/davidwickerhf/enso/blob/main/helper/config.json). They match the site's address, so a bank or office whose address isn't listed isn't covered. Add your own in `~/Library/Application Support/Enso/config.local.json`, then restart Zen:
+The exact patterns are `sensitiveHosts` in [helper/config.json](https://github.com/davidwickerhf/enso/blob/main/helper/config.json). They match the site's address, so a bank or office whose address isn't listed isn't covered. Add your own in `config.local.json` in the data folder, then restart Zen:
 
 ```json
 { "sensitiveHosts": ["*.mybank.example", "portal.example.gov"] }

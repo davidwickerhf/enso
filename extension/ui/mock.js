@@ -21,7 +21,9 @@
 // ?helper=crashed: it ran, then exited (the helper-not-running banner, every section
 // shows it instead of "Loading…"); ?helper=noanswer: connected, but memory and Setup
 // requests go unanswered ("Couldn't load" + Retry after 8 s).
-// ?platform=linux (or win): not macOS, where the helper can't run yet (add &helper=missing).
+// ?platform=linux | win: that system's install guide, paths, secret store and shortcuts
+// (add &helper=missing for the first-run guide); ?platform=cros: a system the helper
+// doesn't run on.
 // ?setup=ready | mixed | fresh: what the helper reports for Settings → Setup, Connections and Agents
 // (default ready; mixed: an update, Claude Code signed out, Cursor on the old setup). #settings/setup opens it.
 
@@ -524,7 +526,19 @@ export function createMockHost() {
     set: !!profile.name,
     onboarding: !profile.name && !onboardingDone,
   });
-  const PATHS = { data: "/Users/maya/Library/Application Support/Enso", localConfig: "/Users/maya/Library/Application Support/Enso/config.local.json" };
+  // What the helper reports per system (lib/platform.mjs); ?platform= picks one.
+  const MOCK_OS = new URLSearchParams(globalThis.location?.search ?? "").get("platform") || "mac";
+  const OS_FACTS = {
+    mac: { data: "/Users/maya/Library/Application Support/Enso", logs: "/Users/maya/Library/Logs/Enso", sep: "/", secrets: { backend: "keychain", location: "your macOS login Keychain", secure: true, warning: null }, claude: "/Users/maya/.local/bin/claude", node: "/opt/homebrew/bin/node", platform: "darwin arm64", launcher: "bin/enso" },
+    linux: { data: "/home/maya/.local/share/enso", logs: "/home/maya/.local/state/enso", sep: "/", secrets: { backend: "libsecret", location: "your desktop keyring (libsecret)", secure: true, warning: null }, claude: "/home/maya/.local/bin/claude", node: "/usr/bin/node", platform: "linux x64", launcher: "bin/enso" },
+    win: { data: "C:\\Users\\Maya\\AppData\\Roaming\\Enso", logs: "C:\\Users\\Maya\\AppData\\Local\\Enso\\Logs", sep: "\\", secrets: { backend: "credman", location: "the Windows Credential Manager", secure: true, warning: null }, claude: "C:\\Users\\Maya\\.local\\bin\\claude.exe", node: "C:\\Users\\Maya\\AppData\\Roaming\\Enso\\runtime\\node-v24.22.2-win-x64\\node.exe", platform: "win32 x64", launcher: "bin\\enso.cmd" },
+  };
+  // ?secrets=file: Linux without a keyring (the file fallback and its warning).
+  if (MOCK_OS === "linux" && new URLSearchParams(globalThis.location?.search ?? "").get("secrets") === "file") {
+    OS_FACTS.linux.secrets = { backend: "file", location: "/home/maya/.local/share/enso/secrets.json", secure: false, warning: "No system keyring: secret-tool isn't installed (it comes with libsecret-tools / libsecret). Sign-ins and keys are kept in /home/maya/.local/share/enso/secrets.json (readable only by you). Install libsecret-tools and run a keyring (GNOME Keyring, KWallet, KeePassXC) for better protection, then save them again." };
+  }
+  const OSF = OS_FACTS[MOCK_OS] ?? OS_FACTS.linux;
+  const PATHS = { data: OSF.data, localConfig: `${OSF.data}${OSF.sep}config.local.json` };
   let dashboard = makeDashboard();
   const turns = new Map(); // conversationId → { cancelled, finish }
   const approvalWaiters = new Map();
@@ -826,7 +840,7 @@ Want me to draft the reply to Jonas, or open the [Vercel deployment](https://ver
   }
   if (helperState !== "connected" && Number(params.get("connectAfter")) > 0) setTimeout(connectHelper, Number(params.get("connectAfter")) * 1000);
   const setupPreset = params.get("setup") ?? "ready";
-  const SETUP_DATA = "/Users/maya/Library/Application Support/Enso";
+  const SETUP_DATA = OSF.data;
   const setupState = {
     version: "0.5.4",
     latest: setupPreset === "mixed" ? "0.5.5" : "0.5.4",
@@ -847,17 +861,20 @@ Want me to draft the reply to Jonas, or open the [Vercel deployment](https://ver
     const on = servers.filter(x => x.enabled !== false);
     return {
       checkedAt: iso(now()),
-      helper: { version: st.version, dev: false, latest: st.latest, updateAvailable: st.version !== st.latest, error: null, node: { path: `${SETUP_DATA}/runtime/node/bin/node`, version: "24.22.2", source: "private" }, installedAt: iso(now() - 3 * 86_400_000) },
+      helper: { version: st.version, dev: false, latest: st.latest, updateAvailable: st.version !== st.latest, error: null, node: { path: MOCK_OS === "win" ? OSF.node : `${SETUP_DATA}/runtime/node/bin/node`, version: "24.22.2", source: "private" }, installedAt: iso(now() - 3 * 86_400_000) },
       engine: {
         selected: settings.engine,
-        subscription: st.claudeFound ? { found: true, path: "/Users/maya/.local/bin/claude", version: "2.1.321 (Claude Code)", loggedIn: st.loggedIn, authMethod: st.loggedIn ? "claude.ai" : "none", subscriptionType: st.loggedIn ? "max" : null, email: st.loggedIn ? "maya@northwind.example" : null } : { found: false, reason: "Claude Code isn't installed.", installCommand: "curl -fsSL https://claude.ai/install.sh | bash" },
+        subscription: st.claudeFound ? { found: true, path: OSF.claude, version: "2.1.321 (Claude Code)", loggedIn: st.loggedIn, authMethod: st.loggedIn ? "claude.ai" : "none", subscriptionType: st.loggedIn ? "max" : null, email: st.loggedIn ? "maya@northwind.example" : null } : { found: false, reason: "Claude Code isn't installed.", installCommand: MOCK_OS === "win" ? "irm https://claude.ai/install.ps1 | iex" : "curl -fsSL https://claude.ai/install.sh | bash" },
         api: { stored: st.apiStored, source: st.apiStored ? "keychain" : null },
       },
-      agents: { launcher: `${SETUP_DATA}/bin/enso`, clients: Object.keys(CLIENT_NAMES).map(id => ({ id, name: CLIENT_NAMES[id], detected: st.detected[id] || !!st.clients[id], registration: st.clients[id] })), readOnly: reg.length > 0 && reg.every(r => r === "launcher-read"), hook: st.hook },
+      agents: { launcher: `${SETUP_DATA}${OSF.sep}${OSF.launcher}`, clients: Object.keys(CLIENT_NAMES).map(id => ({ id, name: CLIENT_NAMES[id], detected: st.detected[id] || !!st.clients[id], registration: st.clients[id] })), readOnly: reg.length > 0 && reg.every(r => r === "launcher-read"), hook: st.hook },
       t3: { installed: st.t3Installed, connected: st.t3Connected, reachable: st.t3Connected, tokenValid: st.t3Connected ? true : null, serverVersion: st.t3Connected ? "0.1.9-nightly" : null, error: null },
       github: { ...st.gh, error: null },
       tools: { total: servers.length, on: on.length, needsAuth: on.filter(x => x.status === "needs-auth").length },
       mcp: { port: 47823, listening: true },
+      platform: { os: { mac: "darwin", win: "win32" }[MOCK_OS] ?? MOCK_OS, arch: "x64", installCommand: MOCK_OS === "win" ? "irm https://enso.wicker.life/install.ps1 | iex" : "curl -fsSL https://enso.wicker.life/install.sh | bash" },
+      secrets: OSF.secrets,
+      paths: { data: SETUP_DATA, logs: OSF.logs },
     };
   }
   const setupDone = (step, ok, text, extra = {}) => out({ type: "setup", status: setupStatus(), done: { step, ok, ...(ok ? { message: text } : { error: text }), ...extra } });
@@ -873,20 +890,20 @@ Want me to draft the reply to Jonas, or open the [Vercel deployment](https://ver
           later(1800, () => { st.version = st.latest; out({ type: "helper.status", state: "connected", at: now() }); });
         });
       case "engine.login":
-        later(500, () => setupDone(step, true, "Terminal is open: follow the sign-in there, then come back."));
+        later(500, () => setupDone(step, true, `${MOCK_OS === "win" ? "PowerShell" : MOCK_OS === "linux" ? "A terminal" : "Terminal"} is open: follow the sign-in there, then come back.`));
         return later(5000, () => { st.loggedIn = true; });
       case "engine.install":
-        later(500, () => setupDone(step, true, "Terminal is open: it installs Claude Code, then asks you to sign in."));
+        later(500, () => setupDone(step, true, `${MOCK_OS === "win" ? "PowerShell" : MOCK_OS === "linux" ? "A terminal" : "Terminal"} is open: it installs Claude Code, then asks you to sign in.`));
         return later(6000, () => { st.claudeFound = true; st.loggedIn = true; });
       case "engine.apiKey":
         return later(600, () => {
           if (!/^sk-ant-[A-Za-z0-9_-]{20,}$/.test(String(o.key ?? ""))) return setupDone(step, false, "That doesn't look like an Anthropic API key (it starts with sk-ant-).");
           st.apiStored = true;
-          setupDone(step, true, "Saved to your Keychain. The key works.");
+          setupDone(step, true, `Saved to ${MOCK_OS === "mac" ? "your Keychain" : OSF.secrets.location}. The key works.`);
         });
       case "engine.forgetApiKey":
         st.apiStored = false;
-        return later(300, () => setupDone(step, true, "Removed the key from your Keychain."));
+        return later(300, () => setupDone(step, true, `Removed the key from ${MOCK_OS === "mac" ? "your Keychain" : OSF.secrets.location}.`));
       case "agents.register":
         return later(700, () => { st.clients[o.client] = o.readOnly ? "launcher-read" : "launcher"; setupDone(step, true, `${CLIENT_NAMES[o.client]} can use Zen${o.readOnly ? " (read only)" : ""}. Start a new session there to pick it up.`); });
       case "agents.unregister":
@@ -900,7 +917,7 @@ Want me to draft the reply to Jonas, or open the [Vercel deployment](https://ver
       case "t3.disconnect":
         return later(400, () => { st.t3Connected = false; setupDone(step, true, "Revoked Ensō's T3 session."); });
       case "github.login":
-        later(500, () => setupDone(step, true, "Terminal is open: follow the GitHub sign-in there, then come back."));
+        later(500, () => setupDone(step, true, `${MOCK_OS === "win" ? "PowerShell" : MOCK_OS === "linux" ? "A terminal" : "Terminal"} is open: follow the GitHub sign-in there, then come back.`));
         return later(6000, () => { st.gh = { ghInstalled: true, connected: true, login: "maya-designs", via: "GitHub CLI" }; });
       case "github.token":
         return later(700, () => {
@@ -910,7 +927,7 @@ Want me to draft the reply to Jonas, or open the [Vercel deployment](https://ver
         });
       case "github.forget":
         st.gh = { ...st.gh, connected: false, login: null, via: null };
-        return later(300, () => setupDone(step, true, "Removed Ensō's GitHub token from your Keychain."));
+        return later(300, () => setupDone(step, true, `Removed Ensō's GitHub token from ${MOCK_OS === "mac" ? "your Keychain" : OSF.secrets.location}.`));
       case "mcp.rotate":
         return later(300, () => setupDone(step, true, "New tokens written. Agents started with enso mcp keep working."));
       default:
@@ -934,7 +951,7 @@ Want me to draft the reply to Jonas, or open the [Vercel deployment](https://ver
         out({ type: "helper.status", state: "connected", at: now() });
         return;
       case "helper.log":
-        out({ type: "helper.log", version: "0.5.5", node: { version: "v22.12.0", path: "/opt/homebrew/bin/node" }, platform: "darwin arm64", file: "/Users/maya/Library/Logs/Enso/helper.log", lines: [`${iso(now() - 60_000)} [4242] INFO  Ensō helper 0.5.5 starting (started by run.sh): Node v22.12.0 at /opt/homebrew/bin/node, darwin arm64, macOS 15.1`, `${iso(now() - 59_000)} [4242] INFO  MCP server on http://127.0.0.1:47823/mcp`] });
+        out({ type: "helper.log", version: "0.5.5", node: { version: "v22.12.0", path: OSF.node }, platform: OSF.platform, file: `${OSF.logs}${OSF.sep}helper.log`, lines: [`${iso(now() - 60_000)} [4242] INFO  Ensō helper 0.5.5 starting (started by run.sh): Node v22.12.0 at /opt/homebrew/bin/node, darwin arm64, macOS 15.1`, `${iso(now() - 59_000)} [4242] INFO  MCP server on http://127.0.0.1:47823/mcp`] });
         return;
       case "setup.status":
         setTimeout(() => out({ type: "setup", status: setupStatus() }), msg.fresh ? 500 : 250);
