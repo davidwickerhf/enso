@@ -219,38 +219,60 @@ jobs:
           echo "publish=true" >> "$GITHUB_OUTPUT"
 
       - name: Build the helper tarball
-        if: steps.signed.outputs.publish == 'true'
+        # The helper doesn't go through AMO, so it ships as soon as the version is
+        # submitted. publish-approved reuses the archive already on the GitHub
+        # release, so the site and the release keep the same bytes.
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          scripts/pack-helper.sh "${{ steps.version.outputs.version }}" dist
+          V="${{ steps.version.outputs.version }}"
+          mkdir -p dist
+          if [ "$MODE" = "publish-approved" ] && gh release download "v$V" -p "enso-helper-$V.tar.gz" -D dist 2>/dev/null; then
+            echo "Reusing enso-helper-$V.tar.gz from the GitHub release"
+          else
+            scripts/pack-helper.sh "$V" dist
+          fi
           shasum -a 256 dist/*
 
-      - name: Publish to enso.wicker.life
+      - name: Publish the helper to enso.wicker.life
+        env:
+          ENSO_RELEASE_TOKEN: ${{ secrets.ENSO_RELEASE_TOKEN }}
+        run: |
+          V="${{ steps.version.outputs.version }}"
+          # One helper archive for macOS, Linux and Windows (plain JS; pack-helper.sh
+          # refuses to build if a dependency ever brings native or per-OS files).
+          # platform=any: /api/latest?platform=darwin|linux|win32 all serve it, and
+          # macOS installers from before (no ?platform=) get it as darwin.
+          code=$(curl -sS -o /tmp/helper-publish.json -w "%{http_code}" -X PUT \
+            -H "Authorization: Bearer $ENSO_RELEASE_TOKEN" \
+            -H "Content-Type: application/octet-stream" \
+            --data-binary "@dist/enso-helper-$V.tar.gz" \
+            "$SITE/api/releases/helper/$V?platform=any")
+          cat /tmp/helper-publish.json; echo
+          case "$code" in
+            2*) echo "## Helper $V published" >> "$GITHUB_STEP_SUMMARY" ;;
+            409) echo "Helper $V was already published with other bytes; keeping the published one." ;;
+            *) echo "::error::publishing the helper failed (HTTP $code)"; exit 1 ;;
+          esac
+
+      - name: Publish the extension to enso.wicker.life
         if: steps.signed.outputs.publish == 'true'
         env:
           ENSO_RELEASE_TOKEN: ${{ secrets.ENSO_RELEASE_TOKEN }}
         run: |
           V="${{ steps.version.outputs.version }}"
-          publish() { # publish <kind> <file> [query]
-            curl --fail-with-body -sS -X PUT \
-              -H "Authorization: Bearer $ENSO_RELEASE_TOKEN" \
-              -H "Content-Type: application/octet-stream" \
-              --data-binary "@$2" \
-              "$SITE/api/releases/$1/$V$3"
-            echo
-          }
-          publish extension "dist/enso-$V.xpi" "?strict_min_version=$STRICT_MIN_VERSION"
-          # One helper archive for macOS, Linux and Windows (plain JS; pack-helper.sh
-          # refuses to build if a dependency ever brings native or per-OS files).
-          # platform=any: /api/latest?platform=darwin|linux|win32 all serve it, and
-          # macOS installers from before (no ?platform=) get it as darwin.
-          publish helper "dist/enso-helper-$V.tar.gz" "?platform=any"
+          curl --fail-with-body -sS -X PUT \
+            -H "Authorization: Bearer $ENSO_RELEASE_TOKEN" \
+            -H "Content-Type: application/octet-stream" \
+            --data-binary "@dist/enso-$V.xpi" \
+            "$SITE/api/releases/extension/$V?strict_min_version=$STRICT_MIN_VERSION"
+          echo
           curl -fsS "$SITE/api/latest"
           echo
           curl -fsS "$SITE/updates.json" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const u=Object.values(JSON.parse(s).addons)[0].updates; console.log("updates.json newest:", u[0]?.version); if (u[0]?.version !== process.argv[1]) process.exit(1);})' "$V"
           echo "## Ensō $V published (${MODE})" >> "$GITHUB_STEP_SUMMARY"
 
       - name: GitHub release
-        if: steps.signed.outputs.publish == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
