@@ -12,6 +12,7 @@ import { h, icon, clear, iconButton, hostBadge, isHttpUrl } from "../dom.js";
 import { relTime, hostOf, stripAsk } from "../format.js";
 import { getBrowserApi, openFullPage, inExtension } from "../transport.js";
 import { favicon } from "./composer.js";
+import { loadingOr } from "./helperstate.js";
 
 const LAYOUT_KEY = "enso.homeWidgets";
 const DONE_KEY = "enso.doneItems";
@@ -239,7 +240,8 @@ export function createWidgets(store, ctx, { onEdit } = {}) {
   // ---- widget bodies ----------------------------------------------------
 
   const dash = () => s.dashboard.data;
-  const loadingSkel = () => h("div", { class: "w-skel" }, h("div", { class: "skel w40 tall" }), h("div", { class: "skel w75" }), h("div", { class: "skel w60" }));
+  // Before the helper's first answer: a skeleton, or a short note when it isn't running or doesn't answer.
+  const loadingSkel = () => loadingOr(store, "state", null, { tiny: true, placeholder: h("div", { class: "w-skel" }, h("div", { class: "skel w40 tall" }), h("div", { class: "skel w75" }), h("div", { class: "skel w60" })) });
   const empty = text => h("p", { class: "w-empty" }, text);
 
   function open(url, fallbackAsk) {
@@ -698,7 +700,7 @@ export function createWidgets(store, ctx, { onEdit } = {}) {
       if (topics.has("tasks")) noteAdded(s.tasks.added);
       if (topics.has("monday")) noteAdded(s.monday.added);
       if ((topics.has("tasks") && s.tasks.added?.length) || (topics.has("monday") && s.monday.added?.length)) setTimeout(() => { if (!typingInside() && !dragging) render(); }, FLASH_MS + 50); // drop the flash style once it has played
-      if (["dashboard", "settings", "state", "conversations", "space", "tabs", "github", "tasks", "monday"].some(t => topics.has(t))) {
+      if (["dashboard", "settings", "state", "conversations", "space", "tabs", "github", "tasks", "monday"].some(t => topics.has(t)) || (!s.ready && (topics.has("waits") || topics.has("helper")))) {
         if (!typingInside() && !dragging) render();
       }
     },

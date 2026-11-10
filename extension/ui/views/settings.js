@@ -17,6 +17,7 @@ import { profileFields, spaceHintFields } from "./onboarding.js";
 import { SCREENSHOT_SHORTCUT } from "./send.js";
 import { setupSummary, createSetupKit, switchRow, SITE } from "./setup.js";
 import { inExtension } from "../transport.js";
+import { loadingOr } from "./helperstate.js";
 
 // "Type straight into Ensō on new tabs" lives in the extension's own storage
 // (browser.storage.local.newTabFocus), not in the helper's settings:
@@ -107,7 +108,6 @@ function group(title, ...rows) {
 }
 
 const learnMore = (path, text = "Learn more") => h("a", { class: "set-learn", href: `${SITE}/${path}`, target: "_blank", rel: "noopener" }, text, icon("arrowUpRight"));
-const loading = text => h("div", { class: "set-row set-loading" }, h("span", { class: "spinner" }), text);
 
 export function createSettings(store, ctx) {
   const { state: s, actions } = store;
@@ -118,6 +118,16 @@ export function createSettings(store, ctx) {
   let query = "";
   let newTabFocus = false;
   readNewTabFocus().then(v => { newTabFocus = v; renderSection("general"); });
+  // The address-bar row (views/addressbar.js, PR #25): built once and moved into General on each render.
+  // Loaded lazily so Settings works the same on a build without it.
+  let addressBar = null;
+  import("./addressbar.js").then(m => { addressBar = m.createAddressBarSetting?.(store) ?? null; if (addressBar) renderSection("general"); }, () => {});
+
+  // While a section waits for the helper: #26's loading state (spinner, "Couldn't load" + Retry,
+  // or the helper-not-running card). Sections that showed one re-render on "waits"/"helper".
+  const waitingIn = new Set();
+  let rendering = null;
+  const loading = (key, text) => { if (rendering) waitingIn.add(rendering); return h("div", { class: "set-row set-loading" }, loadingOr(store, key, text)); };
 
   const kit = createSetupKit(store, { rerender: () => renderSection("setup", "connections", "agents", "advanced"), isActive: () => el.isConnected });
 
@@ -256,7 +266,7 @@ export function createSettings(store, ctx) {
 
   renderers.general = () => {
     const st = s.settings;
-    if (!st) return [loading("Loading settings…")];
+    if (!st) return [loading("state", "Loading settings…")];
     const eng = s.engines ?? {};
     const models = MODELS.some(([v]) => v === st.model) ? MODELS : [[st.model, st.model], ...MODELS];
     const modelId = nextId("set-model");
@@ -279,11 +289,12 @@ export function createSettings(store, ctx) {
         row({ label: "Refresh the brief", forId: refreshId, desc: `${brief} Off: only when you press refresh.`, keys: "dashboard briefing home new tab auto-refresh widgets",
           control: h("select", { class: "select", id: refreshId, onchange: ev => save({ dashboard: { autoRefreshMinutes: Number(ev.target.value) } }) }, REFRESH.map(([v, l]) => h("option", { value: v, selected: v === (st.dashboard?.autoRefreshMinutes ?? 60) }, l))) }),
         row({ label: "Widgets", desc: "Arrange them on the new tab with the layout button in its top bar.", keys: "new tab widgets layout customize" })),
+      addressBar ? group(null, h("div", { class: "set-row set-block", dataset: { search: "address bar url bar search engine zen default ask" } }, addressBar.el)) : null,
     ];
   };
 
   renderers.memory = () => {
-    if (!s.ready) return [loading("Loading…")];
+    if (!s.ready) return [loading("state", "Loading…")];
     return [profileGroups(), memoryGroup()];
   };
 
@@ -331,7 +342,8 @@ export function createSettings(store, ctx) {
     const desc = scoped ? `Facts Ensō uses only in ${space.name}, on top of the ones it uses everywhere.` : "Facts Ensō saved when you told it something to remember. One per line, in Markdown.";
     const head = h("div", { class: "set-mem-head" }, h("p", { class: "set-note" }, desc), h("div", { class: "set-mem-tabs" }, scope, segmented("Memory view", [[false, "Edit"], [true, "Preview"]], mem.preview, v => { mem.preview = v; renderSection("memory"); })));
     const keys = "memory remember facts markdown everywhere space";
-    if (!src.loaded) return group("Memory", h("div", { class: "set-row set-block", dataset: { search: keys } }, head, h("div", { class: "list-loading" }, h("span", { class: "spinner" }), "Loading memory…")));
+    if (!src.loaded) waitingIn.add("memory");
+    if (!src.loaded) return group("Memory", h("div", { class: "set-row set-block", dataset: { search: keys } }, head, loadingOr(store, scoped ? `memory:${space.id}` : "memory", "Loading memory…")));
     if (!mem.dirty) mem.draft = src.text;
     const area = h("textarea", { class: "memory-editor", spellcheck: "true", aria: { label: scoped ? `Memory for ${space.name} (Markdown)` : "Memory (Markdown)" }, hidden: mem.preview, placeholder: scoped ? `Notes for ${space.name}: projects, people, preferences…` : "" });
     area.value = mem.draft;
@@ -371,6 +383,7 @@ export function createSettings(store, ctx) {
   }
 
   renderers.skills = () => {
+    if (!s.ready) return [loading("state", "Loading skills…")];
     const list = s.skills ?? [];
     const mine = list.filter(k => !k.builtIn);
     const builtIn = list.filter(k => k.builtIn);
@@ -410,6 +423,7 @@ export function createSettings(store, ctx) {
   }
 
   renderers.connections = () => {
+    if (!s.ready) return [loading("state", "Loading…")];
     const list = sortTools(s.servers ?? []);
     const on = list.filter(x => x.enabled !== false);
     const needs = toolsNeedingSignIn(s);
@@ -422,14 +436,14 @@ export function createSettings(store, ctx) {
         needs.map(sv => row({ label: labelOf(sv), desc: statusOf(sv).text, keys: "sign in tool needs attention",
           control: h("button", { type: "button", class: "btn small primary", onclick: ev => openToolPopover(store, sv, ev.currentTarget, ctx) }, "Sign in") }))),
       group("Accounts",
-        st ? h("ul", { class: "setup-list bare" }, kit.githubItem(st)) : loading("Checking GitHub…"),
+        st ? h("ul", { class: "setup-list bare" }, kit.githubItem(st)) : loading("setup", "Checking GitHub…"),
         t3Row()),
     ];
   };
 
   renderers.agents = () => {
     const st = s.settings;
-    if (!st) return [loading("Loading settings…")];
+    if (!st) return [loading("state", "Loading settings…")];
     const setup = s.setup.status;
     const agents = s.connectedAgents ?? [];
     const links = st.sendLinks ?? { tabs: [], hosts: {} };
@@ -438,7 +452,7 @@ export function createSettings(store, ctx) {
     const t3 = s.t3.status;
     return [
       group("Agents that can use Zen",
-        setup ? kit.agentRows(setup) : loading("Checking your agents…"),
+        setup ? kit.agentRows(setup) : loading("setup", "Checking your agents…"),
         row({ label: "Connected now", keys: "connected running agents inbox", desc: agents.length ? agents.map(a => a.client).join(", ") : "None right now. An agent shows up here once it starts with zen-browser." }),
         kit.doneLine(["agents."]) ? h("div", { class: "set-row", dataset: { search: "agents" } }, kit.doneLine(["agents."])) : null),
       group("What agents may do",
@@ -481,7 +495,7 @@ export function createSettings(store, ctx) {
 
   renderers.privacy = () => {
     const st = s.settings;
-    if (!st) return [loading("Loading settings…")];
+    if (!st) return [loading("state", "Loading settings…")];
     const always = st.alwaysAllowedTools ?? [];
     const access = st.sessionAccess ?? {};
     const sites = Object.entries(access).sort(([a], [b]) => a.localeCompare(b));
@@ -520,7 +534,7 @@ export function createSettings(store, ctx) {
 
   renderers.setup = () => {
     const st = s.setup.status;
-    if (!st) return [loading("Checking this Mac…")];
+    if (!st) return [loading("setup", "Checking this Mac…")];
     const sum = setupSummary(st, s.settings);
     const agentsOn = st.agents.clients.filter(c => c.registration);
     const t = st.t3;
@@ -549,7 +563,7 @@ export function createSettings(store, ctx) {
 
   renderers.advanced = () => {
     const st = s.settings;
-    if (!st) return [loading("Loading settings…")];
+    if (!st) return [loading("state", "Loading settings…")];
     const eng = s.engines ?? {};
     const pathId = nextId("set-claude-path");
     const paths = s.paths;
@@ -576,7 +590,10 @@ export function createSettings(store, ctx) {
       const active = document.activeElement;
       const typing = active && bodies[id].contains(active) && active.matches("input[type=text], input[type=password], input:not([type]), textarea") && active.value;
       if (typing && !["memory", "skills"].includes(id)) continue;
+      waitingIn.delete(id);
+      rendering = id;
       clear(bodies[id], renderers[id]());
+      rendering = null;
       if (id === "setup") attnSlot(id, null);
       if (id === "connections") attnSlot(id, attn.connections ? `${attn.connections}.` : null);
       if (id === "agents") attnSlot(id, attn.agents ? "An agent still uses the older setup with the token in its config. Turn it off and on again below." : null);
@@ -591,13 +608,15 @@ export function createSettings(store, ctx) {
   return {
     el,
     update(topics) {
+      const ids0 = new Set();
       kit.onTopics(topics);
+      if (topics.has("waits") || topics.has("helper")) for (const id of waitingIn) ids0.add(id);
       const any = (...t) => t.some(x => topics.has(x));
-      const ids = new Set();
+      const ids = ids0;
       if (any("settings", "state", "dashboard")) ["general", "agents", "privacy", "advanced"].forEach(x => ids.add(x));
       if (any("profile", "state", "memory") || (topics.has("space") && !prof.dirty)) ids.add("memory");
       if (topics.has("space") && !mem.dirty) ids.add("memory");
-      if (any("skills")) ids.add("skills");
+      if (any("skills", "state")) ids.add("skills");
       if (any("servers", "state", "t3", "setup")) ids.add("connections");
       if (any("setup", "settings", "agents", "t3")) ["setup", "agents"].forEach(x => ids.add(x));
       if (topics.has("setup")) ids.add("advanced");

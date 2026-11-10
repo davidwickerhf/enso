@@ -27,7 +27,10 @@ Website and user docs: <https://enso.wicker.life>. Licence: the extension, helpe
 
 ## Install
 
-Two steps, macOS only for now (Zen, or Firefox 139 or newer):
+> **Requires macOS.** The helper runs on macOS only for now. Windows and Linux
+> support is planned; on other systems the installer and the extension say so.
+
+Two steps (Zen, or Firefox 139 or newer, on a Mac):
 
 1. **Add the extension** from <https://enso.wicker.life> (signed by Mozilla, updates itself).
 2. **Run one command.** Press <kbd>⌘E</kbd>: Ensō shows it with a Copy button, and

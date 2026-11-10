@@ -37,6 +37,7 @@ done
 
 NODE="$(command -v volta >/dev/null 2>&1 && volta which node 2>/dev/null || command -v node || true)"
 [ -x "$NODE" ] || { echo "Node.js 18+ is required (https://nodejs.org)." >&2; exit 1; }
+NODE="$("$NODE" -p 'process.execPath' 2>/dev/null || echo "$NODE")" # the real binary, not a version manager's shim
 echo "Node: $NODE ($("$NODE" --version))"
 
 # 1. Helper dependencies. Optional packages are skipped: the subscription engine
@@ -46,12 +47,40 @@ if [ ! -e "$HELPER/node_modules" ]; then
   (cd "$HELPER" && npm ci --omit=optional --no-audit --no-fund --loglevel=error)
 fi
 
-# 2. The script Zen starts.
+# 2. The script Zen starts. Same as install.sh's (keep them in sync): stderr goes
+#    to ~/Library/Logs/Enso/helper.log, so crashes before Node's own logging are there too.
 cat >"$HELPER/run.sh" <<EOF
 #!/bin/bash
 # Written by scripts/dev.sh: runs the helper from this checkout.
-exec "$NODE" "$HELPER/host.mjs"
+NODE="$NODE"
+HOST="$HELPER/host.mjs"
+MIN_NODE=18
 EOF
+cat >>"$HELPER/run.sh" <<'RUNSH'
+LOG_DIR="$HOME/Library/Logs/Enso"
+LOG="$LOG_DIR/helper.log"
+mkdir -p "$LOG_DIR" 2>/dev/null
+# Keep it near 1 MB × 2 (the helper rotates too, while it runs).
+if [ -f "$LOG" ] && [ "$(stat -f %z "$LOG" 2>/dev/null || echo 0)" -gt 1000000 ]; then mv -f "$LOG" "$LOG.1" 2>/dev/null; fi
+note() {
+	printf '%s run.sh: %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*" >>"$LOG" 2>/dev/null
+	printf 'Ensō helper: %s\n' "$*" >&2
+}
+if [ ! -x "$NODE" ]; then
+	note "Node.js is not at $NODE any more. Run scripts/dev.sh again."
+	exit 127
+fi
+major="$("$NODE" -p 'process.versions.node.split(".")[0]' 2>/dev/null)"
+if ! [ "${major:-0}" -ge "$MIN_NODE" ] 2>/dev/null; then
+	note "$NODE is Node ${major:-?}, too old or not working (Ensō needs $MIN_NODE+). Run scripts/dev.sh again with a newer Node."
+	exit 1
+fi
+if { : >>"$LOG"; } 2>/dev/null; then
+	export ENSO_STDERR_LOG="$LOG"
+	exec "$NODE" "$HOST" "$@" 2>>"$LOG"
+fi
+exec "$NODE" "$HOST" "$@"
+RUNSH
 chmod +x "$HELPER/run.sh"
 
 # 2b. The `enso` command (enso mcp: the stdio launcher MCP clients start), from this checkout.

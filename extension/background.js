@@ -685,15 +685,19 @@ function broadcast(msg) {
 // is open (so the first-run guide moves on by itself once install.sh is done),
 // slower otherwise. Zen reads the manifest on every connectNative call, so no
 // restart is needed after installing.
-let helper = { state: "connecting", reason: null, at: Date.now() };
+// For Copy diagnostics the status also carries `lastError` ({ message, state, at,
+// ranMs }: the last time the port closed with or without a reason, kept after a
+// reconnect), `failures` (attempts in a row that failed or crashed soon after
+// starting) and `connectedAt`.
+let helper = { state: "connecting", reason: null, at: Date.now(), lastError: null, failures: 0, connectedAt: null };
 let helperGotMessage = false;
 let helperRetryTimer = null;
 let helperFailures = 0;
 let helperRestarting = false;
 let helperConnectedAt = 0;
 
-function setHelper(state, reason = null) {
-  helper = { state, reason, at: Date.now() };
+function setHelper(state, reason = null, lastError = helper.lastError) {
+  helper = { state, reason, at: Date.now(), lastError, failures: helperFailures, connectedAt: helperConnectedAt || null };
   broadcast({ type: "helper.status", ...helper });
 }
 
@@ -717,7 +721,8 @@ function connectNative() {
     native = browser.runtime.connectNative(HOST);
   } catch (err) {
     native = null;
-    setHelper("missing", String(err?.message ?? err));
+    const message = String(err?.message ?? err);
+    setHelper("missing", message, { message, state: "missing", at: Date.now(), ranMs: 0 });
     scheduleHelperRetry();
     return null;
   }
@@ -761,18 +766,21 @@ function connectNative() {
     broadcast(msg);
   });
   native.onDisconnect.addListener(port => {
-    const reason = port.error?.message || null;
+    // Why the port closed: Firefox puts it on port.error (older versions: runtime.lastError).
+    const reason = port.error?.message || browser.runtime.lastError?.message || null;
     const wasUp = helperGotMessage;
     native = null;
-    if (/no such native application/i.test(reason ?? "")) setHelper("missing", reason);
-    else if (helperRestarting) setHelper("restarting", null);
-    else if (wasUp) {
-      setHelper("stopped", reason ?? "the helper stopped");
-      broadcast({ type: "event", conversationId: null, event: { kind: "error", code: "host_disconnected", text: `Lost Ensō's helper${reason ? `: ${reason}` : ""}. Reconnecting by itself…` } });
-    } else setHelper("failed", reason ?? "the helper exited as soon as it started");
     // Back off when it keeps failing, or keeps crashing soon after starting.
     helperFailures = wasUp && Date.now() - helperConnectedAt > 30_000 ? 0 : helperFailures + 1;
-    if (helper.state === "restarting") helperFailures = 0;
+    const state = /no such native application/i.test(reason ?? "") ? "missing" : helperRestarting ? "restarting" : wasUp ? "stopped" : "failed";
+    if (state === "restarting") helperFailures = 0;
+    const lastError = state === "restarting" ? helper.lastError : { message: reason, state, at: Date.now(), ranMs: wasUp ? Date.now() - helperConnectedAt : 0 };
+    if (state === "missing") setHelper("missing", reason, lastError);
+    else if (state === "restarting") setHelper("restarting", null, lastError);
+    else if (state === "stopped") {
+      setHelper("stopped", reason ?? "the helper stopped", lastError);
+      broadcast({ type: "event", conversationId: null, event: { kind: "error", code: "host_disconnected", text: `Lost Ensō's helper${reason ? `: ${reason}` : ""}. Reconnecting by itself…` } });
+    } else setHelper("failed", reason ?? "the helper exited as soon as it started", lastError);
     scheduleHelperRetry();
   });
   // Space detection must work with no Ensō page open (e.g. Claude Code calling over MCP).

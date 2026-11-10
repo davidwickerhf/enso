@@ -1,6 +1,8 @@
 // Firefox native messaging framing on stdin/stdout: a 4-byte little-endian
 // length followed by UTF-8 JSON. Nothing else may be written to stdout.
 
+import { logLine } from "./logfile.mjs";
+
 const MAX_FRAME = 1024 * 1024; // frames to the browser must stay under 1 MB
 
 export function send(msg) {
@@ -27,4 +29,8 @@ export function onMessage(handler) {
   });
 }
 
-export const log = (...a) => process.stderr.write(`[enso] ${a.join(" ")}\n`);
+// Errors and notes: stderr (the Browser Console) and, in the helper process,
+// ~/Library/Logs/Enso/helper.log (lib/logfile.mjs). Log error messages, never
+// message contents or page text.
+export const log = (...a) => logLine("info", a.join(" "));
+export const logError = (...a) => logLine("error", a.join(" "));

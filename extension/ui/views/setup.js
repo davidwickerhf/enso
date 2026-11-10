@@ -17,6 +17,7 @@
 
 import { h, icon, clear, iconButton } from "../dom.js";
 import { inExtension } from "../transport.js";
+import { copyDiagnosticsButton, describeHelper, LOG_PATH } from "./helperstate.js";
 
 export const SITE = "https://enso.wicker.life";
 export const INSTALL_COMMAND = `curl -fsSL ${SITE}/install.sh | bash`;
@@ -90,8 +91,9 @@ export function createHelperGuide(store) {
     clear(el, h("div", { class: "ob-card hg-card" }, head,
       h("h1", { id: "hg-title", class: "ob-title" }, failed ? "Ensō's helper didn't start" : "One step in Terminal"),
       failed
-        ? h("p", { class: "ob-lede" }, "The helper is installed, but it stopped as soon as it started", s.helper.reason ? ` (${s.helper.reason})` : "", ". Running the install command again repairs it.")
+        ? h("p", { class: "ob-lede" }, "The helper is installed, but it stopped as soon as it started", describeHelper(s.helper).reason ? ` (${describeHelper(s.helper).reason})` : "", ". Running the install command again repairs it. If it doesn't, copy the diagnostics and send them with ", h("code", null, LOG_PATH), ".")
         : h("p", { class: "ob-lede" }, "Ensō's assistant runs in a small helper program on your Mac. Browsers don't let extensions install programs, so this one step happens in Terminal. Everything after it is buttons in Ensō."),
+      failed ? h("div", { class: "hg-diag" }, copyDiagnosticsButton(store, "btn ghost small")) : null,
       steps,
       h("div", { class: ["hg-wait", copied && "on"], role: "status", aria: { live: "polite" } },
         h("span", { class: "spinner" }),
@@ -109,7 +111,8 @@ export function createHelperGuide(store) {
         h("p", null,
           h("a", { href: `${SITE}/install.sh`, target: "_blank", rel: "noopener" }, "Read the script"), " · ",
           h("a", { href: `${SITE}/docs/install`, target: "_blank", rel: "noopener" }, "Install guide"), " · ",
-          h("a", { href: `${SITE}/docs/troubleshooting`, target: "_blank", rel: "noopener" }, "It didn't work"))),
+          h("a", { href: `${SITE}/docs/troubleshooting`, target: "_blank", rel: "noopener" }, "It didn't work")),
+        failed ? null : h("p", null, "Still stuck? ", copyDiagnosticsButton(store, "btn ghost small"))),
     ));
   }
 
