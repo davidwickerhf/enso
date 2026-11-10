@@ -370,12 +370,13 @@ export function createAgentsPanel(store) {
   }
 
   const SKIPPED = { active: "it's the tab you're on", pinned: "it's pinned", group: "it's in one of your groups" };
+  // When first (it's what the row is for), then whose tab it was; the full text is the tooltip.
   function leftoverSub(l) {
-    const by = `Opened by ${l.client}${l.task ? ` for ${l.task}` : ""}`;
-    if (l.skipped) return `${by} · Not closed: ${SKIPPED[l.skipped] ?? "it's in use"}`;
-    if (!l.closesAt) return `${by} · Left ${relTime(l.leftSince)}`;
+    const by = `${l.client}${l.task ? `: ${l.task}` : ""}`;
+    if (l.skipped) return `Kept open: ${SKIPPED[l.skipped] ?? "it's in use"} · ${by}`;
+    if (!l.closesAt) return `Left ${relTime(l.leftSince)} · ${by}`;
     const mins = Math.max(0, Math.round((Date.parse(l.closesAt) - Date.now()) / 60_000));
-    return `${by} · Closes ${mins < 1 ? "in under a minute" : `in ${mins} min`} unless you use it`;
+    return `Closes ${mins < 1 ? "in under a minute" : `in ${mins} min`} · ${by}`;
   }
 
   function renderLeftovers() {
@@ -397,7 +398,7 @@ export function createAgentsPanel(store) {
             host ? hostBadge(host) : h("span", { class: "agent-mark small", aria: { hidden: "true" } }, "✦"),
             h("span", { class: "agents-main" },
               h("span", { class: "agents-who" }, h("strong", null, l.title || host || l.url), l.space ? h("span", { class: "tag agent-space" }, l.space) : null),
-              h("span", { class: "agents-sub" }, leftoverSub(l)))),
+              h("span", { class: "agents-sub", title: `${leftoverSub(l)}. Opened by ${l.client}${l.task ? ` for ${l.task}` : ""}; using the tab makes it yours.` }, leftoverSub(l)))),
           h("button", { type: "button", class: "btn small ghost", dataset: { fk: `left-keep-${l.tabId}` }, title: "Keep this tab open; it stops being an agent's tab", onclick: () => actions.keepAgentTabs([l.tabId]) }, "Keep"),
           iconButton("x", `Close ${l.title || host || "this tab"}`, () => actions.closeAgentTabs([l.tabId]), { class: "small", dataset: { fk: `left-x-${l.tabId}` } }));
       })) : null) : null;
@@ -412,7 +413,7 @@ export function createAgentsPanel(store) {
             host ? hostBadge(host) : null,
             h("span", { class: "agents-main" },
               h("span", { class: "agents-who" }, h("strong", null, c.title || host || c.url)),
-              h("span", { class: "agents-sub" }, `${c.client}'s tab · closed ${relTime(c.closedAt)}${c.auto ? " (unused)" : ""}`))),
+              h("span", { class: "agents-sub" }, `Closed ${relTime(c.closedAt)}${c.auto ? ", unused" : ""} · ${c.client}`))),
           h("button", { type: "button", class: "btn small ghost", dataset: { fk: `reopen-${c.id}` }, onclick: () => actions.reopenClosedTab(c.id) }, "Reopen"));
       })) : null) : null;
     return h("div", { class: "agents-leftovers-wrap" }, leftBlock, closedBlock);
