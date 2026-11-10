@@ -17,7 +17,7 @@
 //   doctor                     always (helper.log rotation and redaction, `enso doctor` against fake installs)
 //   ui-loading                 always (the extension store: no endless Loading…, Copy diagnostics text)
 //   pageagent                  always; skips itself without Playwright's Chromium
-//                              (Google Docs typing, title prefix, page pill)
+//                              (Google Docs typing, title prefix, page pill, several agents on one tab, re-injection)
 //   transfer                   always (chunked messages over 1 MB, the upload store, page_wait's conditions, timeouts)
 //   upload-host                always (host.mjs + MCP: 5 MB page_type, page_upload streaming, page_wait, timeout messages)
 //   pageupload                 always; skips itself without Playwright's Chromium (page_upload input/drop, page_wait probes)

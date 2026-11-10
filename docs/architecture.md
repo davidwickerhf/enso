@@ -128,9 +128,12 @@ While a turn acts on a page, the agent flashes a soft outline on the element it
 touches and shows a pill at the top of the page: "✦ Claude is working on this
 page", or the MCP client's name when another agent is acting. For an external
 agent with a live session the pill stays for the whole session ("✦ Codex · Fix
-the failing checkout test", with Paused/Stopped states), the page title gets a
-"✦ " prefix (followed through title rewrites with a MutationObserver, restored
-exactly), and clicking the pill opens Ensō's sidebar through `pill.html`, an
+the failing checkout test", with Paused/Stopped states). Several agents on one
+tab share one pill ("✦ 2 agents · Claude Code: … (+1)", a list of each agent and
+its state on hover) and each flashes in its own shade. The page title gets a
+"✦ " prefix exactly once however many sessions there are (followed through
+title rewrites with a MutationObserver, restored exactly when the last session
+ends), and clicking the pill opens Ensō's sidebar through `pill.html`, an
 extension frame laid over it. On Google Docs, `type` without a ref inserts into
 Docs' hidden input frame.
 

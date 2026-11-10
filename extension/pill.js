@@ -4,7 +4,7 @@
 
 const tell = msg => browser.runtime.sendMessage({ ensoPill: msg.kind, ...msg }).catch(() => {});
 
-document.querySelector("button").addEventListener("click", () => {
+document.querySelector("button").addEventListener("click", e => {
   let opening;
   try {
     opening = browser.sidebarAction.open(); // must be the first thing in the handler
@@ -12,8 +12,8 @@ document.querySelector("button").addEventListener("click", () => {
     opening = Promise.reject(err);
   }
   opening.then(
-    () => tell({ kind: "click", opened: true }),
-    () => tell({ kind: "click", opened: false }),
+    () => tell({ kind: "click", opened: true, y: e.clientY }), // y: which agent's row, when the pill is expanded
+    () => tell({ kind: "click", opened: false, y: e.clientY }),
   );
 });
 

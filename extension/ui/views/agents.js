@@ -4,6 +4,9 @@
 //     (Claude Code, Codex…), its client and task, elapsed time, a live list of
 //     recent steps (irreversible ones highlighted), Pause/Resume, Stop and
 //     "Tell the agent…" with the delivery state of each note;
+//     With several sessions on the tab, one card with a tab per agent (its
+//     shade, as on the page pill and flashes, and its state); the page pill
+//     picks the tab of the agent clicked;
 //   - the Agents row: every live session across tabs and spaces; a row
 //     switches to that tab, Stop stops it.
 //
@@ -71,6 +74,11 @@ function stateLabel(a) {
   return "Idle";
 }
 
+// The same shades as the page (pageagent.js SHADES): each session keeps the
+// first one free on its tab, oldest first, for as long as it lives.
+export const SHADES = ["#d9643a", "#2f7f86", "#8a4f9e", "#b0802a", "#4a6db0", "#a8455a"];
+const RANK = a => (a.stopped ? 3 : a.paused ? 1 : a.running ? 0 : 2);
+
 export function createAgentsPanel(store) {
   const { state: s, actions } = store;
   const el = h("div", { class: "agents-slot" });
@@ -79,7 +87,28 @@ export function createAgentsPanel(store) {
   let lastAnnounced = null;
   let ticker = null;
 
-  const current = () => (s.tab ? s.agents.find(a => a.tabId === s.tab.tabId) ?? null : null);
+  let picked = null; // the session shown when several work on the active tab
+  const shades = new Map(); // session id -> shade
+  const onTab = () => (s.tab ? s.agents.filter(a => a.tabId === s.tab.tabId).sort((a, b) => String(a.startedAt).localeCompare(String(b.startedAt))) : []);
+  function current() {
+    const list = onTab();
+    if (!list.length) return null;
+    let a = list.find(x => x.id === picked);
+    if (!a) {
+      a = [...list].sort((x, y) => RANK(x) - RANK(y))[0]; // the one the pill leads with
+      picked = a.id;
+    }
+    return a;
+  }
+  function shadeOf(a) {
+    const live = new Set(s.agents.map(x => x.id));
+    for (const id of [...shades.keys()]) if (!live.has(id)) shades.delete(id);
+    if (!shades.has(a.id)) {
+      const used = new Set(s.agents.filter(x => x.tabId === a.tabId && shades.has(x.id)).map(x => shades.get(x.id)));
+      shades.set(a.id, SHADES.find(c => !used.has(c)) ?? SHADES[0]);
+    }
+    return shades.get(a.id);
+  }
 
   function buildCard(a) {
     const steps = h("ol", { class: "agent-steps", aria: { label: "Recent steps" } });
@@ -173,9 +202,30 @@ export function createAgentsPanel(store) {
     if (a) card.time.textContent = elapsed(a.startedAt);
   }
 
-  function renderList(skipId) {
-    const others = s.agents.filter(a => a.id !== skipId);
+  /** One tab per agent when several work on the active tab. */
+  function renderTabs(list, selId) {
+    if (list.length < 2) return null;
+    const pick = id => { picked = id; render(); tabsHost.querySelector(`[data-fk="tab-${CSS.escape(id)}"]`)?.focus(); };
+    const onkeydown = e => {
+      const i = list.findIndex(x => x.id === selId);
+      const step = e.key === "ArrowRight" ? 1 : e.key === "ArrowLeft" ? -1 : 0;
+      if (!step) return;
+      e.preventDefault();
+      pick(list[(i + step + list.length) % list.length].id);
+    };
+    return h("div", { class: "agent-tabs", role: "tablist", aria: { label: `${list.length} agents on this tab` }, onkeydown }, list.map(a => {
+      const sel = a.id === selId;
+      return h("button", { type: "button", role: "tab", class: ["agent-tab", sel && "selected", a.paused && "paused", a.stopped && "stopped", a.running && !a.paused && !a.stopped && "running"], tabindex: sel ? "0" : "-1", dataset: { fk: `tab-${a.id}` }, aria: { selected: String(sel), controls: "agent-card-panel" }, title: `${a.client}${a.task ? `: ${a.task}` : ""} · ${stateLabel(a)}`, onclick: () => pick(a.id) },
+        h("span", { class: "agent-tab-dot", style: `background:${shadeOf(a)}`, aria: { hidden: "true" } }),
+        h("span", { class: "agent-tab-text" }, h("strong", null, a.client), a.task ? h("span", { class: "agent-tab-task" }, a.task) : null),
+        h("span", { class: "agent-tab-state" }, stateLabel(a)));
+    }));
+  }
+
+  function renderList(skipIds) {
+    const others = s.agents.filter(a => !skipIds.includes(a.id));
     if (!others.length) return null;
+    const skipId = skipIds.length > 0;
     const toggle = h("button", { type: "button", class: "agents-toggle", dataset: { fk: "toggle" }, aria: { expanded: String(listOpen), controls: "agents-list" }, onclick: () => { listOpen = !listOpen; if (listOpen) actions.listTabs(); render(); } },
       h("span", { class: "agents-dot", aria: { hidden: "true" } }),
       h("span", { class: "agents-label" }, skipId ? `${others.length} more ${others.length === 1 ? "agent" : "agents"} working` : `${others.length === 1 ? "An agent is" : `${others.length} agents are`} working in other tabs`),
@@ -195,10 +245,13 @@ export function createAgentsPanel(store) {
     return h("div", { class: "agents-row-wrap" }, toggle, list);
   }
 
+  const tabsHost = h("div", { class: "agent-tabs-host" });
   const cardHost = h("div", { class: "agent-card-host" });
+  const stack = h("div", { class: "agent-stack" }, tabsHost, cardHost);
   const listHost = h("div", { class: "agents-list-host" });
   let listSig = "";
-  el.append(cardHost, listHost);
+  let tabsSig = "";
+  el.append(stack, listHost);
 
   function render() {
     const a = current();
@@ -209,18 +262,36 @@ export function createAgentsPanel(store) {
     }
     if (!a && card) { card = null; clear(cardHost); }
     if (card) fillCard(a);
+    // Several agents on this tab: a tab for each above the card.
+    const here = onTab();
+    const tsig = JSON.stringify([a?.id, here.map(x => [x.id, x.client, x.task, x.paused, x.stopped, x.running])]);
+    if (tsig !== tabsSig) {
+      tabsSig = tsig;
+      const focused = tabsHost.contains(document.activeElement) ? document.activeElement.dataset.fk : null;
+      clear(tabsHost, renderTabs(here, a?.id));
+      if (focused) tabsHost.querySelector(`[data-fk="${CSS.escape(focused)}"]`)?.focus();
+    }
+    tabsHost.hidden = here.length < 2;
+    stack.classList.toggle("tabbed", here.length > 1);
+    if (card) {
+      card.root.id = "agent-card-panel";
+      if (here.length > 1) card.root.setAttribute("role", "tabpanel");
+      else card.root.removeAttribute("role");
+    }
     // The card node (and the note being typed) stays in place; only the list is rebuilt.
-    const others = s.agents.filter(x => x.id !== a?.id);
-    const sig = JSON.stringify([listOpen, a?.id, others.map(x => [x.id, x.task, x.paused, x.stopped, x.running, x.title, x.actions.at(-1)?.id]), listOpen ? s.tabs.map(t => [t.tabId, t.space]) : 0]);
+    const hereIds = here.map(x => x.id);
+    const others = s.agents.filter(x => !hereIds.includes(x.id));
+    const sig = JSON.stringify([listOpen, hereIds, others.map(x => [x.id, x.task, x.paused, x.stopped, x.running, x.title, x.actions.at(-1)?.id]), listOpen ? s.tabs.map(t => [t.tabId, t.space]) : 0]);
     let list = listHost.firstChild;
     if (sig !== listSig) {
       listSig = sig;
       const focused = listHost.contains(document.activeElement) ? document.activeElement.dataset.fk : null;
-      list = renderList(a?.id);
+      list = renderList(hereIds);
       clear(listHost, list);
       if (focused) listHost.querySelector(`[data-fk="${CSS.escape(focused)}"]`)?.focus();
     }
     cardHost.hidden = !card;
+    stack.hidden = !card;
     listHost.hidden = !list;
     el.hidden = !card && !list;
     if (s.agents.length && !ticker) ticker = setInterval(tick, 1000);
@@ -232,6 +303,10 @@ export function createAgentsPanel(store) {
     el,
     update(topics) {
       if (topics.has("agents") || topics.has("tab") || topics.has("tabs")) render();
+      if (topics.has("agents-focus") && s.agentFocus?.tabId === s.tab?.tabId && s.agentFocus.sessionId && s.agentFocus.sessionId !== picked && onTab().some(x => x.id === s.agentFocus.sessionId)) {
+        picked = s.agentFocus.sessionId; // the agent clicked in the page pill
+        render();
+      }
       if (topics.has("agents-focus") && card && s.agentFocus?.tabId === s.tab?.tabId) {
         card.root.scrollIntoView({ block: "nearest" });
         card.root.classList.remove("flash");

@@ -105,8 +105,10 @@ content. On connect it sends the last `agents` it has.
 background.js also sends messages of its own to every UI:
 
 - `composer.prefill`: `{ type, text }` from the "Ask Ensō about this" context menu;
-- `agents.focus`: `{ type, tabId }` when the user clicked the page pill on that
-  tab (the sidebar scrolls to the agent card and focuses "Tell the agent…");
+- `agents.focus`: `{ type, tabId, sessionId? }` when the user clicked the page
+  pill on that tab (the sidebar scrolls to the agent card and focuses "Tell the
+  agent…"; with several agents on the tab, `sessionId` is the one whose row was
+  clicked, or the one the pill leads with, and its tab on the card is selected);
 - `screenshot.captured`: `{ type, image, mode, tab: { tabId, url, title, … },
   consoleErrors: [{ t, text, source }] | null, at }`, or `{ cancelled: true }`, or
   `{ error }`. After the `send-screenshot` command (⌘⇧2, Ctrl+Shift+2 off macOS) it goes to the sidebar
@@ -546,7 +548,9 @@ still be running and how to check before retrying.
 passes it to the page agent with the action, and the pill and outline flash name
 it. Without it (Ensō's own turns) they say "Claude". For external agents with a
 live session the pill comes from `presence` instead (below) and stays for the
-whole session.
+whole session. background.js also adds `session`, the id of the session acting
+on that tab (with two sessions of one client there, the one running a tool,
+else the most recent), so the outline flash takes that agent's shade.
 
 | action | args | result |
 |---|---|---|
@@ -565,8 +569,10 @@ whole session.
 | `query` | `selector`, `attributes?` (allowed: `href`, `src`, `value`, `alt`, `title`, `id`, `class`, `type`, `role`, `name`, `placeholder`, `aria-*`, `data-*` and a few more), `limit?` (≤ 200), `includeText?` | `{ url, title, description, selector, total, count, truncated, refusedAttributes, elements: [{ tag, text?, attributes?, visible, rect }] }`. A fixed query (`querySelectorAll`), no code evaluated; URL attributes resolved; password values never returned; ≤ 60k characters. Every build (since 0.5.7). |
 | `inspect` | `ref?` or `selector?` | `{ url, title, description, tag, role, name, matched?, rect, scroll, viewport, visible, inView, covered, coveredBy, styles }`. A curated set of computed styles. Every build (since 0.5.7). |
 | `eval` | `expression`, `awaitPromise?` (default true), `timeoutMs?` (default 30 s, max 120 s) | `{ ok, world: "page", type?, json?, error?, stack?, timedOut?, waitedMs?, url, title, description }` (page world only; a page whose CSP blocks eval returns an error, since 0.5.5). `timedOut`: a returned promise didn't settle in time; the code keeps running in the page. **Not in the listed (addons.mozilla.org) build**: the page agent answers "Unknown page action eval", and background.js refuses it first. |
-| `presence` | `{ label, task, running, paused, stopped, titlePrefix }`, or `{ off: true }` | `{ shown, title }`. Sent by background.js itself (not the host) from `agents`: shows or updates the session pill and the "✦ " title prefix, or removes both (the page's latest own title restored exactly). |
+| `presence` | `{ agents: [{ id, label, task, startedAt, running, paused, stopped }], titlePrefix }` (every session on the tab, newest first; a single `{ label, task, … }` still works), or `{ off: true }` | `{ shown, count, title }`. Sent by background.js itself (not the host) from `agents`: one pill for all sessions on the tab ("Claude Code · task", or "2 agents · Claude Code: task (+1)" led by the most important state, working > paused > idle > stopped, with a list of each agent on hover, focus or click) and the "✦ " title prefix exactly once; an empty list or `off` removes both (the page's latest own title restored exactly). |
 | `pill_ready` / `pill_hint` | — / `{ text }` | background.js → page agent: the pill's frame loaded (clicks go to it now) / a short hint on the pill ("Press ⌘E for Ensō", or Ctrl+E off macOS) |
+| `pill_pick` | `{ y }` | `{ sessionId }`: the agent whose row is at `y` px from the top of the pill (a click in `pill.html`), else the one the pill leads with |
+| `pill_state` | — | `{ shown, count, text, state, expanded, rows, shades }`: what the pill shows (its shadow root is closed to the page); diagnostics and tests |
 | `ping` / `probe` | — / `{ for, value, visible? }` | background.js → page agent: is it injected (cheap, unlike `text`) / one check for `wait`: `{ met, detail }` |
 | `upload_part` / `upload` | `{ uploadId, index, count, meta: { name, type, lastModified, size }, bytes: Uint8Array }` / `{ uploadId, ref?, selector?, mode? }` | background.js → page agent. The page agent builds `File` objects (in Firefox in the page's compartment: `new window.wrappedJSObject.File(cloneInto(parts, …))`, a page `DataTransfer`, page events, so the page can read them) and sets them on the input (`input.files = dataTransfer.files`, then `input` and `change`) or fires `dragenter`, `dragover`, `drop` on the element. `selector` also searches open shadow roots; a `<label>` leads to its input. |
 | `storage` | `includeValues?` | `{ url, local: [{ key, length, value? }], session: [...], cookies: [{ name, domain, path, secure, httpOnly, sameSite, session, expires, partitioned }], container }`; cookie values are never included, credential-looking storage values are redacted |
@@ -597,12 +603,22 @@ Browser-level actions use the same envelope (`browser.request` / `browser.respon
 
 The pill's click target, `pill.html` (web-accessible, laid transparently over
 the pill), calls `sidebarAction.open()` in its click handler and sends
-`runtime.sendMessage({ ensoPill: "ready" | "click", opened? })`; background.js
-checks `sender.url` is that page. When the frame can't load, the page agent's own
-click sends `{ ensoPillFallback: true }`. Per tab with a session, background.js
-also sets a copper "AI" badge and a title on Ensō's toolbar button
+`runtime.sendMessage({ ensoPill: "ready" | "click", opened?, y? })`; background.js
+checks `sender.url` is that page and asks the page agent which agent was clicked
+(`pill_pick`). When the frame can't load, the page agent's own
+click sends `{ ensoPillFallback: true, sessionId }`. Per tab with sessions, background.js
+also sets a copper "AI" badge ("AI2", "AI3" with several) and a title on Ensō's toolbar button
 (`browserAction.setBadgeText` / `setBadgeBackgroundColor` / `setTitle` with
 `tabId`) and re-sends `presence` after a navigation.
+
+One copy of the page agent per page: `window.__ensoAgent` stops a second
+injection in the same sandbox, but after an extension update or reload the new
+copy runs in a new sandbox while the old one's pill, flashes and title prefix
+are still on the page. A new copy dispatches `enso-agent-replaced` on the
+document (live older copies of this build stand down and remove what they
+showed), then removes every `[data-enso-pill]`, `[data-enso-flash]` and
+older-style flash box, and strips any leading "✦ " from the title;
+background.js puts the prefix back, once, with the next `presence`.
 
 The page agent posts captured console entries to background.js as
 `runtime.sendMessage({ ensoConsole: true, entries })`; background keeps up

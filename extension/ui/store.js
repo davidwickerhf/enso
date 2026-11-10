@@ -438,7 +438,7 @@ export function createStore({ waitMs = WAIT_MS } = {}) {
         return;
       }
       case "agents.focus":
-        s.agentFocus = { tabId: msg.tabId, at: Date.now() };
+        s.agentFocus = { tabId: msg.tabId, sessionId: msg.sessionId ?? null, at: Date.now() };
         emit("agents-focus");
         return;
       case "dashboard":
