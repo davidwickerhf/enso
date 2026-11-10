@@ -196,9 +196,14 @@ Everything shown on <https://addons.mozilla.org/firefox/addon/enso/> is in
 
 The privacy policy on AMO is generated from `site/content/privacy.md`. To
 change the listing, edit these files, merge, and run the **AMO listing**
-workflow (Actions → AMO listing → Run workflow; tick *icon* or *previews* to
+workflow (Actions → AMO listing → Run workflow; tick *icon*, or choose *previews* "missing" or "replace", to
 upload those too). `node amo/amo.mjs listing --dry-run` prints what it would
 send, without credentials. The credentials are only in the repository secrets.
+
+AMO throttles writes per hour (around ten). A run that hits the hourly limit
+fails with "run it again later"; run it again an hour later with previews
+"missing", which uploads only the screenshots that aren't there yet. Don't
+run it just before tagging a release, which needs a few writes too.
 
 ## Re-publishing and fixing a release
 

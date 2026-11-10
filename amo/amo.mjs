@@ -2,11 +2,12 @@
 // addons.mozilla.org (AMO) API v5 for Ensō's listing and releases.
 // Used by .github/workflows/amo-listing.yml and release.yml; needs Node 20+.
 //
-//   node amo/amo.mjs listing [--previews] [--icon] [--dry-run]
+//   node amo/amo.mjs listing [--previews | --replace-previews] [--icon] [--dry-run]
 //       Sets the listing from amo/listing.json, amo/description.md and the
 //       site's privacy policy (site/content/privacy.md): name, slug, summary,
 //       description, categories, links, flags, privacy policy; with --icon the
-//       icon, with --previews replaces the screenshots.
+//       icon, with --previews the screenshots that aren't there yet, with
+//       --replace-previews all screenshots again.
 //   node amo/amo.mjs metadata <version> <out.json>
 //       Writes web-ext's --amo-metadata file for a listed version: licence,
 //       reviewer notes (amo/approval-notes.md) and release notes (CHANGELOG.md).
@@ -48,7 +49,23 @@ function jwt() {
   return `${head}.${body}.${sig}`;
 }
 
-async function api(method, pathname, { json, form, auth = true, raw = false } = {}) {
+/** AMO throttles writes ("Expected available in 57 seconds"); wait and retry a few times. */
+async function api(method, pathname, opts = {}) {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await request(method, pathname, opts);
+    } catch (err) {
+      if (err.status !== 429 || attempt >= 6) throw err;
+      const wait = Number(/(\d+) seconds?/.exec(JSON.stringify(err.data))?.[1] ?? 30) + 2;
+      // AMO also has hourly limits; don't sit in a CI job for an hour.
+      if (wait > 180) throw new Error(`AMO throttled ${method} ${pathname} for ${wait} s; run it again later. ${err.message}`);
+      console.log(`AMO throttled ${method} ${pathname}; retrying in ${wait} s.`);
+      await new Promise(r => setTimeout(r, wait * 1000));
+    }
+  }
+}
+
+async function request(method, pathname, { json, form, auth = true, raw = false } = {}) {
   const url = /^https?:/.test(pathname) ? pathname : BASE + pathname;
   const headers = {};
   if (auth) headers.Authorization = `JWT ${jwt()}`;
@@ -121,14 +138,15 @@ function releaseNotes(version) {
   if (start < 0) return null;
   const rest = log.slice(start).split("\n").slice(1).join("\n");
   const end = rest.search(/^## /m);
-  return (end < 0 ? rest : rest.slice(0, end)).replace(/\*\*(.+?)\*\*/g, "$1").replace(/`([^`]+)`/g, "$1").trim().slice(0, 3000) || null;
+  const text = (end < 0 ? rest : rest.slice(0, end)).replace(/\*\*(.+?)\*\*/g, "$1").replace(/`([^`]+)`/g, "$1").replace(/\n {2}(?=\S)/g, " ").replace(/([^\n])\n(?=[^\n-])/g, "$1 ").trim();
+  return (text.length > 3000 ? `${text.slice(0, text.lastIndexOf("\n", 2900))}\n…` : text) || null;
 }
 
 const read = p => readFileSync(path.join(here, p), "utf8").trim();
 
 // ---------- commands ----------
 
-async function setListing({ previews, icon, dryRun }) {
+async function setListing({ previews, replacePreviews, icon, dryRun }) {
   const fields = {
     name: tr(listing.name),
     summary: tr(listing.summary),
@@ -175,12 +193,20 @@ async function setListing({ previews, icon, dryRun }) {
     console.log("Icon uploaded.");
   }
 
-  if (previews && listing.previews?.length) {
-    const current = (await api("GET", addonPath)).previews ?? [];
-    for (const p of current) await api("DELETE", `${addonPath}previews/${p.id}/`);
-    if (current.length) console.log(`Removed ${current.length} old previews.`);
-    let position = 0;
-    for (const file of listing.previews) {
+  if ((previews || replacePreviews) && listing.previews?.length) {
+    // AMO doesn't keep file names, so previews are matched by position: by
+    // default only the missing ones (from the end of the list) are uploaded,
+    // which makes a run that was throttled halfway safe to repeat.
+    let current = ((await api("GET", addonPath)).previews ?? []).sort((a, b) => a.position - b.position);
+    if (replacePreviews) {
+      for (const p of current) await api("DELETE", `${addonPath}previews/${p.id}/`);
+      if (current.length) console.log(`Removed ${current.length} old previews.`);
+      current = [];
+    }
+    const missing = listing.previews.slice(current.length);
+    if (!missing.length) console.log(`Previews: all ${current.length} already there (use --replace-previews to upload them again).`);
+    let position = current.length;
+    for (const file of missing) {
       const form = new FormData();
       form.set("image", fileBlob(file, "image/png"), path.basename(file));
       form.set("position", String(position++));
@@ -270,12 +296,12 @@ const positional = args.filter((a, i) => !a.startsWith("--") && !(i > 0 && ["--m
 
 if (import.meta.url === `file://${process.argv[1]}`) {
   try {
-    if (cmd === "listing") await setListing({ previews: flag("--previews"), icon: flag("--icon"), dryRun: flag("--dry-run") });
+    if (cmd === "listing") await setListing({ previews: flag("--previews"), replacePreviews: flag("--replace-previews"), icon: flag("--icon"), dryRun: flag("--dry-run") });
     else if (cmd === "metadata") writeMetadata(positional[0], positional[1]);
     else if (cmd === "wait") await wait(positional[0], { minutes: Number(opt("--minutes", 10)), out: opt("--out") });
     else if (cmd === "status") await status(positional[0]);
     else {
-      console.error("Usage: amo.mjs listing [--previews] [--icon] [--dry-run] | metadata <version> <out> | wait <version> [--minutes N] [--out file] | status [<version>]");
+      console.error("Usage: amo.mjs listing [--previews | --replace-previews] [--icon] [--dry-run] | metadata <version> <out> | wait <version> [--minutes N] [--out file] | status [<version>]");
       process.exitCode = 2;
     }
   } catch (err) {

@@ -9,6 +9,19 @@ group: Reference
 
 The extension and the helper share one version number. The extension updates itself; run the [installer](/docs/install) again to update the helper.
 
+## 0.5.5 — 10 November 2026
+
+- **On Firefox Add-ons.** Ensō is now a listed add-on on addons.mozilla.org, and updates come from there. Copies installed from this site move over with this update.
+- **Guided setup.** Without the helper, Ensō shows the one install command with a Copy button and carries on by itself when the helper is there. **Settings → Setup** then has a button for everything else: Claude Code or an API key, your agents, T3 Code, GitHub and tools. See [Install](/docs/install).
+- **Tax and government sites are private** too, like banking and health sites: the Belastingdienst, DigiD, MijnOverheid, the IRS, HMRC and others. See [Privacy & data](/docs/privacy-data#private-sites).
+- **"Off" really stops the Home brief** (Settings → Home); it then only updates when you press refresh.
+- The [privacy policy](/privacy) now covers the Home brief, Claude Code's own transcripts, other agents, screenshots and connected tools, and lists every private site.
+
+## 0.5.4 — 10 November 2026
+
+- **Tasks refresh** after a chat changes them, and in the background while the new tab is open.
+- **monday.com on the new tab**: what's assigned to you, with recent updates.
+
 ## 0.5.3 — 10 November 2026
 
 - **See what other agents are doing.** When Claude Code, Codex or another agent works in Zen, the page shows a pill with its name and task for as long as it works, the tab's title starts with ✦ in Zen's tab list, and Ensō's toolbar button shows an **AI** badge on that tab.

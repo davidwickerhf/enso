@@ -14,9 +14,10 @@ on:
         type: boolean
         default: false
       previews:
-        description: Replace the screenshots with amo/previews/*
-        type: boolean
-        default: false
+        description: Screenshots from amo/previews/ (missing = upload the ones not there yet, replace = all again)
+        type: choice
+        default: none
+        options: [none, missing, replace]
       version:
         description: Optional version to report the status of, e.g. 0.5.5
         required: false
@@ -45,7 +46,8 @@ jobs:
         run: |
           args=""
           [ "${{ github.event.inputs.icon }}" = true ] && args="$args --icon"
-          [ "${{ github.event.inputs.previews }}" = true ] && args="$args --previews"
+          [ "${{ github.event.inputs.previews }}" = missing ] && args="$args --previews"
+          [ "${{ github.event.inputs.previews }}" = replace ] && args="$args --replace-previews"
           node amo/amo.mjs listing $args
       - name: Status
         env:
