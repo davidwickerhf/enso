@@ -126,6 +126,16 @@ export function pickShown(rows, n, keep = new Set()) {
   return rows.filter(r => chosen.has(r));
 }
 
+/** "Thursday 12 November, 17:00 · in 2 days" for the detail card. */
+function dueLong(due, now = new Date()) {
+  const d = parseDue(due);
+  if (!d) return due ?? "";
+  const date = d.toLocaleDateString(undefined, { weekday: "long", day: "numeric", month: "long", ...(d.getFullYear() !== now.getFullYear() && { year: "numeric" }) });
+  const n = dueDays(due, now);
+  const rel = n == null ? "" : n < -1 ? `${-n} days overdue` : n === -1 ? "1 day overdue" : n === 0 ? "today" : n === 1 ? "tomorrow" : `in ${n} days`;
+  return `${date}${/T/.test(due) ? `, ${hm(d)}` : ""}${rel ? ` · ${rel}` : ""}`;
+}
+
 /** The reminder as a short time ("17:00", or "Wed 17:00" on another day than the due date). */
 function reminderLabel(r) {
   const d = parseDue(r.remindAt);
@@ -136,6 +146,62 @@ function reminderLabel(r) {
 
 export function createWidgets(store, ctx, { onEdit } = {}) {
   const { state: s, actions } = store;
+
+  // ---- detail cards: hover or focus a row for the whole item and its actions ----
+  // (instead of the browser's grey tooltip, which cuts titles and can't hold buttons)
+  let card = null;
+  let cardAnchor = null;
+  let showTimer = 0;
+  let hideTimer = 0;
+  function hideCard() {
+    clearTimeout(showTimer);
+    clearTimeout(hideTimer);
+    cardAnchor?.removeAttribute("aria-describedby");
+    card?.remove();
+    card = cardAnchor = null;
+  }
+  function placeCard() {
+    if (!card || !cardAnchor?.isConnected) return hideCard();
+    const r = cardAnchor.getBoundingClientRect();
+    const w = card.offsetWidth;
+    const hgt = card.offsetHeight;
+    const top = r.bottom + 8 + hgt > innerHeight - 8 ? Math.max(8, r.top - hgt - 8) : r.bottom + 8;
+    card.style.top = `${Math.round(top)}px`;
+    card.style.left = `${Math.round(Math.min(Math.max(8, r.left), innerWidth - w - 8))}px`;
+  }
+  /** Attach a detail card to a row; `build` returns { title, source, lines: [[icon, text, cls?]], acts: [[label, fn]] }. */
+  function withCard(anchor, build) {
+    const show = delay => {
+      clearTimeout(hideTimer);
+      clearTimeout(showTimer);
+      showTimer = setTimeout(() => {
+        if (!anchor.isConnected || editing || dragging) return;
+        hideCard();
+        const { title, source, lines = [], acts = [] } = build();
+        card = h("div", { class: "w-card", role: "tooltip", id: "w-card" },
+          h("p", { class: "w-card-title" }, title),
+          source ? h("span", { class: "w-task-src w-card-src" }, source) : null,
+          lines.filter(l => l?.[1]).map(([ic, text, cls]) => h("p", { class: ["w-card-line", cls] }, icon(ic), h("span", null, text))),
+          acts.length ? h("div", { class: "w-card-acts" }, acts.filter(Boolean).map(([label, fn]) => h("button", { type: "button", class: "btn small ghost", onclick: e => { e.stopPropagation(); hideCard(); fn(); } }, label))) : null);
+        card.addEventListener("pointerenter", () => clearTimeout(hideTimer));
+        card.addEventListener("pointerleave", later);
+        card.addEventListener("focusout", e => { if (!card?.contains(e.relatedTarget) && e.relatedTarget !== anchor) later(); });
+        cardAnchor = anchor;
+        anchor.setAttribute("aria-describedby", "w-card");
+        document.body.append(card);
+        placeCard();
+      }, delay);
+    };
+    const later = () => { clearTimeout(showTimer); clearTimeout(hideTimer); hideTimer = setTimeout(hideCard, 180); };
+    anchor.addEventListener("pointerenter", () => show(350));
+    anchor.addEventListener("pointerleave", later);
+    anchor.addEventListener("focus", () => show(600));
+    anchor.addEventListener("blur", e => { if (!card?.contains(e.relatedTarget)) later(); });
+    return anchor;
+  }
+  document.addEventListener("keydown", e => { if (e.key === "Escape" && card) { const a = cardAnchor; hideCard(); a?.focus?.(); } });
+  window.addEventListener("scroll", () => card && placeCard(), true);
+  window.addEventListener("resize", () => card && placeCard());
   let editing = false;
   let pickerOpen = false;
   let layout = readLayout();
@@ -213,8 +279,13 @@ export function createWidgets(store, ctx, { onEdit } = {}) {
         x.task
           ? h("button", { type: "button", class: "w-tick", title: "Mark done", aria: { label: `Mark “${x.title}” done` }, onclick: e => { e.stopPropagation(); const set = new Set(load(DONE_KEY, [])); set.add(x.key); save(DONE_KEY, [...set]); live.textContent = `Marked ${x.title} done`; render(); } })
           : h("span", { class: "w-dotcol" }, x.late ? h("span", { class: "b-dot", title: "Overdue" }) : null),
-        h("button", { type: "button", class: "w-due-text", title: [x.title, x.sub, dueLabel(x.due)].filter(Boolean).join(" · "), onclick: () => open(x.url, `Help me with “${x.title}”${x.sub ? ` (${x.sub})` : ""}`) },
-          h("span", { class: "w-title one" }, x.title)),
+        withCard(h("button", { type: "button", class: "w-due-text", onclick: () => open(x.url, `Help me with “${x.title}”${x.sub ? ` (${x.sub})` : ""}`) },
+          h("span", { class: "w-title one" }, x.title)), () => ({
+          title: x.title,
+          source: x.sub,
+          lines: [["calendar", x.due ? dueLong(x.due) : "No due date", x.late ? "late" : ""]],
+          acts: [isHttpUrl(x.url) ? ["Open", () => open(x.url)] : null, ["Ask Ensō", () => ctx.ask(`Help me with “${x.title}”${x.sub ? ` (${x.sub})` : ""}`)]],
+        })),
         w.size === "M" ? h("span", { class: "w-due-when" }, dueLabel(x.due)) : null)),
       items.length > shown.length ? h("span", { class: "w-more" }, `+${items.length - shown.length} more`) : null);
   }
@@ -241,15 +312,29 @@ export function createWidgets(store, ctx, { onEdit } = {}) {
       return h("div", { class: "w-col" }, empty(anyApp ? "No open tasks. Nice." : "No task app connected"),
         anyApp ? err : h("button", { type: "button", class: "b-link w-action", onclick: () => actions.go("tools") }, "Connect one ›"));
     }
-    const tick = r => h("button", { type: "button", class: "w-tick", title: r.local ? "Hide (done)" : `Mark done in ${r.source}`, aria: { label: `Mark “${r.title}” done` }, onclick: e => {
-      e.stopPropagation();
+    const markDone = r => {
       if (r.local) { const set = new Set(load(DONE_KEY, [])); set.add(r.key); save(DONE_KEY, [...set]); render(); }
       else actions.completeTask(r.server, r.id);
       live.textContent = `Marked ${r.title} done`;
-    } });
+    };
+    const tick = r => h("button", { type: "button", class: "w-tick", title: r.local ? "Hide (done)" : `Mark done in ${r.source}`, aria: { label: `Mark “${r.title}” done` }, onclick: e => { e.stopPropagation(); markDone(r); } });
+    const taskCard = r => () => ({
+      title: r.title,
+      source: r.source,
+      lines: [
+        ["calendar", r.due ? dueLong(r.due) : "No due date", r.late ? "late" : r.soon ? "soon" : ""],
+        ["bell", reminderLabel(r) ? `Reminder ${reminderLabel(r)}` : ""],
+        ["folder", r.space ? `Space: ${r.space}` : ""],
+      ],
+      acts: [
+        isHttpUrl(r.url) ? [`Open in ${r.source || "the app"}`, () => openRow(r)] : null,
+        [r.local ? "Hide (done)" : "Mark done", () => markDone(r)],
+        ["Ask Ensō", () => ctx.ask(`Help me with my task “${r.title}”${r.source ? ` (${r.source})` : ""}`)],
+      ],
+    });
     const when = r => [r.due ? dueLabel(r.due) : "", reminderLabel(r)].filter(Boolean);
     const meta = r => [r.source, ...when(r)].filter(Boolean).join(" · ");
-    const whenEl = r => (r.due ? h("span", { class: "w-due-when" }, dueLabel(r.due), reminderLabel(r) ? h("span", { class: "w-remind", title: `Reminder ${reminderLabel(r)}` }, icon("bell"), reminderLabel(r)) : null) : null);
+    const whenEl = r => (r.due ? h("span", { class: "w-due-when" }, dueLabel(r.due), reminderLabel(r) ? h("span", { class: "w-remind", aria: { label: `Reminder ${reminderLabel(r)}` } }, icon("bell"), reminderLabel(r)) : null) : null);
     const openRow = r => open(r.url, `Help me with my task “${r.title}”${r.source ? ` (${r.source})` : ""}`);
     const rowClass = r => ["w-due-row", r.late && "late", r.soon && "soon", fresh.has(r.key) && "is-new", flashing(r.key) && "flash"];
     if (w.size === "S") {
@@ -257,13 +342,13 @@ export function createWidgets(store, ctx, { onEdit } = {}) {
       return h("div", { class: "w-col" },
         h("span", { class: "w-big" }, String(rows.length), h("small", null, " open")),
         h("div", { class: [...rowClass(top), "w-task-top"], ...newAttrs(top.key) }, tick(top),
-          h("button", { type: "button", class: "w-due-text", title: [top.title, meta(top)].join(" · "), onclick: () => openRow(top) },
-            h("span", { class: "w-title one" }, fresh.has(top.key) ? newTag() : null, top.title), h("span", { class: "w-sub" }, meta(top)))), err);
+          withCard(h("button", { type: "button", class: "w-due-text", onclick: () => openRow(top) },
+            h("span", { class: "w-title one" }, fresh.has(top.key) ? newTag() : null, top.title), h("span", { class: "w-sub" }, meta(top))), taskCard(top))), err);
     }
     const shown = pickShown(rows, rows.length > 4 ? 3 : 4, fresh); // four rows fill the tile; with more, three and "+N more"
     return h("div", { class: "w-list tight w-tasks" },
       shown.map(r => h("div", { class: rowClass(r), ...newAttrs(r.key) }, tick(r),
-        h("button", { type: "button", class: "w-due-text", title: [r.title, meta(r)].join(" · "), onclick: () => openRow(r) }, h("span", { class: "w-title one" }, fresh.has(r.key) ? newTag() : null, r.title)),
+        withCard(h("button", { type: "button", class: "w-due-text", onclick: () => openRow(r) }, h("span", { class: "w-title one" }, fresh.has(r.key) ? newTag() : null, r.title)), taskCard(r)),
         h("span", { class: "w-task-meta" }, r.source ? h("span", { class: "w-task-src" }, r.source) : null, whenEl(r)))),
       err ?? (rows.length > shown.length ? h("span", { class: "w-more" }, `+${rows.length - shown.length} more`) : null));
   }
@@ -289,18 +374,24 @@ export function createWidgets(store, ctx, { onEdit } = {}) {
     const items = d.items ?? [];
     const due = items.filter(i => { const n = dueDays(i.due); return n != null && n <= 7; }).length;
     const late = items.filter(i => (dueDays(i.due) ?? 0) < 0).length;
+    const mondayCard = i => () => ({
+      title: i.title,
+      source: "monday.com",
+      lines: [["layout", i.board ? `Board: ${i.board}` : ""], ["checkSquare", i.status ? `Status: ${i.status}` : ""], ["calendar", i.due ? dueLong(i.due) : "No due date", (dueDays(i.due) ?? 0) < 0 ? "late" : ""]],
+      acts: [isHttpUrl(i.url) ? ["Open in monday.com", () => open(i.url)] : null, ["Ask Ensō", () => ctx.ask(`Tell me about “${i.title}” on monday.com`)]],
+    });
     const rowEl = i => {
       const n = dueDays(i.due);
-      return h("button", { type: "button", class: ["w-mon-row", n != null && n < 0 && "late", (n === 0 || n === 1) && "soon", fresh.has(`monday:${i.id}`) && "is-new", flashing(`monday:${i.id}`) && "flash"], ...newAttrs(`monday:${i.id}`), title: [i.title, i.board, i.status, i.due ? `due ${dueLabel(i.due)}` : ""].filter(Boolean).join(" · "), onclick: () => open(i.url, `Tell me about “${i.title}” on monday.com`) },
+      return withCard(h("button", { type: "button", class: ["w-mon-row", n != null && n < 0 && "late", (n === 0 || n === 1) && "soon", fresh.has(`monday:${i.id}`) && "is-new", flashing(`monday:${i.id}`) && "flash"], ...newAttrs(`monday:${i.id}`), onclick: () => open(i.url, `Tell me about “${i.title}” on monday.com`) },
         h("span", { class: "w-title one" }, fresh.has(`monday:${i.id}`) ? newTag() : null, i.title),
         i.status ? h("span", { class: ["w-mon-status", `t-${toneOf(i.status)}`] }, i.status) : h("span"),
-        h("span", { class: "w-due-when" }, i.due ? dueLabel(i.due) : ""));
+        h("span", { class: "w-due-when" }, i.due ? dueLabel(i.due) : "")), mondayCard(i));
     };
     if (w.size === "S") {
       const top = pickShown(items.map(i => ({ ...i, key: `monday:${i.id}` })), 1, fresh)[0];
       return h("div", { class: "w-col" },
         h("span", { class: "w-big" }, String(items.length), h("small", null, " assigned")),
-        top ? h("button", { type: "button", class: "w-gh-text", title: top.title, onclick: () => open(top.url) }, h("span", { class: "w-title one" }, top.title), h("span", { class: "w-sub" }, [top.status, top.due ? dueLabel(top.due) : top.board].filter(Boolean).join(" · "))) : empty("Nothing assigned to you"));
+        top ? withCard(h("button", { type: "button", class: "w-gh-text", onclick: () => open(top.url) }, h("span", { class: "w-title one" }, top.title), h("span", { class: "w-sub" }, [top.status, top.due ? dueLabel(top.due) : top.board].filter(Boolean).join(" · "))), mondayCard(top)) : empty("Nothing assigned to you"));
     }
     const counts = h("div", { class: "w-gh-counts" },
       h("span", { class: ["w-gh-count", !items.length && "zero"] }, h("strong", null, String(items.length)), " assigned"),
@@ -312,9 +403,14 @@ export function createWidgets(store, ctx, { onEdit } = {}) {
     const shown = pickShown(items.map(i => ({ ...i, key: `monday:${i.id}` })), maxRows, fresh);
     return h("div", { class: "w-col w-mon" }, counts,
       h("div", { class: "w-list tight" }, shown.map(rowEl)),
-      upd ? h("button", { type: "button", class: ["w-mon-update", upd.mention && "mention"], title: `${upd.author} on “${upd.item ?? "an item"}”: ${upd.text}`, onclick: () => open(upd.url) },
+      upd ? withCard(h("button", { type: "button", class: ["w-mon-update", upd.mention && "mention"], onclick: () => open(upd.url) },
         h("span", { class: "w-mon-who" }, upd.mention ? icon("at") : icon("chat"), upd.author),
-        h("span", { class: "one" }, upd.text)) : items.length > shown.length ? h("span", { class: "w-more" }, `+${items.length - shown.length} more`) : null);
+        h("span", { class: "one" }, upd.text)), () => ({
+        title: upd.text,
+        source: "monday.com",
+        lines: [[upd.mention ? "at" : "chat", `${upd.author}${upd.mention ? " mentioned you" : ""} on “${upd.item ?? "an item"}”`]],
+        acts: [isHttpUrl(upd.url) ? ["Open in monday.com", () => open(upd.url)] : null, ["Ask Ensō", () => ctx.ask(`Help me reply to ${upd.author}'s update on “${upd.item ?? "an item"}” on monday.com`)]],
+      })) : items.length > shown.length ? h("span", { class: "w-more" }, `+${items.length - shown.length} more`) : null);
   }
 
   function mail(w) {
@@ -354,15 +450,21 @@ export function createWidgets(store, ctx, { onEdit } = {}) {
     // Round-robin so each kind shows up even when one list is long.
     const rows = [];
     for (let i = 0; rows.length < total; i++) for (const g2 of groups) if (g2[i]) rows.push(g2[i]);
-    const rowEl = r => h("button", { type: "button", class: ["w-gh-row", `k-${r.cls}`], title: `${r.repo}#${r.number} · ${r.title} · ${r.tag}`, onclick: () => open(r.url) },
+    const ghCard = r => () => ({
+      title: r.title,
+      source: `${r.repo}#${r.number}`,
+      lines: [["pullRequest", r.tag]],
+      acts: [isHttpUrl(r.url) ? ["Open on GitHub", () => open(r.url)] : null, ["Ask Ensō", () => ctx.ask(`Summarise ${r.repo}#${r.number} (“${r.title}”) and what it needs from me`)]],
+    });
+    const rowEl = r => withCard(h("button", { type: "button", class: ["w-gh-row", `k-${r.cls}`], onclick: () => open(r.url) },
       h("span", { class: "w-gh-dot", aria: { hidden: "true" } }),
       h("span", { class: "w-title one" }, r.title),
-      h("span", { class: "w-gh-tag" }, r.tag));
+      h("span", { class: "w-gh-tag" }, r.tag)), ghCard(r));
     if (w.size === "S") {
       const need = (d.counts.review ?? 0) + (d.counts.mine ?? 0);
       return h("div", { class: "w-col w-gh" },
         h("span", { class: "w-big" }, String(need), h("small", null, " need you")),
-        rows[0] ? h("button", { type: "button", class: "w-gh-text", title: `${rows[0].repo}#${rows[0].number} · ${rows[0].title}`, onclick: () => open(rows[0].url) }, h("span", { class: "w-title one" }, rows[0].title), h("span", { class: "w-sub" }, `${rows[0].tag} · ${rows[0].repo.split("/")[1]}`)) : empty("Nothing waiting on you"));
+        rows[0] ? withCard(h("button", { type: "button", class: "w-gh-text", onclick: () => open(rows[0].url) }, h("span", { class: "w-title one" }, rows[0].title), h("span", { class: "w-sub" }, `${rows[0].tag} · ${rows[0].repo.split("/")[1]}`)), ghCard(rows[0])) : empty("Nothing waiting on you"));
     }
     const counts = h("div", { class: "w-gh-counts" },
       [["review", "to review"], ["mine", "need you"], ["assigned", "assigned"]].map(([k, label]) => h("span", { class: ["w-gh-count", `c-${k}`, !d.counts[k] && "zero"] }, h("strong", null, String(d.counts[k] ?? 0)), ` ${label}`)));
@@ -492,7 +594,7 @@ export function createWidgets(store, ctx, { onEdit } = {}) {
     if (s.ready && (!s.tasks.at || !s.monday.at || !s.github.at)) refreshFeeds(VISIBLE_MAX_AGE); // first draw after the helper answered
     const nodes = layout.map((w, i) => tile(w, i));
     if (editing) nodes.push(h("button", { type: "button", class: "widget add-tile size-S", aria: { haspopup: "dialog", expanded: String(pickerOpen) }, onclick: () => togglePicker() }, icon("plus"), h("span", null, "Add widget")));
-    clear(grid, nodes);
+    if (card && !editing) { const keep = cardAnchor; clear(grid, nodes); if (!keep?.isConnected) hideCard(); } else clear(grid, nodes);
     // Tiles rise in once; redraws (clock ticks, new data) replace the nodes and
     // would replay it every time. A tile added in edit mode still rises in.
     if (grid.childElementCount) requestAnimationFrame(() => grid.classList.add("settled"));
@@ -578,7 +680,7 @@ export function createWidgets(store, ctx, { onEdit } = {}) {
 
   // Clock ticks; dashboard-bound widgets re-render on data.
   const typingInside = () => !!document.activeElement?.closest?.(".widgets-wrap input, .widgets-wrap textarea");
-  setInterval(() => { if (layout.some(w => w.type === "clock") && !editing && el.isConnected && !typingInside()) render(); }, 15_000);
+  setInterval(() => { if (layout.some(w => w.type === "clock") && !editing && !card && el.isConnected && !typingInside()) render(); }, 15_000);
 
   render();
   return {

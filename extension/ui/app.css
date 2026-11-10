@@ -1150,3 +1150,15 @@ html[data-mode="sidebar"] .tr-head .tp-status { font-size: 0; gap: 0; }
   .sh-row { grid-template-columns: 1fr; gap: 4px; }
 }
 @media (prefers-reduced-motion: reduce) { .onboarding, .ob-card { animation: none; } }
+
+/* Detail card for widget rows (hover or focus), instead of the browser tooltip. */
+.w-card { position: fixed; z-index: 70; width: 300px; max-width: calc(100vw - 16px); padding: 12px 14px 10px; border-radius: 14px; background: var(--surface); border: 1px solid var(--line-strong); box-shadow: var(--shadow-float); color: var(--text); font-size: 12.5px; animation: rise 140ms var(--ease); }
+.w-card-title { margin: 0 0 6px; font-size: 14px; line-height: 1.4; font-weight: 550; overflow-wrap: anywhere; }
+.w-card-src { display: inline-block; margin-bottom: 8px; }
+.w-card-line { display: flex; align-items: flex-start; gap: 7px; margin: 0 0 5px; color: var(--text-2); line-height: 1.45; }
+.w-card-line .icon { flex: none; width: 14px; height: 14px; margin-top: 2px; color: var(--text-3); }
+.w-card-line.late { color: var(--accent-text); }
+.w-card-line.late .icon { color: var(--accent); }
+.w-card-line.soon { color: var(--text); }
+.w-card-acts { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; padding-top: 9px; border-top: 1px solid var(--line); }
+@media (prefers-reduced-motion: reduce) { .w-card { animation: none; } }
