@@ -85,6 +85,7 @@ Without S3 vars the app stores bytes in Postgres (`objects` table). That is for 
 | `S3_ENDPOINT`, `S3_REGION`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, `S3_PRIVATE_BUCKET`, `S3_PUBLIC_BUCKET`, `S3_PUBLIC_BASE_URL` | via `scripts/s3-env.py` |
 | `S3_PREFIX` | optional, default `enso` |
 | `SYNC_QUOTA_BYTES`, `SYNC_MAX_BLOB_BYTES`, `SYNC_RATE_LIMIT_PER_MINUTE`, `RELEASE_MAX_BYTES` | optional limits (defaults 1 GiB, 16 MiB, 300, 200 MiB) |
+| `FIREFOX_ADDON_URL` | optional; where "Get it for Firefox" points. Unset: the site asks addons.mozilla.org's public API whether `enso@wicker.life` is public and links its listing, else the direct `.xpi` (cached an hour). A listing URL forces that link; `direct` forces the download |
 | `PUBLIC_UMAMI_WEBSITE_ID` | optional; enables cookieless page-view counting (never on `/account`) |
 
 Coolify adds a preview-scoped copy of each variable automatically (previews are off, so they're unused). All of these are runtime variables (nothing is read at build time), so changing one needs a **restart**, not a redeploy. The Dockerfile already sets `NODE_ENV`, `PORT`, `PROTOCOL_HEADER`/`HOST_HEADER` (public origin from Traefik's forwarded headers, so both domains work), `ADDRESS_HEADER` and `BODY_SIZE_LIMIT`.

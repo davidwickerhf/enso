@@ -1,5 +1,7 @@
 <script lang="ts">
 	import { page } from '$app/state';
+	import GitHubMark from '$lib/components/GitHubMark.svelte';
+	import { GITHUB_URL } from '$lib/links';
 
 	let { data, children } = $props();
 	const active = $derived(page.params.slug ?? 'index');
@@ -21,6 +23,7 @@
 
 {#snippet nav()}
 	<nav aria-label="Documentation">
+		<p class="source"><a href={GITHUB_URL}><GitHubMark size={15} /> Source on GitHub</a></p>
 		{#each data.nav as g (g.group)}
 			<p class="label">{g.group}</p>
 			<ul>
@@ -57,8 +60,21 @@
 	nav .label {
 		margin: 1.6rem 0 0.5rem;
 	}
-	nav .label:first-child {
+	nav .source + .label {
 		margin-top: 0;
+	}
+	.source {
+		margin: 0 0 1.6rem;
+	}
+	.source a {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.45rem;
+		color: var(--ink-2);
+		text-decoration: none;
+	}
+	.source a:hover {
+		color: var(--ink);
 	}
 	ul {
 		list-style: none;

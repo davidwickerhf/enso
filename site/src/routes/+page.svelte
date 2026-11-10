@@ -2,7 +2,11 @@
 	import CopyCommand from '$lib/components/CopyCommand.svelte';
 	import NewTabDemo from '$lib/components/NewTabDemo.svelte';
 	import Shot from '$lib/components/Shot.svelte';
+	import GitHubMark from '$lib/components/GitHubMark.svelte';
+	import { GITHUB_URL } from '$lib/links';
 	import { screenshots } from '$lib/screenshots';
+
+	let { data } = $props();
 
 	const installCommand = 'curl -fsSL https://enso.wicker.life/install.sh | bash';
 	const title = 'Ensō: search or ask from every new tab in Zen';
@@ -27,9 +31,12 @@
 				that can read the page you’re on and work on it.
 			</p>
 			<div class="actions">
-				<a class="btn" href="#install">Install Ensō</a>
-				<a class="btn ghost" href="/docs">Read the docs</a>
+				<a class="btn" href={data.firefox.href}>Get it for Firefox</a>
+				<a class="btn ghost" href="#install">How to install</a>
 			</div>
+			<p class="source">
+				<a href={GITHUB_URL}><GitHubMark size={16} /> Open source on GitHub (MIT)</a>
+			</p>
 		</div>
 	</div>
 	<NewTabDemo />
@@ -92,8 +99,8 @@
 			own subscription, or an API key kept in the Keychain. What you send goes to Anthropic, never through a server of ours.
 		</p>
 		<p>
-			Banking, payment and health sites are never read or acted on. Sync between your Macs is optional and end-to-end encrypted: our server
-			holds data it can’t read.
+			Banking, payment, health, tax and government sites are never read or acted on. Sync between your Macs is on its way, end-to-end
+			encrypted, so our server will hold data it can’t read.
 		</p>
 		<p class="links"><a href="/privacy">Privacy policy</a> <a href="/docs/privacy-data">What is stored where</a></p>
 	</div>
@@ -104,12 +111,13 @@
 </section>
 
 <section class="wrap install" id="install" aria-labelledby="install-title">
-	<h2 id="install-title">Install it in two steps.</h2>
+	<h2 id="install-title">Install it in three steps.</h2>
 	<ol class="steps">
 		<li>
 			<h3>Add the extension</h3>
-			<p>Zen asks you to confirm. Updates arrive on their own after that.</p>
-			<a class="btn" href="/releases/enso-latest.xpi">Download the extension</a>
+			<p>{data.firefox.listed ? 'From Firefox Add-ons, in Zen or Firefox.' : 'Open the download in Zen.'} Zen asks you to confirm. Updates arrive on their own after that.</p>
+			<a class="btn" href={data.firefox.href}>Get it for Firefox</a>
+			{#if data.firefox.listed}<p class="alt"><a href="/releases/enso-latest.xpi">Or download the signed file</a></p>{/if}
 		</li>
 		<li>
 			<h3>Run one command</h3>
@@ -156,6 +164,20 @@
 		display: flex;
 		flex-wrap: wrap;
 		gap: 0.6rem;
+	}
+	.aside p.source {
+		margin: 1rem 0 0;
+		font-size: 0.92rem;
+		color: var(--ink-3);
+	}
+	.source a {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.4rem;
+		color: var(--ink-2);
+	}
+	.source a:hover {
+		color: var(--ink);
 	}
 
 	.moment {
@@ -292,6 +314,10 @@
 		margin: 0 0 1.1rem;
 		color: var(--ink-2);
 		font-size: 1rem;
+	}
+	.steps p.alt {
+		margin: 0.7rem 0 0;
+		font-size: 0.9rem;
 	}
 	.req {
 		margin: 2.5rem 0 0;
