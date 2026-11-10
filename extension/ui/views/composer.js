@@ -115,9 +115,25 @@ export function createComposer(store) {
     return !!s.tab && !sensitive() && s.ui.includePage && !local.pageRemoved;
   }
 
+  // Measure in a hidden copy so the visible box goes straight from its old
+  // height to the new one (and can animate), instead of collapsing to "auto"
+  // for a frame, which made long text jump.
+  let mirror = null;
   function autosize() {
-    textarea.style.height = "auto";
-    textarea.style.height = `${Math.min(textarea.scrollHeight, 240)}px`;
+    if (!mirror) {
+      mirror = document.createElement("textarea");
+      mirror.setAttribute("aria-hidden", "true");
+      mirror.tabIndex = -1;
+      mirror.className = textarea.className;
+      Object.assign(mirror.style, { position: "absolute", visibility: "hidden", pointerEvents: "none", height: "0px", minHeight: "0", top: "0", left: "-9999px", overflow: "hidden" });
+      document.body.append(mirror);
+    }
+    const cs = getComputedStyle(textarea);
+    for (const p of ["fontSize", "fontFamily", "fontWeight", "lineHeight", "letterSpacing", "paddingTop", "paddingBottom", "paddingLeft", "paddingRight", "boxSizing", "whiteSpace", "wordBreak", "overflowWrap"]) mirror.style[p] = cs[p];
+    mirror.style.width = `${textarea.clientWidth}px`;
+    mirror.value = textarea.value || textarea.placeholder || "";
+    const min = Number.parseFloat(cs.minHeight) || 0;
+    textarea.style.height = `${Math.max(min, Math.min(mirror.scrollHeight, 240))}px`;
   }
 
   function reset() {
