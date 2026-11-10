@@ -109,7 +109,7 @@ try {
   if (WIN) assert.match(hit.path, /cli\.js$/, "the SDK gets cli.js, not the .cmd");
   const savedPath = process.env.PATH;
   process.env.PATH = bin;
-  assert.equal(candidates([])[0], fake, "PATH comes before the known locations");
+  assert.ok(candidates([]).slice(0, WIN ? 2 : 1).includes(fake), "PATH comes before the known locations"); // Windows: claude.exe, then claude.cmd
   process.env.PATH = savedPath;
   const miss = findClaude([path.join(root, "nope", "claude")]);
   if (!miss.found) assert.match(miss.reason, /not found at/);
