@@ -770,6 +770,7 @@ Want me to draft the reply to Jonas, or open the [Vercel deployment](https://ver
     if (agentPreset === "delivered") docs.notes = [{ id: "n1", text: "Use the second dataset, not the pilot one.", at: ago(60), deliveredAt: ago(41) }, { id: "n2", text: "Keep it under 300 words.", at: ago(6), deliveredAt: null }];
     if (agentPreset === "idle") Object.assign(docs, { running: false, actions: [step(5, "session_start", "Start a session", "")], startedAt: ago(5), lastAt: ago(5) });
     if (agentPreset === "stopped") Object.assign(docs, { running: false, stopped: true });
+    if (agentPreset === "space") Object.assign(docs, { space: "Northwind", task: "Check the deploy log of the staging site", url: "https://deploy.northwind.example.com/apps/atlas/logs", title: "atlas-staging · Deploy log", actions: [step(60, "session_start", "Start a session", ""), step(52, "tabs_open", "Open tabs", "https://deploy.northwind.example.com/apps/atlas/logs"), step(30, "page_read", "Read the page", ""), step(4, "page_click", "Click", 'button "Show older lines"')] });
     if (agentPreset === "t3") Object.assign(docs, { client: "Claude Code", task: "Fix the chart legend overlap on the launch dashboard", t3ThreadId: "th-legend", t3: { threadId: "th-legend", title: "Launch dashboard: legend overlaps the chart", projectTitle: "atlas-web", openable: true } });
     const docs2 = {
       id: "ag-docs-pdf", client: "Claude Code", clientName: "claude-code", task: "Export the brief as PDF and download it", tabId: 16,
@@ -786,7 +787,7 @@ Want me to draft the reply to Jonas, or open the [Vercel deployment](https://ver
       if (agentPreset === "sametab-shared") for (const a of [docs, docs2]) Object.assign(a, { control: "shared", waitingSince: null });
       Object.assign(codex, { control: "holder", holderId: codex.id });
       agents = [docs, docs2, codex];
-    } else agents = agentPreset === "list" ? [docs, codex, cursor] : agentPreset === "idle" || agentPreset === "t3" ? [docs] : [docs, codex];
+    } else agents = agentPreset === "list" ? [docs, codex, cursor] : agentPreset === "idle" || agentPreset === "t3" || agentPreset === "space" ? [docs] : [docs, codex];
     if (agentPreset === "access") {
       Object.assign(docs, { task: "Check the DNS records of the staging domain", actions: [step(40, "session_start", "Start a session", ""), step(6, "session_fetch", "Request with the user's session", "GET https://app.dnsdesk.example/api/v1/zones/", { ok: false, refused: true, error: "https://app.dnsdesk.example isn't on Ensō's session-access list" })] });
       agentAccess = [

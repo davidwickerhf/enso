@@ -211,7 +211,7 @@ after two minutes without calls or on `session_end`. Tab-less calls
 
 | Tool | What it does | Parameters |
 |---|---|---|
-| `session_start` | Say what you're about to do, in one line. Ensō shows "<client> · <task>" on the page pill and the agent card. Call it first; call again when the task changes. | `task`, `tabId?` |
+| `session_start` | Say what you're about to do, in one line, and optionally which Zen space the work belongs in. Ensō shows "<client> · <space> · <task>" on the page pill and the agent card; `tabs_open` then opens in that space by default. An unknown space is an error that lists the valid names. Call it first; call again when the task changes. | `task`, `tabId?`, `space?` |
 | `session_status` | Running, paused or stopped, the task, and any notes. Poll it while paused. | `tabId?` |
 | `session_end` | Done: Ensō stops showing the agent (on one tab, or everywhere). | `tabId?` |
 
@@ -366,7 +366,8 @@ tool also takes `tabId?` (from `tabs_list`; default: the active tab).
 | `tabs_list` | Open tabs in the current Zen space (id, title, URL, group); `allSpaces` adds the other spaces' tabs. | read | yes | `allSpaces?` |
 | `tab_read` | Text of another open tab, without switching to it. | read | yes | `tabId` |
 | `history_search` | Browsing history by words in the title or URL, last N days (default 30). | read | yes | `text`, `days?`, `max?` |
-| `tabs_open` | Open up to 20 URLs in new tabs, in the current space (its container, so its logins). Replies with each tab's id. For MCP clients the tabs open in the background unless `background: false`, so the user's tab keeps focus; the new tabs are the opener's ([leases](#tab-leases-one-agent-acts-on-a-tab-at-a-time)). | read | no | `urls`, `background?` |
+| `spaces_list` | The user's Zen spaces: name, id, icon, container, which one is on screen, which one is the session's, and what the user said each space is for (Settings → You & memory, or `spaceHints` in config). | read | yes | none |
+| `tabs_open` | Open up to 20 URLs in new tabs in a Zen space, with that space's container (so its logins). `space` is a name or id from `spaces_list`; without it, the session's space (`session_start`), else the space on screen (in Ensō's own chat: the conversation's space). Replies with each tab's id and where the tabs landed ([Zen spaces](#zen-spaces-where-tabs_open-puts-a-tab)). For MCP clients the tabs open in the background unless `background: false`, so the user's tab keeps focus; the new tabs are the opener's ([leases](#tab-leases-one-agent-acts-on-a-tab-at-a-time)). | read | no | `urls`, `space?`, `background?` |
 | `tabs_group` | Put tabs in a tab group (a folder in Zen's sidebar), optionally named and coloured, or add them to a group. | read | no | `tabIds`, `title?`, `color?`, `groupId?` |
 | `tabs_ungroup` | Take tabs out of their group. | read | no | `tabIds` |
 | `group_update` | Rename, recolour, collapse or expand a group. | read | no | `groupId`, `title?`, `color?`, `collapsed?` |
@@ -528,6 +529,39 @@ is done twice.
 | `session_fetch` response body | 100,000 characters | Cut, with a note |
 | `page_read` page text | 20,000 characters | Cut, with a note |
 
+## Zen spaces: where `tabs_open` puts a tab
+
+Zen keeps each space ("workspace") as its own set of tabs, and a space can have
+a default container. WebExtensions have no API for spaces, so Ensō works with
+what Zen does when an extension calls `tabs.create` (checked against
+[zen-browser/desktop](https://github.com/zen-browser/desktop) and Zen 1.24.1b):
+
+| What happens | Zen source |
+|---|---|
+| A new tab gets the space its window shows: `onTabBrowserInserted` sets `zen-workspace-id` to the active space when the tab has none. | `src/zen/spaces/ZenSpaceManager.mjs` |
+| `tabs.create({ cookieStoreId })` keeps that container. With `zen.workspaces.force-container-workspace` **on**, a container that belongs to exactly one other space puts the tab in that space and marks it `change-workspace`, which **switches the window to that space** even for a background tab. The pref is **off** by default (`prefs/zen/workspaces.yaml`). | `getContextIdIfNeeded` in `ZenSpaceManager.mjs`; `addTab` in `src/browser/components/tabbrowser/Tabbrowser-sys-mjs.patch` |
+| A Space routing rule (Zen settings) whose pattern matches the URL moves the new tab to the rule's space; a background tab stays in the background. | `src/zen/space-routing/ZenSpaceRoutingManager.sys.mjs` (`onBeforeAddTab`, `onAfterAddTab`) |
+| In a window, `tabs.query` lists only the tabs of the space on screen; `tabs.get` and scripts by tab id work on tabs of any space. | (observed) |
+| Marionette could move tabs with `gZenWorkspaces.moveTabToWorkspace`, but only when Zen was started with `--marionette` and `MOZ_REMOTE_ALLOW_SYSTEM_ACCESS=1`, so not for a normal Zen. | `ZenSpaceManager.mjs` |
+
+So `tabs_open { space }`:
+
+1. The space on screen: opens there, with its container.
+2. Another Zen window shows that space: opens in that window, without focusing it.
+3. Otherwise: opens with that space's container (its logins) in the space on
+   screen, and the reply says so: "Opened 1 tab(s) with BISS's container (its
+   logins), but in the space on screen, Personal, not in BISS. …". Ensō never
+   switches the user's space for this.
+
+The reply also notes when Zen moved a tab itself (a routing rule, read from
+`zen-space-routing.jsonlz4`, or the force pref, read from `prefs.js`): Ensō
+checks whether each new tab is still among the shown space's tabs.
+
+Which space is on screen is decided from the window's tabs against each space's
+tabs in Zen's session file (`zen-sessions.jsonlz4`), then the active tab's
+container. A user who wants agent tabs to land in a space exactly can add a
+Space routing rule for that site in Zen.
+
 ## Etiquette for agents
 
 The server's instructions (sent at `initialize`) tell clients the essentials.
@@ -539,8 +573,13 @@ In short:
   instead of trying other tabs or tools; if stopped, stop and say so.
 - Start with `tabs_list` (current space) and `page_read`; pass `tabId` to act on
   a specific tab instead of the active one.
-- Prefer your own tab: open one with `tabs_open` (background, current space)
-  and pass its `tabId`, rather than acting in the tab the user is looking at.
+- Prefer your own tab: open one with `tabs_open` (background) and pass its
+  `tabId`, rather than acting in the tab the user is looking at.
+- Pick the Zen space that matches the task: work for an organisation goes in
+  that organisation's space (its container has those logins), never in
+  Personal by default. Pass `space` to `tabs_open`, or once to `session_start`;
+  call `spaces_list` when unsure. If `tabs_open` says the tab opened in the
+  current space with the other space's container, tell the user when it matters.
 - If a tab is being used by another agent, open your own tab, use `headless_*`,
   or ask the user. Don't retry, work around it or fight over the tab; the user
   can hand it over to you.

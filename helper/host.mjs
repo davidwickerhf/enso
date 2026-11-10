@@ -24,7 +24,7 @@ import { forgetGithubToken, githubServerEntry, githubStatus, githubWidgetData, s
 import { agentSessions, MCP_PORT, mcpListening, setOAuthRoute, startMcpServer } from "./lib/mcpserver.mjs";
 import * as store from "./lib/store.mjs";
 import { config, configError, LOCAL_CONFIG } from "./lib/config.mjs";
-import { listSpaces } from "./lib/zenspaces.mjs";
+import { listSpaces, spaceHint } from "./lib/zenspaces.mjs";
 import { createTaskSources, refreshTargets } from "./lib/tasks.mjs";
 import { createMondaySource } from "./lib/monday.mjs";
 import { appBundle, createT3 } from "./lib/t3.mjs";
@@ -221,11 +221,6 @@ const running = new Map(); // conversationId -> { abortController }
 const approvals = new Map(); // toolUseId -> resolve(decision)
 const PERSISTED = new Set(["user", "assistant", "thinking", "tool.call", "tool.result", "approval.request", "approval.resolved", "page.action", "notice", "error", "turn.start", "turn.end"]);
 
-/** What the user wrote about a space (Settings → You & memory), else config.spaceHints (config.local.json). */
-function spaceHint(sp) {
-  const own = store.getSettings().spaceHints ?? {};
-  return own[sp.id] ?? own[sp.name] ?? config.spaceHints?.[sp.name] ?? "";
-}
 
 /** The conversation's space with its hint. */
 function spaceInfo(space) {

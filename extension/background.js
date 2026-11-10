@@ -502,6 +502,74 @@ async function pageAction(tabId, action, args, who, sessionId) {
   return agent(tabId, action, args, who, sessionId);
 }
 
+// The space a window shows. Its tabs (tabs.query lists only the shown space's
+// tabs in Zen) against each space's tabs in Zen's session file decide; the
+// active tab's container only when nothing overlaps. A container alone can
+// mislead: a tab with BISS's container can live in Personal.
+async function shownSpace(tab) {
+  if (!tab || !spaces.length) return null;
+  const shown = new Set((await browser.tabs.query({ windowId: tab.windowId }).catch(() => [])).map(t => t.url).filter(isWeb));
+  const scored = spaces.map(sp => ({ sp, n: (sp.urls ?? []).filter(u => shown.has(u)).length })).sort((a, b) => b.n - a.n);
+  if (scored[0]?.n > 0 && scored[0].n > (scored[1]?.n ?? 0)) return pickSpace(scored[0].sp);
+  return spaceOf(tab);
+}
+
+// tabs_open in a Zen space. Extensions can't place a tab in a space: Zen puts a new
+// tab in the space its window shows (ZenSpaceManager onTabBrowserInserted), and
+// tabs.query only lists that space's tabs, so there's no tab of another space to
+// switch through either. So:
+//   - the space on screen: open there, with its container;
+//   - another window shows that space: open in that window (no focus change);
+//   - otherwise: open with that space's container (its logins) in the current space.
+// Zen itself still moves the tab when a Space routing rule matches the URL, or when
+// zen.workspaces.force-container-workspace is on; `inView` says whether the tab
+// stayed in the window's current space (tabs.query only lists that space's tabs).
+async function openTabs(args) {
+  if (Array.isArray(args.spaces)) spaces = args.spaces;
+  const urls = (args.urls ?? []).filter(isWeb);
+  const cur = await activeTab();
+  const curSpace = await shownSpace(cur);
+  const target = args.space ?? null;
+  let cookieStoreId = cur?.cookieStoreId;
+  let container = null;
+  if (target) {
+    cookieStoreId = target.containerId ? `firefox-container-${target.containerId}` : "firefox-default";
+    if (target.containerId) {
+      try {
+        container = (await browser.contextualIdentities.get(cookieStoreId)).name;
+      } catch {
+        throw new Error(`The container of the Zen space "${target.name}" no longer exists, so its logins can't be used. Ask the user to check the space's container in Zen.`);
+      }
+    }
+  }
+  let windowId = cur?.windowId;
+  let placement = "current";
+  if (!target || (curSpace && curSpace.id === target.id)) placement = target ? "exact" : "current";
+  else {
+    // Another normal window that shows the target space.
+    const wins = (await browser.windows.getAll({ windowTypes: ["normal"] }).catch(() => [])).filter(w => w.id !== cur?.windowId);
+    for (const w of wins) {
+      const [t] = await browser.tabs.query({ active: true, windowId: w.id });
+      if (t && (await shownSpace(t))?.id === target.id) {
+        windowId = w.id;
+        placement = "window";
+        break;
+      }
+    }
+  }
+  const opened = [];
+  for (const url of urls) {
+    const t = await browser.tabs.create({ url, active: !args.background && opened.length === 0, ...(cookieStoreId ? { cookieStoreId } : {}), ...(windowId != null ? { windowId } : {}) });
+    opened.push({ tabId: t.id, url, windowId: t.windowId });
+  }
+  await new Promise(r => setTimeout(r, opened.length ? 150 : 0)); // Zen moves routed tabs right after inserting them
+  for (const o of opened) {
+    const shown = await browser.tabs.query({ windowId: o.windowId }).catch(() => null);
+    o.inView = shown ? shown.some(t => t.id === o.tabId) : null;
+  }
+  return { opened, placement, currentSpace: curSpace?.name ?? null, container };
+}
+
 async function browserAction(action, args) {
   switch (action) {
     case "tabs_list": {
@@ -518,16 +586,14 @@ async function browserAction(action, args) {
       const t = await activeTab();
       return t ? { tabId: t.id, url: t.url ?? "", title: t.title ?? "" } : {};
     }
-    case "tabs_open": {
-      // Open in the current space's container so the tabs land in that space with its logins.
-      const cookieStoreId = (await activeTab())?.cookieStoreId;
-      const opened = [];
-      for (const url of args.urls) {
-        if (!isWeb(url)) continue;
-        const t = await browser.tabs.create({ url, active: !args.background && opened.length === 0, ...(cookieStoreId ? { cookieStoreId } : {}) });
-        opened.push({ tabId: t.id, url });
-      }
-      return opened;
+    case "tabs_open":
+      return openTabs(args);
+    case "spaces_info": {
+      // For spaces_list: the space on screen and the containers' names (the helper has the rest).
+      if (Array.isArray(args.spaces)) spaces = args.spaces;
+      const current = await shownSpace(await activeTab());
+      const identities = await browser.contextualIdentities.query({}).catch(() => []);
+      return { current: current?.id ?? null, containers: Object.fromEntries(identities.map(c => [containerOf(c), c.name])) };
     }
     case "tabs_close":
       await browser.tabs.remove(args.tabIds);
@@ -592,7 +658,7 @@ function setAgentBadge(tabId, list) {
   ba.setBadgeText({ tabId, text: !live.length ? "" : live.length > 1 ? `AI${live.length}` : "AI" }).catch?.(() => {});
   ba.setBadgeBackgroundColor({ tabId, color: live.length && live.every(s => s.paused) ? AGENT_BADGE_PAUSED : AGENT_BADGE }).catch?.(() => {});
   ba.setBadgeTextColor?.({ tabId, color: "#ffffff" })?.catch?.(() => {});
-  const line = s => `${s.client}${s.task ? `: ${s.task}` : " is working on this tab"}${s.stopped ? " (stopped)" : s.paused ? " (paused)" : ""}${list.length > 1 && s.control === "holder" ? " · in control" : s.control === "waiting" ? " · waiting for the tab" : ""}`;
+  const line = s => `${s.client}${s.space ? ` · ${s.space}` : ""}${s.task ? `: ${s.task}` : " is working on this tab"}${s.stopped ? " (stopped)" : s.paused ? " (paused)" : ""}${list.length > 1 && s.control === "holder" ? " · in control" : s.control === "waiting" ? " · waiting for the tab" : ""}`;
   ba.setTitle({ tabId, title: list.length > 1 ? `Ensō · ${list.length} agents\n${list.map(line).join("\n")}` : `Ensō · ${line(list[0])}` }).catch?.(() => {});
 }
 function clearAgentBadge(tabId) {
@@ -605,7 +671,7 @@ function clearAgentBadge(tabId) {
 // `access`: requests for this tab's site, shown as rows with Allow / Not now under the pill.
 function presenceFor(list, access = []) {
   return {
-    agents: list.map(s => ({ id: s.id, label: s.client, task: s.task, startedAt: s.startedAt ?? "", running: !!s.running, paused: !!s.paused, stopped: !!s.stopped, control: s.control ?? null })),
+    agents: list.map(s => ({ id: s.id, label: s.client, task: s.task, space: s.space ?? "", startedAt: s.startedAt ?? "", running: !!s.running, paused: !!s.paused, stopped: !!s.stopped, control: s.control ?? null })),
     titlePrefix: titlePrefixOn,
     ...(access.length ? { access: access.map(r => ({ id: r.id, label: r.client, origin: r.origin, status: r.status })) } : {}),
   };

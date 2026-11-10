@@ -196,6 +196,7 @@ export function createAgentsPanel(store) {
     const stopBtn = h("button", { type: "button", class: "btn small ghost danger", onclick: () => { const x = current(); if (x) actions.stopAgent(x.id); } }, icon("stop"), "Stop");
     const dismissBtn = h("button", { type: "button", class: "btn small ghost", onclick: () => { const x = current(); if (x) actions.dismissAgent(x.id); } }, "Dismiss");
     const who = h("strong", { class: "agent-client" });
+    const spaceTag = h("span", { class: "tag agent-space", hidden: true }); // the Zen space it said it works in
     const task = h("span", { class: "agent-task" });
     const stateEl = h("span", { class: "agent-state" });
     const time = h("span", { class: "agent-time" });
@@ -213,12 +214,12 @@ export function createAgentsPanel(store) {
     const root = h("section", { class: "agent-card", tabindex: "-1", aria: { label: `${a.client} is working on this tab` } },
       h("header", { class: "agent-head" },
         h("span", { class: "agent-mark", aria: { hidden: "true" } }, "✦"),
-        h("div", { class: "agent-who" }, h("span", { class: "agent-who-line" }, who, controlBadge), task),
+        h("div", { class: "agent-who" }, h("span", { class: "agent-who-line" }, who, spaceTag, controlBadge), task),
         h("div", { class: "agent-meta" }, stateEl, time)),
       t3Line, accessHost, lease, steps, status, notes,
       h("div", { class: "agent-actions" }, form, h("div", { class: "agent-controls" }, pauseBtn, stopBtn, dismissBtn)),
       live);
-    return { id: a.id, root, steps, notes, input, form, pauseBtn, stopBtn, dismissBtn, who, task, stateEl, time, status, live, t3Line, t3Title, t3Open, controlBadge, lease, leaseText, leaseRisk, leaseActions, accessHost, accessSig: "", leaseSig: "", stepIds: "" };
+    return { id: a.id, root, steps, notes, input, form, pauseBtn, stopBtn, dismissBtn, who, spaceTag, task, stateEl, time, status, live, t3Line, t3Title, t3Open, controlBadge, lease, leaseText, leaseRisk, leaseActions, accessHost, accessSig: "", leaseSig: "", stepIds: "" };
   }
 
   function fillCard(a) {
@@ -226,8 +227,11 @@ export function createAgentsPanel(store) {
     c.root.classList.toggle("paused", !!a.paused);
     c.root.classList.toggle("stopped", !!a.stopped);
     c.root.classList.toggle("running", !!a.running && !a.paused && !a.stopped);
-    c.root.setAttribute("aria-label", `${a.client}${a.task ? `: ${a.task}` : ""}. ${stateLabel(a)}.`);
+    c.root.setAttribute("aria-label", `${a.client}${a.space ? ` in ${a.space}` : ""}${a.task ? `: ${a.task}` : ""}. ${stateLabel(a)}.`);
     c.who.textContent = a.client;
+    c.spaceTag.hidden = !a.space;
+    c.spaceTag.textContent = a.space ?? "";
+    c.spaceTag.title = a.space ? `Working in the Zen space ${a.space}: its tabs open there` : "";
     // Tab leases: who may act here, and the user's hand-over / shared controls.
     const here = onTab();
     const lv = leaseView(a, here);
@@ -350,8 +354,8 @@ export function createAgentsPanel(store) {
         h("button", { type: "button", class: "agents-go", dataset: { fk: `go-${a.id}` }, disabled: a.tabId == null, title: a.tabId == null ? "Not on a tab yet" : "Switch to this tab", aria: { label: `Switch to the tab where ${a.client} is working${a.title ? `: ${a.title}` : ""}` }, onclick: () => a.tabId != null && actions.switchToTab(a.tabId) },
           host ? hostBadge(host) : h("span", { class: "agent-mark small", aria: { hidden: "true" } }, "✦"),
           h("span", { class: "agents-main" },
-            h("span", { class: "agents-who" }, h("strong", null, a.client), a.task ? ` · ${a.task}` : "", s.agentAccess.some(r => r.status === "pending" && (r.sessionIds ?? [r.sessionId]).includes(a.id)) ? h("span", { class: "tag accent agents-asks" }, "asks for access") : null),
-            h("span", { class: "agents-sub" }, [a.control === "waiting" && !a.stopped ? "Waiting for the tab" : stateLabel(a), tab?.space || null, a.title || host || null, last ? stepText(last) : null].filter(Boolean).join(" · ")))),
+            h("span", { class: "agents-who" }, h("strong", null, a.client), a.space ? ` · ${a.space}` : "", a.task ? ` · ${a.task}` : "", s.agentAccess.some(r => r.status === "pending" && (r.sessionIds ?? [r.sessionId]).includes(a.id)) ? h("span", { class: "tag accent agents-asks" }, "asks for access") : null),
+            h("span", { class: "agents-sub" }, [a.control === "waiting" && !a.stopped ? "Waiting for the tab" : stateLabel(a), a.space ? null : tab?.space || null, a.title || host || null, last ? stepText(last) : null].filter(Boolean).join(" · ")))),
         a.stopped ? iconButton("x", `Dismiss ${a.client}`, () => actions.dismissAgent(a.id), { class: "small", dataset: { fk: `x-${a.id}` } }) : iconButton("stop", `Stop ${a.client}`, () => actions.stopAgent(a.id), { class: "small danger-icon", dataset: { fk: `stop-${a.id}` } }));
     })) : null;
     return h("div", { class: "agents-row-wrap" }, toggle, list);

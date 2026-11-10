@@ -1261,6 +1261,7 @@ html[data-mode="sidebar"] .tr-head .tp-status { font-size: 0; gap: 0; }
 /* Tab leases: who may act on the tab (lib/agentsessions.mjs) */
 .agent-who-line { display: flex; align-items: center; gap: 6px; min-width: 0; flex-wrap: wrap; }
 .agent-control[hidden] { display: none; }
+.agent-space { flex: none; max-width: 14ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .agent-control.in-control { background: var(--accent-soft); color: var(--accent-text); }
 .agent-control.waiting { background: rgba(183, 121, 31, 0.14); color: var(--warn); }
 .agent-control.shared { background: var(--surface-2); color: var(--text-2); }
