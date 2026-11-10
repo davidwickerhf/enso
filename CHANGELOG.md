@@ -7,6 +7,8 @@ the extension updates itself, the helper updates when you run the installer agai
 
 ## Unreleased
 
+- **New tabs open once, always.** The optional tab swap that moved the cursor into Ensō's box is removed, with its setting: Zen showed it as an extra tab appearing and vanishing, and it could stay on unnoticed.
+
 Agents can give pages files, wait for slow work, and send large payloads.
 
 - **Making Ensō the default search engine is one choice away.** New installs

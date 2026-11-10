@@ -72,5 +72,3 @@ Ensō's search address is `https://enso.wicker.life/ask#q=…`. Your words are i
 ## Where the cursor starts
 
 Zen puts the cursor in its address bar on every new tab, and extensions can't move it into the page. With Ensō as your default search engine (above) that's no longer a problem: type in the address bar and it comes to Ensō. Otherwise, type a web address or a search there as usual, or click Ensō's box (or press <kbd>Tab</kbd> a few times) to ask Ensō.
-
-If you'd rather type straight into Ensō's own box, turn on **Type straight into Ensō on new tabs** in Settings. Ensō then swaps each new tab for an identical one that gets the cursor; Zen briefly shows the extra tab while it does.

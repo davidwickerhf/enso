@@ -16,27 +16,10 @@ import { sortTools, labelOf, statusOf, toolGlyph, openToolPopover, signedInButFa
 import { profileFields, spaceHintFields } from "./onboarding.js";
 import { SCREENSHOT_SHORTCUT } from "./send.js";
 import { setupSummary, createSetupKit, switchRow, SITE, vaultOf } from "./setup.js";
-import { inExtension } from "../transport.js";
 import { loadingOr } from "./helperstate.js";
 import { readSearchSuggestions, writeSearchSuggestions } from "../omnibox.js";
 import { EDITION, PAGE_EVAL, PAGE_EVAL_NOTE } from "../edition.js";
 
-// "Type straight into Ensō on new tabs" lives in the extension's own storage
-// (browser.storage.local.newTabFocus), not in the helper's settings:
-// background.js reads it and listens for changes. The mock uses localStorage.
-const NEW_TAB_FOCUS = "newTabFocus";
-async function readNewTabFocus() {
-  try {
-    if (inExtension) return (await globalThis.browser.storage.local.get(NEW_TAB_FOCUS))[NEW_TAB_FOCUS] === true;
-    return localStorage.getItem(`enso.${NEW_TAB_FOCUS}`) === "true";
-  } catch { return false; }
-}
-async function writeNewTabFocus(on) {
-  try {
-    if (inExtension) await globalThis.browser.storage.local.set({ [NEW_TAB_FOCUS]: !!on });
-    else localStorage.setItem(`enso.${NEW_TAB_FOCUS}`, String(!!on));
-  } catch { /* storage unavailable: nothing to keep */ }
-}
 
 const MODELS = [
   ["claude-opus-5-5", "Claude Opus 5.5"],
@@ -119,8 +102,6 @@ export function createSettings(store, ctx) {
   const mem = { dirty: false, preview: false, draft: "", scope: "global" };
   const skillUi = { editing: null, error: null }; // null | "new" | name
   let query = "";
-  let newTabFocus = false;
-  readNewTabFocus().then(v => { newTabFocus = v; renderSection("general"); });
   let searchSuggestions = false;
   readSearchSuggestions().then(v => { searchSuggestions = v; renderSection("general", "privacy"); });
   // The address-bar row (views/addressbar.js, PR #25): built once and moved into General on each render.
@@ -289,8 +270,6 @@ export function createSettings(store, ctx) {
       group("Conversations",
         switchRow("Include the current page", "New messages start with the page chip on. Private pages are never shared.", st.includePageByDefault, v => { save({ includePageByDefault: v }); actions.setIncludePage(v); }, { keys: "page chip context tab default" })),
       group("New tab & Home",
-        switchRow("Type straight into Ensō on new tabs", "Zen puts the cursor in the address bar. With this on, Ensō swaps each new tab for one that gets the cursor; Zen briefly shows the extra tab.", newTabFocus,
-          v => { newTabFocus = v; writeNewTabFocus(v); flashSaved(); renderSection("general"); }, { keys: "new tab focus cursor address bar keyboard type" }),
         switchRow("Search suggestions while typing", "Sends what you type in the new tab's box to your search engine (Google or DuckDuckGo) for suggestions. Off: only your tabs, bookmarks and history are suggested.", searchSuggestions,
           v => { searchSuggestions = v; writeSearchSuggestions(v); flashSaved(); renderSection("general", "privacy"); }, { keys: "search suggestions google duckduckgo autocomplete omnibox typing network" }),
         row({ label: "Refresh the brief", forId: refreshId, desc: `${brief} Off: only when you press refresh. Each refresh sends your profile, memory and what your tools return to Anthropic.`, keys: "dashboard briefing home new tab auto-refresh widgets",
