@@ -16,7 +16,7 @@ describe('releases and the update feed', () => {
 
 	it('publishes an xpi and lists it in Firefox update-manifest format', async () => {
 		const xpi = bytes(100, 9);
-		const res = await publish('extension', '0.3.0', xpi, undefined, '?strict_min_version=139.0');
+		const res = await publish('extension', '0.3.0', xpi, undefined, '?strict_min_version=142.0');
 		expect(res.status).toBe(201);
 		const body = await res.json();
 		const sha = createHash('sha256').update(xpi).digest('hex');
@@ -34,7 +34,7 @@ describe('releases and the update feed', () => {
 							version: '0.3.0',
 							update_link: 'http://localhost:5173/releases/enso-0.3.0.xpi',
 							update_hash: `sha256:${sha}`,
-							applications: { gecko: { strict_min_version: '139.0' } }
+							applications: { gecko: { strict_min_version: '142.0' } }
 						}
 					]
 				}

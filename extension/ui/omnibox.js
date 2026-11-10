@@ -75,7 +75,7 @@ export async function localSuggestions(text, { sensitive = () => false } = {}) {
   if (!/\s/.test(q)) {
     for (const m of matches) {
       if (m.kind === "tab") continue;
-      const p = pathOf(m.url);
+      const p = completionText(pathOf(m.url), q);
       if (p.toLowerCase().startsWith(lower) && p.length > q.length) { completion = { text: p, row: { ...m, kind: "site" } }; break; }
     }
   }
@@ -121,6 +121,21 @@ export async function engineSuggestions(text, engine, signal) {
  * Build the rows. Order when not URL-like: search, chat, local matches, engine suggestions.
  * URL-like: the inline-completed site (or "Open …"), search, then matches, chat.
  */
+/**
+ * What to fill in inline after what was typed: never a query string or hash
+ * (sign-in links carry tokens), and for a long address only up to the next
+ * "/" after the typed text, so the box stays one line instead of growing and
+ * snapping back while typing. The full address stays in the suggestion row.
+ */
+export function completionText(p, typed) {
+  let t = String(p).replace(/[?#].*$/, "");
+  const MAX = 48;
+  if (t.length <= MAX) return t;
+  const cut = t.indexOf("/", typed.length + 1);
+  if (cut > typed.length) t = t.slice(0, cut);
+  return t.length <= MAX * 2 ? t : t.slice(0, Math.max(typed.length, t.indexOf("/") > 0 ? t.indexOf("/") : MAX));
+}
+
 export function buildRows(text, { matches = [], completion = null, suggestions = [], engineName = "Search", max = 7 }) {
   const q = text.trim();
   if (!q) return [];

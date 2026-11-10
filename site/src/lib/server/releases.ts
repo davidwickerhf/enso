@@ -181,7 +181,7 @@ export async function updateManifest() {
 		version: r.version,
 		update_link: releaseUrl(r.filename),
 		update_hash: `sha256:${r.sha256}`,
-		applications: { gecko: { strict_min_version: r.strictMinVersion ?? '139.0' } }
+		applications: { gecko: { strict_min_version: r.strictMinVersion ?? '142.0' } }
 	}));
 	return { addons: Object.fromEntries(config.extensionIds.map((id) => [id, { updates }])) };
 }

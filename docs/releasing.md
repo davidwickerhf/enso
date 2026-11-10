@@ -124,7 +124,7 @@ Modes (`workflow_dispatch` input `mode`; a tag push is `submit-listed`):
    was about 8.6 MB.
 10. **Publish.** `PUT https://enso.wicker.life/api/releases/<kind>/<version>`
     with the file as the body and `Authorization: Bearer $ENSO_RELEASE_TOKEN`;
-    the extension upload carries `?strict_min_version=139.0`. Then checks that
+    the extension upload carries `?strict_min_version=142.0`. Then checks that
     `/updates.json` offers the version.
 11. **GitHub release.** Creates `v<version>` with both files and generated
     notes, or uploads to an existing one (`--clobber`).

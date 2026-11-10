@@ -142,7 +142,7 @@
 		</li>
 	</ol>
 	<p class="req">
-		Needs macOS, Linux or Windows, Zen or Firefox 139 or newer, and your Claude plan (through Claude Code, which Setup installs) or an Anthropic API key. Questions count against
+		Needs macOS, Linux or Windows, Zen or Firefox 142 or newer, and your Claude plan (through Claude Code, which Setup installs) or an Anthropic API key. Questions count against
 		your Claude plan’s usage, as they do in Claude Code. <a href="/docs/install">Full instructions</a>
 	</p>
 </section>
