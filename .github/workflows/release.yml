@@ -38,7 +38,11 @@ name: Release
 
 on:
   push:
-    tags: ['v*']
+    # Three-part tags (v0.5.6) submit a listed version to AMO. Four-part tags
+    # (v0.5.6.1) are self-distributed builds for enso.wicker.life: they don't
+    # trigger a listed submission; run this workflow by hand with mode
+    # submit-unlisted instead.
+    tags: ['v*', '!v*.*.*.*']
   workflow_dispatch:
     inputs:
       tag:
