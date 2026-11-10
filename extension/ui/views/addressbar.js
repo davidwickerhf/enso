@@ -18,7 +18,7 @@ const DOCS = "https://enso.wicker.life/docs/new-tab#the-address-bar";
 const ZEN_PATH = "Zen Settings → Search → Default Search Engine → Ensō";
 
 function openSetting(store) {
-  store.actions.go("settings");
+  store.actions.go("settings", { section: "general" }); // the address-bar row lives in Settings → General
   requestAnimationFrame(() => document.getElementById("settings-addressbar")?.scrollIntoView({ block: "center" }));
 }
 
