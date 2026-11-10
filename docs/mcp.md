@@ -76,11 +76,17 @@ with the token in a header):
 | Client | What changes |
 |---|---|
 | Claude Code | `claude mcp remove zen-browser -s user`, then `claude mcp add --scope user zen-browser -- <launcher> mcp [--read-only]`. |
-| Codex | `[mcp_servers.zen-browser]` in `~/.codex/config.toml` (or `$CODEX_HOME/config.toml`) gets `command` and `args`; old `url`, bearer and `http_headers` entries are removed. Only that table changes; the rest of the file is kept byte for byte. |
+| Codex | `[mcp_servers.zen-browser]` in `~/.codex/config.toml` (or `$CODEX_HOME/config.toml`) gets `command`, `args` and `env_vars = ["T3CODE_THREAD_ID"]` (Codex forwards only listed variables to MCP servers; the launcher needs T3's thread id); old `url`, bearer and `http_headers` entries are removed. Only that table changes; the rest of the file is kept byte for byte. |
 | Cursor | `mcpServers["zen-browser"] = { command, args }` in `~/.cursor/mcp.json`. |
+| OpenCode | `mcp.servers["zen-browser"] = { type: "local", command: [<launcher>, "mcp", "--client", "OpenCode"] }` in `~/.config/opencode/opencode.json` (`$XDG_CONFIG_HOME` honoured). A file that still keeps servers directly under `mcp` gets the entry there, with `enabled: true`. An `opencode.jsonc` with comments isn't edited; the entry to add is printed instead. |
 
-A client counts as installed when the `claude` CLI is found, or `~/.codex` or
-`~/.cursor` exists. Files are backed up next to themselves first
+`--hooks` also adds a **UserPromptSubmit hook** to `~/.claude/settings.json`
+(`$CLAUDE_CONFIG_DIR` honoured) that runs `<launcher> inbox --session-env`
+(timeout 5 s), so screenshots and notes sent to an idle Claude Code arrive with
+the user's next message. `uninstall` removes it.
+
+A client counts as installed when the `claude` CLI is found, or `~/.codex`,
+`~/.cursor` or `~/.config/opencode` exists. Files are backed up next to themselves first
 (`*.enso-backup-<time>`, mode 0600). The command prints what changed, never
 values; these files hold other services' secrets. If the launcher is missing,
 `install` writes it.
@@ -204,6 +210,30 @@ everything arrives with the agent's next tool call:
 | **Stop** | Every further call of that agent session, including `session_start`, returns "The user stopped this task in Ensō. Don't continue in the browser; tell the user you stopped." for 30 minutes. A new agent process isn't affected. |
 
 Refused calls still carry pending notes, and show in the card as "refused".
+
+### Screenshots from the user
+
+The user can send an agent a screenshot from Ensō (⌘⇧2 or the camera button,
+then pick the agent). Each launcher process is a **connected agent** as soon as
+its client initializes it, idle or not; it stays listed while its process runs
+(the launcher sends its parent's pid, `X-Enso-Agent-Pid`) and for at most 12
+hours without a request. A screenshot waits in that agent's inbox (at most 5)
+and arrives:
+
+| How | What the agent sees |
+|---|---|
+| With its next tool call | The result starts with `Screenshot from the user (via Ensō): <message>, <page title>, <url>` and the image as MCP image content. Once. |
+| `inbox_read` | Everything waiting (notes and screenshots, as images). Read-only; offered to `--read-only` connections too. The server instructions tell agents to call it when the user says they sent something. |
+| Claude Code's prompt hook (`enso mcp install --hooks`) | With the user's next message, as context: the same line plus `Saved at <path> (open it to see the image).` A hook can only add text, so the PNG is saved under `<data>/screenshots` (0600, kept 14 days) and Claude Code opens it by path. The hook finds the agent by process: its ancestors include the Claude Code process whose launcher announced that pid. |
+
+Codex has no prompt hook for this and OpenCode only has JavaScript plugins, so
+for them screenshots arrive with the next tool call or `inbox_read`. For any
+terminal agent the send sheet also has **Copy image** (paste with ⌘V) and
+**Save + copy path**.
+
+When a T3 Code agent starts the launcher, `$T3CODE_THREAD_ID` is sent as
+`X-Enso-T3-Thread`; a screenshot of that agent's tab then goes to the T3 thread
+itself (see [the guide](../site/content/docs/screenshots.md)).
 MCP clients are still never shown approvals in Ensō, so the card has none.
 
 What the session records: tool, a short description of the target (the element

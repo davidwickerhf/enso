@@ -93,16 +93,19 @@ export function createAgentsPanel(store) {
     const stateEl = h("span", { class: "agent-state" });
     const time = h("span", { class: "agent-time" });
     const status = h("p", { class: "agent-status", role: "status" });
+    const t3Title = h("span", { class: "agent-t3-title" });
+    const t3Open = h("button", { type: "button", class: "linklike agent-t3-open", onclick: () => { const x = current(); if (x?.t3?.threadId) actions.openT3(x.t3.threadId); } }, "Open in T3", icon("arrowUpRight"));
+    const t3Line = h("p", { class: "agent-t3", hidden: true }, h("span", { class: "tag" }, "T3"), t3Title, t3Open);
     const live = h("div", { class: "sr-only", aria: { live: "polite" } });
     const root = h("section", { class: "agent-card", tabindex: "-1", aria: { label: `${a.client} is working on this tab` } },
       h("header", { class: "agent-head" },
         h("span", { class: "agent-mark", aria: { hidden: "true" } }, "✦"),
         h("div", { class: "agent-who" }, who, task),
         h("div", { class: "agent-meta" }, stateEl, time)),
-      steps, status, notes,
+      t3Line, steps, status, notes,
       h("div", { class: "agent-actions" }, form, h("div", { class: "agent-controls" }, pauseBtn, stopBtn, dismissBtn)),
       live);
-    return { id: a.id, root, steps, notes, input, form, pauseBtn, stopBtn, dismissBtn, who, task, stateEl, time, status, live, stepIds: "" };
+    return { id: a.id, root, steps, notes, input, form, pauseBtn, stopBtn, dismissBtn, who, task, stateEl, time, status, live, t3Line, t3Title, t3Open, stepIds: "" };
   }
 
   function fillCard(a) {
@@ -114,6 +117,12 @@ export function createAgentsPanel(store) {
     c.who.textContent = a.client;
     c.task.textContent = a.task || (a.explicit ? "" : "Working in Zen (no task given)");
     c.task.classList.toggle("muted", !a.task);
+    // A T3 Code agent: the thread it runs in (screenshots of this tab go there).
+    c.t3Line.hidden = !a.t3;
+    if (a.t3) {
+      c.t3Title.textContent = a.t3.title ? `${a.t3.title}${a.t3.projectTitle ? ` · ${a.t3.projectTitle}` : ""}` : "Running in a T3 Code thread";
+      c.t3Open.hidden = !a.t3.openable;
+    }
     clear(c.stateEl, a.running && !a.paused && !a.stopped ? h("span", { class: "live-dot", aria: { hidden: "true" } }) : null, stateLabel(a));
     tick();
     // Steps: newest last, like a log; re-rendered only when they change.

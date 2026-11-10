@@ -7,6 +7,7 @@ import { renderMarkdown } from "../markdown.js";
 import { relTime } from "../format.js";
 import { sortTools, labelOf, statusOf, toolGlyph, openToolPopover } from "./tools.js";
 import { profileFields, spaceHintFields } from "./onboarding.js";
+import { SCREENSHOT_SHORTCUT } from "./send.js";
 
 const MODELS = [
   ["claude-opus-5-5", "Claude Opus 5.5"],
@@ -34,6 +35,7 @@ export function createSettings(store, ctx) {
   const prof = { dirty: false, draft: null, error: null };
   const general = h("div");
   const developer = h("div");
+  const sendBlock = h("div", { id: "settings-send" });
   const servers = h("div");
   const skills = h("div");
   const memory = h("div");
@@ -42,7 +44,7 @@ export function createSettings(store, ctx) {
 
   const el = h("section", { class: "page-view settings-view", aria: { label: "Settings" } },
     h("header", { class: "page-head" }, h("h2", null, "Settings"), h("p", { class: "muted" }, "Saved to the Ensō helper on this Mac.")),
-    profile, general, developer, servers, skills, memory);
+    profile, general, sendBlock, developer, servers, skills, memory);
 
   function block(title, desc, ...content) {
     return h("section", { class: "settings-block" }, h("h3", null, title), desc ? h("p", { class: "block-desc" }, desc) : null, ...content);
@@ -157,6 +159,51 @@ export function createSettings(store, ctx) {
         err)));
   }
 
+  // Send screenshots: T3 Code connection, connected agents, linked threads.
+  function renderSend() {
+    const st = s.settings;
+    if (!st) { clear(sendBlock); return; }
+    const t3 = s.t3.status;
+    const busy = s.t3.busy;
+    const done = s.t3.done;
+    const t3State = !t3 ? ["", "Checking…"]
+      : !t3.connected ? ["", t3.cli === false ? "Not connected. T3 Code's command (~/.t3/bin/t3) wasn't found: open T3 Code once." : "Not connected."]
+      : !t3.reachable ? ["warn", "Connected, but T3 Code isn't running."]
+      : t3.tokenValid === false ? ["bad", t3.error ?? "The token was revoked or expired. Connect again."]
+      : ["good", `Connected${t3.serverVersion ? ` to ${t3.serverVersion}` : ""}. ${t3.route === "attachment" ? "Screenshots go as image attachments." : "Screenshots go as a saved PNG's path."}`];
+    const t3Buttons = h("div", { class: "form-actions" },
+      !t3?.connected || t3.tokenValid === false ? h("button", { type: "button", class: "btn primary", disabled: !!busy, onclick: () => actions.t3Connect() }, busy === "connect" ? [h("span", { class: "spinner" }), "Connecting…"] : [icon("link"), t3?.connected ? "Reconnect T3" : "Connect T3"]) : null,
+      t3?.connected ? h("button", { type: "button", class: "btn ghost", disabled: !!busy, onclick: () => actions.t3Disconnect() }, busy === "disconnect" ? "Disconnecting…" : "Disconnect") : null,
+      iconButton("refresh", "Check again", () => actions.t3Status(), { class: "small" }));
+    const links = st.sendLinks ?? { tabs: [], hosts: {} };
+    const tabLinks = links.tabs ?? [];
+    const hostLinks = Object.entries(links.hosts ?? {});
+    const agents = s.connectedAgents ?? [];
+    clear(sendBlock, block("Send screenshots", `Take a screenshot with ${SCREENSHOT_SHORTCUT} or the camera button and send it to a T3 Code thread, to an agent connected through enso mcp (Claude Code, Codex, OpenCode, Cursor…), or copy it for any terminal agent. Screenshots stay on this Mac.`,
+      h("div", { class: "setting stacked" },
+        h("div", { class: "setting-text" }, h("label", null, "T3 Code"),
+          h("p", null, "Connecting gives Ensō a token that can read and message your T3 threads (orchestration read and operate, nothing else) for 30 days. It is kept in your Keychain.")),
+        h("p", { class: ["t3-state", t3State[0]], role: "status" }, h("i"), t3State[1]),
+        done && !done.ok ? h("p", { class: "form-error", role: "alert" }, done.error) : null,
+        t3Buttons),
+      h("div", { class: "setting stacked" },
+        h("div", { class: "setting-text" }, h("label", null, "Agents"),
+          h("p", null, agents.length ? `${agents.length} connected now: ${agents.map(a => a.client).join(", ")}. A screenshot reaches them with their next step in Zen, or when they call inbox_read.` : "None connected right now. Agents appear here once they start with zen-browser (enso mcp install)."),
+          h("p", null, "So an idle Claude Code gets screenshots with your next message, run ", h("code", null, "enso mcp install --hooks"), "."))),
+      h("div", { class: "setting stacked" },
+        h("div", { class: "setting-text" }, h("label", null, "Linked threads"),
+          h("p", null, "Where a tab's screenshots go without asking. Tab links end when the tab closes; a site linked to a T3 project stays until you remove it.")),
+        tabLinks.length || hostLinks.length ? h("ul", { class: "tool-list link-list" },
+          tabLinks.map(l => h("li", null,
+            h("span", { class: "tag" }, "Tab"),
+            h("span", { class: "link-main" }, h("strong", null, l.pageTitle || l.host || `Tab ${l.tabId}`), h("span", { class: "muted" }, ` → ${l.kind === "agent" ? "agent " : ""}${l.title || l.id}`)),
+            iconButton("x", `Remove the link for ${l.pageTitle || "this tab"}`, () => actions.unlink({ type: "tab", tabId: l.tabId }), { class: "small" }))),
+          hostLinks.map(([host, v]) => h("li", null,
+            h("span", { class: "tag accent" }, "Site"),
+            h("span", { class: "link-main" }, h("strong", null, host), h("span", { class: "muted" }, ` → T3 project ${v.projectTitle || v.projectId}`)),
+            iconButton("x", `Remove the link for ${host}`, () => actions.unlink({ type: "host", host }), { class: "small" })))) : h("p", { class: "hint" }, "No links yet. Tick “Always send this tab here” when you send, or link a site to its T3 project from the send sheet."))));
+  }
+
   function renderServers() {
     const list = sortTools(s.servers ?? []);
     const on = list.filter(x => x.enabled !== false);
@@ -232,7 +279,7 @@ export function createSettings(store, ctx) {
       h("div", { class: "form-actions" }, saveBtn, revert, status)));
   }
 
-  function renderAll() { renderProfile(); renderGeneral(); renderDeveloper(); renderServers(); renderSkills(); renderMemory(); }
+  function renderAll() { renderProfile(); renderGeneral(); renderSend(); renderDeveloper(); renderServers(); renderSkills(); renderMemory(); }
   renderAll();
 
   return {
@@ -241,11 +288,12 @@ export function createSettings(store, ctx) {
       if (topics.has("profile") || topics.has("state") || (topics.has("space") && !prof.dirty)) renderProfile();
       if (topics.has("settings") || topics.has("state") || topics.has("dashboard")) renderGeneral();
       if (topics.has("settings") || topics.has("state")) renderDeveloper();
+      if (topics.has("settings") || topics.has("state") || topics.has("t3") || topics.has("agents")) renderSend();
       if (topics.has("servers") || topics.has("state")) renderServers();
       if (topics.has("skills")) renderSkills();
       if (topics.has("memory") || topics.has("space")) renderMemory();
     },
-    show() { if (!s.memory.loaded) actions.loadMemory(); renderAll(); },
+    show() { if (!s.memory.loaded) actions.loadMemory(); actions.t3Status(); renderAll(); },
     focusMemory() { memory.scrollIntoView({ block: "start" }); memory.querySelector("textarea")?.focus({ preventScroll: true }); },
   };
 }

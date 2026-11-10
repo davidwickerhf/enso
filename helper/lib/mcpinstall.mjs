@@ -7,7 +7,17 @@
 //   Codex        ~/.codex/config.toml  [mcp_servers.zen-browser] command/args; the old
 //                url, bearer and http_headers entries are removed. Line-based and
 //                TOML-aware: everything else in the file is kept byte for byte.
+//                env_vars = ["T3CODE_THREAD_ID"]: Codex forwards only listed variables to MCP
+//                servers, and the launcher needs T3's thread id to tell Ensō which thread it is.
 //   Cursor       ~/.cursor/mcp.json  mcpServers["zen-browser"] = { command, args }
+//   OpenCode     ~/.config/opencode/opencode.json  mcp.servers["zen-browser"] =
+//                { type: "local", command: [launcher, "mcp", …] } (an older file that keeps
+//                servers directly under "mcp" gets the entry there, with enabled: true).
+//                A .jsonc file with comments is left alone; the change to make is printed.
+//
+// `--hooks` also adds a UserPromptSubmit hook to ~/.claude/settings.json that runs
+// `<launcher> inbox --session-env`: screenshots and notes sent to an idle Claude
+// Code arrive with the user's next message (as text with the PNG's path).
 //
 // Config files are backed up (0600) before they are changed. Only what changed
 // is printed, never values: these files hold other services' secrets.
@@ -20,13 +30,16 @@ import { fileURLToPath } from "node:url";
 import { dataDir } from "./mcpauth.mjs";
 
 export const SERVER_NAME = "zen-browser";
-export const CLIENTS = ["claude", "codex", "cursor"];
-export const CLIENT_NAMES = { claude: "Claude Code", codex: "Codex", cursor: "Cursor" };
+export const CLIENTS = ["claude", "codex", "cursor", "opencode"];
+export const CLIENT_NAMES = { claude: "Claude Code", codex: "Codex", cursor: "Cursor", opencode: "OpenCode" };
+const CODEX_ENV_VARS = ["T3CODE_THREAD_ID"];
 
 const home = () => homedir();
 const codexConfig = () => path.join(process.env.CODEX_HOME || path.join(home(), ".codex"), "config.toml");
 const cursorConfig = () => path.join(home(), ".cursor", "mcp.json");
 const claudeJson = () => path.join(home(), ".claude.json");
+const claudeSettings = () => path.join(process.env.CLAUDE_CONFIG_DIR || path.join(home(), ".claude"), "settings.json");
+const opencodeDir = () => path.join(process.env.XDG_CONFIG_HOME || path.join(home(), ".config"), "opencode");
 const ENSO_MJS = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "bin", "enso.mjs");
 
 // ---------- launcher path ----------
@@ -200,7 +213,7 @@ export function tomlStatements(lines) {
 const startsWith = (keys, prefix) => prefix.every((p, n) => keys[n] === p);
 const SERVER = ["mcp_servers", SERVER_NAME];
 // Keys of the old http registration (and the ones we set) inside [mcp_servers.zen-browser].
-const HTTP_KEYS = new Set(["url", "http_headers", "env_http_headers", "bearer_token", "bearer_token_env_var", "command", "args", "transport", "type"]);
+const HTTP_KEYS = new Set(["url", "http_headers", "env_http_headers", "bearer_token", "bearer_token_env_var", "command", "args", "transport", "type", "env_vars"]);
 const HTTP_TABLES = new Set(["http_headers", "env_http_headers"]);
 
 const splitLines = text => text.match(/[^\n]*\n|[^\n]+$/g) ?? [];
@@ -212,7 +225,7 @@ const tomlString = s => JSON.stringify(s); // TOML basic strings use the same es
  * removes the server. Returns { text, changes } where changes are short
  * descriptions without values.
  */
-export function editCodexToml(text, { mode = "install", command, args = ["mcp"] } = {}) {
+export function editCodexToml(text, { mode = "install", command, args = ["mcp"], envVars = [] } = {}) {
   const lines = splitLines(text);
   const eol = text.includes("\r\n") ? "\r\n" : "\n";
   const stmts = tomlStatements(lines);
@@ -249,7 +262,7 @@ export function editCodexToml(text, { mode = "install", command, args = ["mcp"] 
     }
     if (remove) {
       for (let l = s.start; l <= s.end; l++) drop.add(l);
-      if (!(mode === "install" && ["command", "args"].includes(label))) changes.push(`removed ${label}`);
+      if (!(mode === "install" && ["command", "args", "env_vars"].includes(label))) changes.push(`removed ${label}`);
     }
   }
 
@@ -265,7 +278,7 @@ export function editCodexToml(text, { mode = "install", command, args = ["mcp"] 
   const at = orig => kept.findIndex(k => k.orig === orig);
 
   if (mode === "install") {
-    const body = [`command = ${tomlString(command)}${eol}`, `args = [${args.map(tomlString).join(", ")}]${eol}`].map(line => ({ line }));
+    const body = [`command = ${tomlString(command)}${eol}`, `args = [${args.map(tomlString).join(", ")}]${eol}`, ...(envVars.length ? [`env_vars = [${envVars.map(tomlString).join(", ")}]${eol}`] : [])].map(line => ({ line }));
     const header = stmts.find(s => s.type === "header" && !s.array && s.keys.length === 2 && startsWith(s.keys, SERVER) && !drop.has(s.start));
     const sub = stmts.find(s => s.type === "header" && s.keys.length > 2 && startsWith(s.keys, SERVER) && !drop.has(s.start));
     const last = () => kept[kept.length - 1];
@@ -366,7 +379,7 @@ function editCodex(mode, { launcher, readOnly } = {}) {
   const exists = existsSync(file);
   if (!exists && mode === "uninstall") return { client: "codex", ok: true, changes: [], note: "no config.toml" };
   const text = exists ? readFileSync(file, "utf8") : "";
-  const { text: next, changes } = editCodexToml(text, { mode, command: launcher, args: launcherArgs(readOnly) });
+  const { text: next, changes } = editCodexToml(text, { mode, command: launcher, args: launcherArgs(readOnly), envVars: CODEX_ENV_VARS });
   if (next === text) return { client: "codex", ok: true, changes: [], note: mode === "uninstall" ? "not registered" : "already up to date" };
   const backupFile = exists ? backup(file) : null;
   writeKeepingMode(file, next);
@@ -405,24 +418,128 @@ function editCursor(mode, { launcher, readOnly } = {}) {
   return { client: "cursor", ok: true, changes, file, backup: backupFile };
 }
 
+// ---------- OpenCode ----------
+
+/** Edit OpenCode's config object: returns { json, changes } (json unchanged when nothing to do). */
+export function editOpencodeJson(json, { mode = "install", launcher, readOnly = false } = {}) {
+  json = structuredClone(json ?? {});
+  const changes = [];
+  const command = [launcher, ...launcherArgs(readOnly), "--client", "OpenCode"];
+  json.mcp ??= {};
+  // Current layout: mcp.servers.<name>. Older files keep servers directly under mcp.
+  const legacy = !json.mcp.servers && Object.entries(json.mcp).some(([k, v]) => k !== "servers" && v && typeof v === "object" && "type" in v);
+  const holder = legacy ? json.mcp : (json.mcp.servers ??= {});
+  const before = holder[SERVER_NAME];
+  if (mode === "uninstall") {
+    if (!before) return { json, changes };
+    delete holder[SERVER_NAME];
+    if (!legacy && !Object.keys(json.mcp.servers).length) delete json.mcp.servers;
+    if (!Object.keys(json.mcp).length) delete json.mcp;
+    changes.push(`removed mcp${legacy ? "" : ".servers"}.${SERVER_NAME}`);
+    return { json, changes };
+  }
+  const entry = legacy ? { type: "local", command, enabled: true } : { type: "local", command };
+  if (JSON.stringify(before) === JSON.stringify(entry)) return { json, changes };
+  holder[SERVER_NAME] = entry;
+  changes.push(`${before ? "replaced" : "added"} mcp${legacy ? "" : ".servers"}.${SERVER_NAME} (local launcher${readOnly ? ", read-only" : ""})`);
+  return { json, changes };
+}
+
+function editOpencode(mode, { launcher, readOnly } = {}) {
+  const dir = opencodeDir();
+  const jsonFile = path.join(dir, "opencode.json");
+  const jsoncFile = path.join(dir, "opencode.jsonc");
+  const file = existsSync(jsonFile) ? jsonFile : existsSync(jsoncFile) ? jsoncFile : jsonFile;
+  const exists = existsSync(file);
+  if (!exists && mode === "uninstall") return { client: "opencode", ok: true, changes: [], note: "no opencode.json" };
+  const text = exists ? readFileSync(file, "utf8") : "";
+  let json;
+  try {
+    json = text.trim() ? JSON.parse(text) : { $schema: "https://opencode.ai/config.json" };
+  } catch {
+    const manual = JSON.stringify({ mcp: { servers: { [SERVER_NAME]: { type: "local", command: [launcher ?? launcherPath(), ...launcherArgs(readOnly), "--client", "OpenCode"] } } } });
+    return { client: "opencode", ok: false, changes: [], note: `${file} has comments or isn't plain JSON; left unchanged. Add ${mode === "uninstall" ? `nothing; remove mcp.servers.${SERVER_NAME}` : manual} yourself` };
+  }
+  const { json: next, changes } = editOpencodeJson(json, { mode, launcher, readOnly });
+  if (!changes.length) return { client: "opencode", ok: true, changes: [], note: mode === "uninstall" ? "not registered" : "already up to date" };
+  const indent = text.match(/^\{\r?\n([ \t]+)"/)?.[1] ?? "  ";
+  const backupFile = exists ? backup(file) : null;
+  writeKeepingMode(file, JSON.stringify(next, null, indent) + "\n");
+  return { client: "opencode", ok: true, changes, file, backup: backupFile };
+}
+
+// ---------- Claude Code prompt hook (--hooks) ----------
+
+export const HOOK_MARK = "inbox --session-env";
+
+/** Add or remove Ensō's UserPromptSubmit hook in a Claude Code settings object. */
+export function editClaudeHooks(json, { mode = "install", launcher } = {}) {
+  json = structuredClone(json ?? {});
+  const changes = [];
+  const groups = json.hooks?.UserPromptSubmit ?? [];
+  const ours = h => typeof h?.command === "string" && h.command.includes(HOOK_MARK);
+  const had = groups.some(g => (g.hooks ?? []).some(ours));
+  const kept = groups.map(g => ({ ...g, hooks: (g.hooks ?? []).filter(h => !ours(h)) })).filter(g => g.hooks.length);
+  if (mode === "uninstall") {
+    if (!had) return { json, changes };
+    json.hooks.UserPromptSubmit = kept;
+    if (!kept.length) delete json.hooks.UserPromptSubmit;
+    if (!Object.keys(json.hooks).length) delete json.hooks;
+    changes.push("removed the UserPromptSubmit hook (enso inbox)");
+    return { json, changes };
+  }
+  const command = `${JSON.stringify(launcher)} ${HOOK_MARK}`;
+  const current = groups.flatMap(g => g.hooks ?? []).find(ours);
+  if (current?.command === command) return { json, changes };
+  json.hooks ??= {};
+  json.hooks.UserPromptSubmit = [...kept, { hooks: [{ type: "command", command, timeout: 5 }] }];
+  changes.push(`${had ? "updated" : "added"} a UserPromptSubmit hook: screenshots and notes for an idle session arrive with your next message`);
+  return { json, changes };
+}
+
+function editClaudeSettings(mode, { launcher } = {}) {
+  const file = claudeSettings();
+  const exists = existsSync(file);
+  if (!exists && mode === "uninstall") return { client: "claude-hooks", ok: true, changes: [], note: "no settings.json" };
+  const text = exists ? readFileSync(file, "utf8") : "";
+  let json;
+  try {
+    json = text.trim() ? JSON.parse(text) : {};
+  } catch {
+    return { client: "claude-hooks", ok: false, changes: [], note: `${file} is not valid JSON; left unchanged` };
+  }
+  const { json: next, changes } = editClaudeHooks(json, { mode, launcher });
+  if (!changes.length) return { client: "claude-hooks", ok: true, changes: [], note: mode === "uninstall" ? "no hook" : "hook already set" };
+  const indent = text.match(/^\{\r?\n([ \t]+)"/)?.[1] ?? "  ";
+  const backupFile = exists ? backup(file) : null;
+  writeKeepingMode(file, JSON.stringify(next, null, indent) + "\n");
+  return { client: "claude-hooks", ok: true, changes, file, backup: backupFile };
+}
+
 // ---------- commands ----------
 
 /** "all" = every client that looks installed on this machine. */
 export function resolveClients(which = "all") {
   if (which !== "all") {
-    if (!CLIENTS.includes(which)) throw new Error(`Unknown client "${which}" (claude, codex, cursor or all)`);
+    if (!CLIENTS.includes(which)) throw new Error(`Unknown client "${which}" (claude, codex, cursor, opencode or all)`);
     return [which];
   }
-  return CLIENTS.filter(c => (c === "claude" ? !!findClaudeBin() : c === "codex" ? existsSync(path.dirname(codexConfig())) : existsSync(path.dirname(cursorConfig()))));
+  return CLIENTS.filter(c => (c === "claude" ? !!findClaudeBin() : c === "codex" ? existsSync(path.dirname(codexConfig())) : c === "cursor" ? existsSync(path.dirname(cursorConfig())) : existsSync(opencodeDir())));
 }
 
-export function install({ client = "all", readOnly = false, dir = dataDir(), log = () => {} } = {}) {
+const installOne = (c, o) => (c === "claude" ? installClaude(o) : c === "codex" ? editCodex("install", o) : c === "cursor" ? editCursor("install", o) : editOpencode("install", o));
+
+export function install({ client = "all", readOnly = false, hooks = false, dir = dataDir(), log = () => {} } = {}) {
   const launcher = ensureLauncher(dir, log);
-  return resolveClients(client).map(c => (c === "claude" ? installClaude({ launcher, readOnly }) : c === "codex" ? editCodex("install", { launcher, readOnly }) : editCursor("install", { launcher, readOnly })));
+  const results = resolveClients(client).map(c => installOne(c, { launcher, readOnly }));
+  if (hooks) results.push(editClaudeSettings("install", { launcher }));
+  return results;
 }
 
-export function uninstall({ client = "all" } = {}) {
-  return resolveClients(client).map(c => (c === "claude" ? uninstallClaude() : c === "codex" ? editCodex("uninstall") : editCursor("uninstall")));
+export function uninstall({ client = "all", hooks = false } = {}) {
+  const results = resolveClients(client).map(c => (c === "claude" ? uninstallClaude() : c === "codex" ? editCodex("uninstall") : c === "cursor" ? editCursor("uninstall") : editOpencode("uninstall")));
+  if (hooks || client === "all" || client === "claude") results.push(editClaudeSettings("uninstall"));
+  return results;
 }
 
 /** Which clients have zen-browser registered, and how (never values). */
@@ -439,7 +556,17 @@ export function registrations() {
   try {
     cursor = entryKind(JSON.parse(read(cursorConfig()) ?? "{}").mcpServers?.[SERVER_NAME]);
   } catch {}
-  return { claude: entryKind(claudeEntry()), codex: codex == null ? null : codexEntryKind(codex), cursor };
+  let opencode = null;
+  try {
+    const oc = JSON.parse(read(path.join(opencodeDir(), "opencode.json")) ?? "{}");
+    const e = oc.mcp?.servers?.[SERVER_NAME] ?? oc.mcp?.[SERVER_NAME];
+    opencode = e ? (Array.isArray(e.command) ? (e.command.includes("--read-only") ? "launcher-read" : "launcher") : "other") : null;
+  } catch {}
+  let hook = false;
+  try {
+    hook = (JSON.parse(read(claudeSettings()) ?? "{}").hooks?.UserPromptSubmit ?? []).some(g => (g.hooks ?? []).some(h => String(h.command ?? "").includes(HOOK_MARK)));
+  } catch {}
+  return { claude: entryKind(claudeEntry()), codex: codex == null ? null : codexEntryKind(codex), cursor, opencode, claudeHook: hook };
 }
 
 /** Is the helper's MCP server up, and does it accept our token? */

@@ -63,6 +63,15 @@ All messages are objects with a `type`. Times are ISO strings. Ids are strings.
 | `agents.stop` | `id` | `agents` (every further call of that agent session is refused for 30 minutes) |
 | `agents.note` | `id`, `text` (≤ 1000 characters) | `agents` (the note, undelivered) + `actions.added` (`action: "note"`, without the text); `deliveredAt` is set when the agent's next tool result carries it |
 | `agents.dismiss` | `id` | `agents` (removes the session from the list, e.g. a stopped one) |
+| `send.targets` | `tabId`, `url` (the captured tab) | `send.targets` (see [Send screenshots](#send-screenshots)) |
+| `send.screenshot` | `target: { kind: "t3" \| "agent", id }`, `image` (PNG/JPEG data URL, ≤ 25 MB), `message`, `url`, `title`, `includePage` (bool, default true), `consoleErrors?` ([{ text, source }], only when ticked) | `send.result` + `actions.added` (`action: "screenshot"`) |
+| `screenshot.save` | `image`, `url` | `screenshot.saved` `{ ok, path }` (saved under `<data>/screenshots`; the UI copies the path) |
+| `send.link` | `link`: `{ type: "tab", tabId, host, kind, id, title, pageTitle }` or `{ type: "host", host, projectId, projectTitle }` | `settings` (`sendLinks`) |
+| `send.unlink` | `link`: `{ type: "tab", tabId }` or `{ type: "host", host }` | `settings` |
+| `t3.status` | | `t3` `{ status: T3Status }` |
+| `t3.connect` | | `t3` `{ status, done: { action: "connect", ok, error? } }` (runs `t3 auth session issue`, token into the Keychain) |
+| `t3.disconnect` | | `t3` `{ status, done }` (revokes the session, deletes the item) |
+| `t3.open` | `threadId` | none: opens `t3code://threads/<environment>/<thread>` in the T3 Code app the `t3` CLI belongs to |
 
 `chat.send`: background always adds `page: { tabId, url, title }` for the active
 tab (so page tools act on the tab the user was looking at), plus `text` when
@@ -78,6 +87,7 @@ the active tab. On a private site no `text` or `screenshot` is added.
 | `tabs.list` | | `tabs`: `{ type, tabs: [{ tabId, title, url, favIconUrl, active }] }` (open http(s) tabs; each also has `hidden` (true = another Zen space) and `space` (name); current space's tabs first) |
 | `page.current` | | `page.current`: `{ type, tab: { tabId, title, url, favIconUrl, sensitive } \| null }`, also pushed whenever the active tab changes. `sensitive: true` on banking/health sites: the page chip shows a lock and the page is not sent or acted on. |
 | `agents.switch` | `tabId` | none: activates that tab and focuses its window (the Agents list) |
+| `screenshot.capture` | `mode`: `"region"` (drag; Enter = visible area, F = full page, Esc = cancel) \| `"visible"` \| `"full"` | `screenshot.captured` (to that port) |
 
 background.js accepts `ui` ports only from Ensō's own pages (`port.sender.url`
 under the extension's origin), so notes, Pause and Stop can't come from page
@@ -88,6 +98,12 @@ background.js also sends messages of its own to every UI:
 - `composer.prefill`: `{ type, text }` from the "Ask Ensō about this" context menu;
 - `agents.focus`: `{ type, tabId }` when the user clicked the page pill on that
   tab (the sidebar scrolls to the agent card and focuses "Tell the agent…");
+- `screenshot.captured`: `{ type, image, mode, tab: { tabId, url, title, … },
+  consoleErrors: [{ t, text, source }] | null, at }`, or `{ cancelled: true }`, or
+  `{ error }`. After the `send-screenshot` command (⌘⇧2) it goes to the sidebar
+  only, which the command opens; if the sidebar isn't connected yet it is kept
+  for up to a minute and sent when it connects. `consoleErrors` is null when
+  console capture never ran on that tab. Private sites are refused.
 - an `event` with `conversationId: null` and `code: "host_disconnected"` when the
   native port closes (the UI shows "The chat helper stopped" with Reconnect).
 
@@ -140,7 +156,52 @@ prefix and the toolbar badge.
   notes: [{ id, text, at, deliveredAt: ISO | null }] }
 ```
 A session ends two minutes after its last call (paused: 30 minutes), or when
-the agent calls `session_end`.
+the agent calls `session_end`. Since the screenshot work a session also has
+`t3ThreadId` (the T3 Code thread its launcher announced, or null), `t3`
+(`{ threadId, title, projectTitle, openable }` when the helper knows the
+thread) and `agentId` (its connected agent, below).
+
+`agents` also carries `connected: [ConnectedAgent]`, and `state` carries
+`connectedAgents`: agents connected through the launcher, which can be sent
+screenshots even while idle. One per launcher process, kept while its process
+runs (checked by pid) and for at most 12 hours without a request:
+```js
+{ id: "ag-1f2e3d4c5b6a", client: "Claude Code", clientName: "claude-code",
+  task: "",                 // its live session's task, if any
+  tabIds: [42], sessionIds: ["3f2a…"], active: true,
+  t3ThreadId: null, lastAt, pending: 0,   // screenshots not yet delivered
+  inbox: [{ id, kind: "screenshot", text, path, at, deliveredAt, via?: "tool result" | "prompt hook" }] }
+```
+
+### Send screenshots
+
+`send.targets` answers with everything the send sheet and picker need:
+```js
+{ type: "send.targets", tabId, url, host,
+  t3: T3Status,             // { cli, origin, reachable, connected, tokenValid, environmentId,
+                            //   serverVersion, route: "attachment" | "path" | null, expiresAt, error }
+  threads: [{ id, title, projectId, projectTitle, status, running, waiting, activeAt }],
+  projects: [{ id, title, repo }],
+  agents: [ConnectedAgent],
+  target: { kind: "t3" | "agent", id } | null,
+  source: "agent" | "tab-link" | "host-link" | "picker",
+  client, projectId, links: { tabs: [...], hosts: { host: { projectId, projectTitle } } } }
+```
+Resolution order (`resolveTarget` in `lib/t3.mjs`): an agent session on the tab
+with a T3 thread → that thread; an agent session without one → that agent; a
+tab link; a site → project link (the project's running/waiting, else latest
+thread); else no target, and the UI opens the picker. Threads are ordered
+running and waiting first, then threads of a project matching the page (repo
+page, dev-server port in the project's scripts, or a name in the host), then by
+recency. T3 being down or disconnected only empties `threads`.
+
+`send.result`: `{ type, reqId, ok, kind, title, route, path?, openUrl?, queued?, error?, code? }`.
+`route` is `"attachment"` (T3 image attachment), `"path"` (T3 without
+attachment uploads: PNG saved, path sent as text with `t3 thread send`) or
+`"inbox"` (an agent: queued for its next tool call). Settings gain
+`sendLinks: { tabs: [{ tabId, host, kind, id, title, pageTitle, at }], hosts }`;
+tab links are dropped when the tab closes (background.js sends
+`send.tab_closed { tabId }` to the host).
 
 ### `Space`
 ```js
@@ -496,3 +557,19 @@ the result, refused or not. The session tools `session_start`,
 `session_status` and `session_end` exist only on this server. Every change is
 pushed as `agents`; every logged external action as `actions.added`. Semantics:
 [mcp.md](mcp.md#sessions-and-steering).
+
+**Screenshots for agents.** Messages collected before a tool runs can also be
+MCP content: a screenshot the user sent is a text block
+`Screenshot from the user (via Ensō): <message>, <title>, <url>` followed by
+`{ type: "image", data, mimeType }`, once. The session tool `inbox_read`
+returns everything waiting (notes and screenshots) on demand. The launcher
+also sends `X-Enso-T3-Thread` (`$T3CODE_THREAD_ID`, when a T3 Code agent
+started it) and `X-Enso-Agent-Pid` (its parent process); both end up in
+`ctx.client` (`t3Thread`, `agentPid`).
+
+**`POST /inbox`** (full token only; no `Origin`): the Claude Code
+UserPromptSubmit hook (`enso inbox --session-env`). Body
+`{ pids: [the hook's ancestors, ≤ 12], t3Thread }`; answer `{ items: [text] }`
+for agents whose process is one of `pids` (or that run in `t3Thread`): notes,
+and screenshots named by their saved path (a hook can only add text). Items are
+marked delivered.

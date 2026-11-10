@@ -6,6 +6,10 @@
 //   Authorization: Bearer <token read from the 0600 file in the data folder, per request>
 //   X-Enso-Client: <clientInfo name>/<version>   (from the client's initialize)
 //   X-Enso-Session: <random id for this launcher process>  (one agent session: Pause, Stop, notes)
+//   X-Enso-T3-Thread: <T3CODE_THREAD_ID>   (when a T3 Code agent started us: the thread it runs in,
+//                      so a screenshot of its tab goes back to that thread)
+//   X-Enso-Agent-Pid: <our parent's pid>   (the agent process; the Claude Code prompt hook,
+//                      `enso inbox --session-env`, finds this session by it)
 // so no token appears in any client config and `enso mcp rotate` needs no
 // re-registration. Responses (JSON or SSE) are written back as lines on stdout.
 //
@@ -24,6 +28,11 @@ import { dataDir, encodeClientHeader, readToken } from "./mcpauth.mjs";
 export const DOWN_MESSAGE = "Zen isn't running: open Zen and try again.";
 const DEFAULT_PORT = 47823;
 const PROTOCOL_FALLBACK = "2025-06-18";
+
+/** The T3 Code thread this launcher's agent runs in (T3 sets T3CODE_THREAD_ID for its agents), cleaned for a header. */
+export function t3ThreadFromEnv(env = process.env) {
+  return String(env.T3CODE_THREAD_ID ?? "").replace(/[^A-Za-z0-9_.:-]/g, "").slice(0, 128);
+}
 
 export function launcherUrl(port = Number(process.env.ENSO_MCP_PORT || process.env.ZEN_CHAT_MCP_PORT) || DEFAULT_PORT) {
   return `http://127.0.0.1:${port}/mcp`;
@@ -49,11 +58,12 @@ export function parseSse(text) {
  * Run the bridge. Options are for tests:
  *   scope        "full" | "read" (which token to send)
  *   clientLabel  fixed label instead of the clientInfo mapping (--client "T3 Code")
+ *   t3Thread     the T3 thread id to announce (default: $T3CODE_THREAD_ID)
  *   url, dir     helper endpoint and data folder
  *   input/output streams (default stdin/stdout); pollMs for the down-state probe
  * Resolves when input ends.
  */
-export function runLauncher({ scope = "full", clientLabel = "", url = launcherUrl(), dir = dataDir(), input = process.stdin, output = process.stdout, pollMs = Number(process.env.ENSO_MCP_POLL_MS) || 5000, logErr = m => process.stderr.write(`enso mcp: ${m}\n`) } = {}) {
+export function runLauncher({ scope = "full", clientLabel = "", t3Thread = t3ThreadFromEnv(), agentPid = process.ppid, url = launcherUrl(), dir = dataDir(), input = process.stdin, output = process.stdout, pollMs = Number(process.env.ENSO_MCP_POLL_MS) || 5000, logErr = m => process.stderr.write(`enso mcp: ${m}\n`) } = {}) {
   let clientInfo = null;
   let protocolVersion = null;
   let servedStale = false; // answered tools/list without the helper; tell the client when it is back
@@ -69,6 +79,8 @@ export function runLauncher({ scope = "full", clientLabel = "", url = launcherUr
     if (client) h["X-Enso-Client"] = client;
     if (clientLabel) h["X-Enso-Client-Label"] = clientLabel;
     h["X-Enso-Session"] = sessionId;
+    if (t3Thread) h["X-Enso-T3-Thread"] = t3Thread;
+    if (agentPid > 1) h["X-Enso-Agent-Pid"] = String(agentPid);
     if (protocolVersion) h["MCP-Protocol-Version"] = protocolVersion;
     return h;
   };

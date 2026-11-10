@@ -11,6 +11,7 @@
   },
   "permissions": [
     "nativeMessaging",
+    "clipboardWrite",
     "tabs",
     "tabGroups",
     "history",
@@ -49,6 +50,13 @@
         "default": "Ctrl+E"
       },
       "description": "Open or close Ensō"
+    },
+    "send-screenshot": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+2",
+        "mac": "Command+Shift+2"
+      },
+      "description": "Send a screenshot to an agent (drag a region; Enter for the visible area, F for the full page)"
     }
   },
   "icons": {

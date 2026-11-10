@@ -310,6 +310,93 @@
     el.dispatchEvent(new KeyboardEvent("keyup", init));
   }
 
+  // ---- screenshot region select ("Send screenshot", ⌘⇧2): the user drags a box ----
+  // Resolves { mode: "region", rect } (page coordinates, CSS px), { mode: "visible" }
+  // (Enter or a click without dragging), { mode: "full" } (F) or { cancelled: true } (Esc).
+  // The overlay is removed and two frames painted before it resolves, so it never shows in the capture.
+  let selecting = null;
+  function regionSelect() {
+    if (selecting) return selecting;
+    selecting = new Promise(resolve => {
+      const host = document.createElement("div");
+      host.setAttribute("data-enso-region", "");
+      host.style.cssText = "position:fixed;inset:0;z-index:2147483647;";
+      const root = host.attachShadow({ mode: "closed" });
+      const el = (tag, cls, text) => {
+        const n = document.createElement(tag);
+        if (cls) n.className = cls;
+        if (text) n.textContent = text;
+        return n;
+      };
+      const style = el("style");
+      style.textContent = `
+        .layer{position:fixed;inset:0;cursor:crosshair;background:rgba(20,16,12,.32);outline:none}
+        .layer.dragging{background:transparent}
+        .box{position:fixed;display:none;border:1.5px solid ${ACCENT};border-radius:2px;box-shadow:0 0 0 100vmax rgba(20,16,12,.32);pointer-events:none}
+        .size{position:absolute;right:-1px;bottom:-24px;font:600 11px/1 -apple-system,system-ui,sans-serif;color:#fff;background:${ACCENT};padding:4px 6px;border-radius:4px;white-space:nowrap}
+        .hint{position:fixed;left:50%;top:14px;transform:translateX(-50%);display:flex;gap:14px;align-items:center;font:500 12.5px/1.2 -apple-system,system-ui,sans-serif;color:#fff;background:rgba(28,24,20,.92);padding:9px 14px;border-radius:10px;box-shadow:0 6px 24px rgba(0,0,0,.25);pointer-events:none;white-space:nowrap}
+        .hint b{font-weight:650;color:#ffd9c7}
+        kbd{font:600 11px/1 ui-monospace,SFMono-Regular,monospace;background:rgba(255,255,255,.14);border-radius:4px;padding:3px 5px;margin-right:4px}
+        .layer.dragging ~ .hint{opacity:0}
+      `;
+      const layerEl = el("div", "layer");
+      layerEl.tabIndex = -1;
+      const boxEl = el("div", "box");
+      boxEl.append(el("span", "size"));
+      const hint = el("div", "hint");
+      hint.append(el("b", "", "✦ Screenshot"), el("span", "", "Drag to select"));
+      for (const [k, t] of [["↵", "Visible area"], ["F", "Full page"], ["Esc", "Cancel"]]) {
+        const item = el("span");
+        item.append(el("kbd", "", k), document.createTextNode(t));
+        hint.append(item);
+      }
+      root.append(style, layerEl, boxEl, hint);
+      const layer = root.querySelector(".layer");
+      const box = root.querySelector(".box");
+      const size = root.querySelector(".size");
+      let start = null;
+      let rect = null;
+      const finish = result => {
+        window.removeEventListener("keydown", onKey, true);
+        host.remove();
+        selecting = null;
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve(result)));
+      };
+      const onKey = e => {
+        if (e.key === "Escape") finish({ cancelled: true });
+        else if (e.key === "Enter") finish({ mode: "visible" });
+        else if (e.key === "f" || e.key === "F") finish({ mode: "full" });
+        else return;
+        e.preventDefault();
+        e.stopPropagation();
+      };
+      layer.addEventListener("mousedown", e => {
+        if (e.button !== 0) return;
+        start = { x: e.clientX, y: e.clientY };
+        layer.classList.add("dragging");
+        e.preventDefault();
+      });
+      layer.addEventListener("mousemove", e => {
+        if (!start) return;
+        const x = Math.min(start.x, e.clientX), y = Math.min(start.y, e.clientY);
+        const w = Math.abs(e.clientX - start.x), h = Math.abs(e.clientY - start.y);
+        rect = { x, y, width: w, height: h };
+        Object.assign(box.style, { display: "block", left: `${x}px`, top: `${y}px`, width: `${w}px`, height: `${h}px` });
+        size.textContent = `${Math.round(w)} × ${Math.round(h)}`;
+      });
+      layer.addEventListener("mouseup", () => {
+        if (!start) return;
+        start = null;
+        if (!rect || rect.width < 8 || rect.height < 8) return finish({ mode: "visible" });
+        finish({ mode: "region", rect: { x: rect.x + scrollX, y: rect.y + scrollY, width: rect.width, height: rect.height } });
+      });
+      window.addEventListener("keydown", onKey, true);
+      (document.body ?? document.documentElement).append(host);
+      layer.focus();
+    });
+    return selecting;
+  }
+
   const actions = {
     snapshot,
     click({ ref }) {
@@ -391,6 +478,12 @@
       return { url: location.href, title: document.title };
     },
     presence: setPresence,
+    region_select: regionSelect,
+    page_size() {
+      const d = document.documentElement;
+      const b = document.body;
+      return { width: Math.max(d.scrollWidth, b?.scrollWidth ?? 0, innerWidth), height: Math.max(d.scrollHeight, b?.scrollHeight ?? 0, innerHeight), viewport: { width: innerWidth, height: innerHeight }, dpr: devicePixelRatio };
+    },
     pill_ready() {
       if (pill) {
         pill.ready = true;
@@ -623,7 +716,7 @@
     return { status: res.status, statusText: res.statusText, url: res.url, redirected: res.redirected, headers: hdrs, contentType: type, body: text.length > cap ? text.slice(0, cap) : text, bodyLength: length, truncated: text.length > cap, tabOrigin: location.origin, tabTitle: document.title };
   }
 
-  const PASSIVE = new Set(["presence", "pill_ready", "pill_hint", "text", "console_flush"]); // not an action by anyone
+  const PASSIVE = new Set(["presence", "pill_ready", "pill_hint", "text", "console_flush", "region_select", "page_size"]); // not an action by anyone
   browser.runtime.onMessage.addListener(msg => {
     if (!msg?.enso) return undefined;
     return (async () => {

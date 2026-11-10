@@ -56,13 +56,13 @@ async function deleteChunksFrom(service, start) {
 }
 
 /** Store (or replace) a string. Throws when the Keychain did not take it. */
-export async function writeSecret(service, value) {
+export async function writeSecret(service, value, label = "Enso MCP sign-in") {
   check(service);
   const b64 = Buffer.from(String(value), "utf8").toString("base64");
   const chunks = [];
   for (let i = 0; i < b64.length || i === 0; i += CHUNK) chunks.push(b64.slice(i, i + CHUNK));
   // Tail chunks first, the head last, so a reader never sees a head pointing at missing parts.
-  const lines = chunks.map((c, i) => ({ i, line: `add-generic-password -U -a ${ACCOUNT} -s ${i ? `${service}~${i}` : service} -l "Enso MCP sign-in" -w ${i ? c : `enso1:${chunks.length}:${c}`}` }));
+  const lines = chunks.map((c, i) => ({ i, line: `add-generic-password -U -a ${ACCOUNT} -s ${i ? `${service}~${i}` : service} -l "${String(label).replace(/["\\\n]/g, "")}" -w ${i ? c : `enso1:${chunks.length}:${c}`}` }));
   const ordered = [...lines.slice(1), lines[0]].map(l => l.line).join("\n") + "\n";
   await run(["-i"], ordered);
   await deleteChunksFrom(service, chunks.length);

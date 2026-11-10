@@ -303,6 +303,43 @@ try {
   r = await call("tabs_list", {}, { session: null, client: null });
   assert.equal(r.isError, false);
   console.log("ok - plain http + bearer calls work without a session id");
+
+  // A screenshot from Ensō to a connected agent: image content on its next call, inbox_read, the prompt hook
+  await call("tabs_list", {}, { session: "launcher-9" });
+  const ag9 = (await waitFor(m => m.type === "agents" && (m.connected ?? []).length >= 1)).connected[0];
+  assert.equal(ag9.client, "Claude Code");
+  const png = Buffer.from("89504e470d0a1a0a00000000", "hex").toString("base64");
+  const shot = async (reqId, message) => {
+    const at = inbox.length;
+    post({ type: "send.screenshot", reqId, target: { kind: "agent", id: ag9.id }, image: `data:image/png;base64,${png}`, message, url: "https://docs.example.com/x", title: "Doc" });
+    return nextFrom(at, m => m.type === "send.result" && m.reqId === reqId);
+  };
+  let sres = await shot("s1", "Look here");
+  assert.equal(sres.ok, true, sres.error);
+  assert.equal(sres.route, "inbox");
+  const raw = async (name, args, session) => {
+    const tk = readFileSync(path.join(home, "Library/Application Support/Enso/mcp-token"), "utf8").trim();
+    const res = await fetch(`http://127.0.0.1:${port}/mcp`, { method: "POST", headers: { "Content-Type": "application/json", Accept: "application/json, text/event-stream", Authorization: `Bearer ${tk}`, "MCP-Protocol-Version": "2025-06-18", "X-Enso-Client": "claude-code/2.1.3", "X-Enso-Session": session, "X-Enso-Agent-Pid": String(process.pid) }, body: JSON.stringify({ jsonrpc: "2.0", id: ++rpc, method: "tools/call", params: { name, arguments: args } }) });
+    const body = await res.text();
+    const msg = (res.headers.get("content-type") ?? "").includes("event-stream") ? JSON.parse(body.split("\n").find(l => l.startsWith("data:")).slice(5)) : JSON.parse(body);
+    return msg.result.content;
+  };
+  let content = await raw("tabs_list", {}, "launcher-9");
+  assert.equal(content[0].text, "Screenshot from the user (via Ensō): Look here, Doc, https://docs.example.com/x");
+  assert.deepEqual(content[1], { type: "image", data: png, mimeType: "image/png" });
+  content = await raw("tabs_list", {}, "launcher-9");
+  assert.ok(!content.some(c => c.type === "image"), "delivered once");
+  sres = await shot("s2", "Second one");
+  assert.equal(sres.ok, true, sres.error);
+  content = await raw("inbox_read", {}, "launcher-9");
+  assert.equal(content[1]?.type, "image", `inbox_read returns waiting screenshots: ${JSON.stringify(content).slice(0, 300)}`);
+  await shot("s3", "For the hook");
+  const tk = readFileSync(path.join(home, "Library/Application Support/Enso/mcp-token"), "utf8").trim();
+  const hook = await (await fetch(`http://127.0.0.1:${port}/inbox`, { method: "POST", headers: { Authorization: `Bearer ${tk}`, "Content-Type": "application/json" }, body: JSON.stringify({ pids: [1, process.pid] }) })).json();
+  assert.equal(hook.items.length, 1);
+  assert.match(hook.items[0], /For the hook.*Saved at .*Enso\/screenshots\/.*\.png/);
+  assert.equal((await fetch(`http://127.0.0.1:${port}/inbox`, { method: "POST", body: "{}" })).status, 401, "the hook route needs the full token");
+  console.log("ok - a screenshot sent to a connected agent arrives as image content, via inbox_read, or via the prompt hook");
 } finally {
   host.kill();
   rmSync(home, { recursive: true, force: true });

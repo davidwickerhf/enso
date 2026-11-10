@@ -22,6 +22,9 @@ import * as store from "./lib/store.mjs";
 import { config, configError, LOCAL_CONFIG } from "./lib/config.mjs";
 import { listSpaces } from "./lib/zenspaces.mjs";
 import { createTaskSources } from "./lib/tasks.mjs";
+import { appBundle, createT3 } from "./lib/t3.mjs";
+import { addLink, createSender, normalizeLinks, removeLink } from "./lib/screenshots.mjs";
+import { spawn } from "node:child_process";
 
 store.setDefaults(config.defaults);
 if (configError) log(configError);
@@ -428,6 +431,54 @@ async function enginesState() {
   };
 }
 
+// ---------- screenshots to agents: T3 Code threads and agents connected through `enso mcp` ----------
+
+const t3 = createT3();
+let t3EnvId = null;
+const sender = createSender({ t3, sessions: agentSessions, dataDir: store.DATA, getLinks: () => store.getSettings().sendLinks });
+
+async function t3Status() {
+  const status = await t3.status();
+  if (status.environmentId) t3EnvId = status.environmentId;
+  return status;
+}
+
+/** Agent sessions for the UI, with the T3 thread's title (and a deep link) when known. */
+function agentsPayload() {
+  const sessions = agentSessions.list().map(a => {
+    if (!a.t3ThreadId) return a;
+    const info = t3.threadInfo(a.t3ThreadId);
+    return { ...a, t3: { threadId: a.t3ThreadId, title: info?.title ?? null, projectTitle: info?.projectTitle ?? null, openable: !!t3EnvId } };
+  });
+  return { type: "agents", sessions, connected: agentSessions.connected().map(({ inbox, ...a }) => a) };
+}
+let t3Refreshing = false;
+async function pushAgents() {
+  const missing = agentSessions.list().some(a => a.t3ThreadId && !t3.threadInfo(a.t3ThreadId));
+  if (missing && !t3Refreshing) {
+    t3Refreshing = true;
+    try {
+      if (!t3EnvId) await t3Status();
+      await t3.listThreads();
+    } catch {}
+    t3Refreshing = false;
+  }
+  send(agentsPayload());
+}
+
+function sendLinks(links) {
+  send({ type: "settings", settings: store.updateSettings({ sendLinks: normalizeLinks(links) }) });
+}
+
+function openT3Thread(threadId) {
+  if (!t3EnvId || !/^[A-Za-z0-9_.:-]+$/.test(String(threadId))) return;
+  const url = `t3code://threads/${encodeURIComponent(t3EnvId)}/${encodeURIComponent(threadId)}`;
+  const app = appBundle();
+  const child = spawn("/usr/bin/open", app ? ["-a", app, url] : [url], { stdio: "ignore", detached: true });
+  child.on("error", () => {});
+  child.unref();
+}
+
 // ---------- messages from the extension ----------
 
 async function handle(msg) {
@@ -450,7 +501,8 @@ async function handle(msg) {
         sensitiveHosts: config.sensitiveHosts,
         spaces: listSpaces(),
         reports: store.listReports(),
-        agents: agentSessions.list(),
+        agents: agentsPayload().sessions,
+        connectedAgents: agentsPayload().connected,
       });
       if (settings.engine === "api") connectMcp(await externalServers(), setServers);
       else if (await subscriptionAvailable()) prewarm({ settings, config, servers: await externalServers(), disallowed: disallowedTools() });
@@ -603,7 +655,64 @@ async function handle(msg) {
     // Steering an external agent from Ensō (lib/agentsessions.mjs). Only Ensō's own
     // pages reach here: background.js accepts "ui" ports from extension pages only.
     case "agents.list":
-      send({ type: "agents", sessions: agentSessions.list() });
+      await pushAgents();
+      break;
+    // Screenshots to agents (lib/screenshots.mjs). Only Ensō's own pages reach here.
+    case "send.targets":
+      try {
+        send({ type: "send.targets", reqId: msg.reqId ?? null, ...(await sender.targets({ tabId: Number.isInteger(msg.tabId) ? msg.tabId : null, url: String(msg.url ?? "") })) });
+      } catch (err) {
+        send({ type: "send.targets", reqId: msg.reqId ?? null, error: String(err.message ?? err) });
+      }
+      break;
+    case "send.screenshot":
+      try {
+        const r = await sender.send(msg);
+        send({ type: "send.result", reqId: msg.reqId ?? null, ...r });
+        const action = { id: store.newId(), at: store.now(), conversationId: null, source: "You", url: String(msg.url ?? ""), title: String(msg.title ?? ""), host: (() => { try { return new URL(msg.url).host; } catch { return ""; } })(), action: "screenshot", target: `a screenshot to ${r.title}`, ok: true };
+        store.logAction(action);
+        send({ type: "actions.added", action });
+      } catch (err) {
+        send({ type: "send.result", reqId: msg.reqId ?? null, ok: false, error: String(err.message ?? err).slice(0, 400), code: err.code ?? null });
+      }
+      break;
+    case "screenshot.save":
+      try {
+        send({ type: "screenshot.saved", reqId: msg.reqId ?? null, ok: true, path: sender.save(msg.image, msg.url) });
+      } catch (err) {
+        send({ type: "screenshot.saved", reqId: msg.reqId ?? null, ok: false, error: String(err.message ?? err) });
+      }
+      break;
+    case "send.link":
+      sendLinks(addLink(store.getSettings().sendLinks, msg.link ?? {}));
+      break;
+    case "send.unlink":
+      sendLinks(removeLink(store.getSettings().sendLinks, msg.link ?? {}));
+      break;
+    case "send.tab_closed": {
+      const links = normalizeLinks(store.getSettings().sendLinks);
+      if (links.tabs.some(l => l.tabId === msg.tabId)) sendLinks(removeLink(links, { type: "tab", tabId: msg.tabId }));
+      break;
+    }
+    case "t3.status":
+      send({ type: "t3", status: await t3Status().catch(err => ({ error: err.message })) });
+      break;
+    case "t3.connect":
+    case "t3.disconnect": {
+      let done;
+      try {
+        if (msg.type === "t3.connect") await t3.connect();
+        else await t3.disconnect();
+        done = { action: msg.type.slice(3), ok: true };
+      } catch (err) {
+        done = { action: msg.type.slice(3), ok: false, error: String(err.message ?? err) };
+      }
+      send({ type: "t3", status: await t3Status().catch(err => ({ error: err.message })), done });
+      break;
+    }
+    case "t3.open":
+      if (!t3EnvId) await t3Status().catch(() => {});
+      openT3Thread(msg.threadId);
       break;
     case "agents.pause":
       agentSessions.pause(msg.id);
@@ -657,6 +766,6 @@ startMcpServer({
   onAction: action => send({ type: "actions.added", action }), // live Activity and agent card
 });
 // Agent sessions to every UI and to background.js (page pill, title prefix, toolbar badge).
-agentSessions.subscribe(sessions => send({ type: "agents", sessions }));
+agentSessions.subscribe(() => pushAgents());
 process.stdin.on("end", () => process.exit(0));
 process.on("SIGTERM", () => process.exit(0));

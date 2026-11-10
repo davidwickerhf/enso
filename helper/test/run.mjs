@@ -3,7 +3,8 @@
 //   connections, host-connect  macOS only (they store and delete test items in the
 //                              login Keychain); skip with ENSO_SKIP_KEYCHAIN=1
 //   mcp                        always (launcher, scopes, client registration)
-//   agents                     always (agent sessions, steering, the live push to the UI)
+//   agents                     always (agent sessions, steering, the live push to the UI, screenshots to agents)
+//   t3                         always (T3 Code: fake server and CLI, target order, token store, launcher header, installers)
 //   pageagent                  always; skips itself without Playwright's Chromium
 //                              (Google Docs typing, title prefix, page pill)
 //   sdk-mcp                    only with ENSO_TEST_SDK=1 (one real turn on your Claude plan)
@@ -13,7 +14,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const tests = ["unit.test.mjs", "hello.test.mjs", "tasks.test.mjs", "mcp.test.mjs", "agents.test.mjs", "pageagent.test.mjs"];
+const tests = ["unit.test.mjs", "hello.test.mjs", "tasks.test.mjs", "mcp.test.mjs", "agents.test.mjs", "t3.test.mjs", "pageagent.test.mjs"];
 if (process.platform === "darwin" && process.env.ENSO_SKIP_KEYCHAIN !== "1") tests.push("connections.test.mjs", "host-connect.test.mjs");
 if (process.env.ENSO_TEST_SDK === "1") tests.push("sdk-mcp.test.mjs");
 

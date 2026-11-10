@@ -124,5 +124,9 @@ export function identifyClient({ headers = {}, body, scope = "full" } = {}) {
   const label = headers["x-enso-client-label"] ? clientLabel(headers["x-enso-client-label"]) : clientLabel(info?.name);
   // The launcher's per-process id (X-Enso-Session): one agent session, for Pause, Stop and notes.
   const session = String(headers["x-enso-session"] ?? "").replace(/[^A-Za-z0-9_-]/g, "").slice(0, 64);
-  return { name: info?.name ?? "", version: info?.version ?? "", label, scope, via, ...(session ? { session } : {}) };
+  // The T3 Code thread the agent runs in (launcher: $T3CODE_THREAD_ID): screenshots of its tab go there.
+  const t3Thread = String(headers["x-enso-t3-thread"] ?? "").replace(/[^A-Za-z0-9_.:-]/g, "").slice(0, 128);
+  // The agent process that started the launcher (its parent pid): the Claude Code prompt hook finds its session by it.
+  const agentPid = Number.parseInt(String(headers["x-enso-agent-pid"] ?? ""), 10);
+  return { name: info?.name ?? "", version: info?.version ?? "", label, scope, via, ...(session ? { session } : {}), ...(t3Thread ? { t3Thread } : {}), ...(agentPid > 1 ? { agentPid } : {}) };
 }
