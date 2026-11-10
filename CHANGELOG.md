@@ -5,6 +5,11 @@ share one version number. Dates are the tag dates. Releases are published to
 <https://enso.wicker.life> by the release workflow ([docs/releasing.md](docs/releasing.md));
 the extension updates itself, the helper updates when you run the installer again.
 
+## 0.5.7.1 (10 November 2026)
+
+The same code as 0.5.7, as the direct download build for enso.wicker.life
+(signed unlisted, includes page_eval).
+
 ## 0.5.7 (10 November 2026)
 
 Two builds, clearly labelled; nothing sent automatically on new installs; two
