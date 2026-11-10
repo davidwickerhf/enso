@@ -10,6 +10,7 @@
 
 import { z } from "zod";
 import { pageActionNeedsApproval } from "./pagetools.mjs";
+import { DEFAULT_TIMEOUTS, MAX_TIMEOUT_MS, clampTimeout } from "./timeouts.mjs";
 import { requirePageEval } from "./extinfo.mjs";
 import { SAFETY_NOTE, allowSessionAccess, isSensitiveHost, parseSite, redactHeaders, redactUrl, requireDevTools, sessionAccessFor } from "./safety.mjs";
 
@@ -29,7 +30,8 @@ const parseSince = s => {
 };
 const clock = ms => new Date(ms).toISOString().slice(11, 23);
 
-export const MAX_EVAL_CHARS = 20_000;
+export const MAX_EVAL_CHARS = 20_000; // result
+export const MAX_EXPRESSION_CHARS = 8_000_000; // expressions over ~900 KB go to the browser in chunks (lib/native.mjs)
 export const MAX_BODY_CHARS = 100_000;
 
 export const DEV_TOOLS = [
@@ -75,14 +77,22 @@ export const DEV_TOOLS = [
     name: "page_eval",
     title: "Run JavaScript on the page",
     description:
-      "Evaluate a JavaScript expression in the page's own JS world (sees the page's globals, frameworks, state) and return a JSON-safe, size-capped result, or the error with its stack. A returned promise is awaited (10 s). Statements are allowed; the value of the last one is returned; wrap await code in (async () => { … })(). Always counts as an action: it runs without asking only when the user asked for it, and it is logged. Use for debugging (reading state, checking a selector), not to get around the page tools for clicking/typing. Never read or return cookies, tokens, passwords or auth headers (document.cookie and credential-looking storage values are refused or redacted). Never on private sites.",
-    shape: { ...tabIdArg, expression: z.string().min(1).max(20_000), ...intent },
+      "Evaluate a JavaScript expression in the page's own JS world (sees the page's globals, frameworks, state) and return a JSON-safe, size-capped result, or the error with its stack. Statements are allowed; the value of the last one is returned; wrap await code in (async () => { … })(). A returned promise is awaited (awaitPromise, default true) for up to timeoutMs (default 30 s, max 120 s); if it times out the code keeps running in the page, so check the page's state (page_wait, page_read) before running it again. Always counts as an action: it runs without asking only when the user asked for it, and it is logged. Use for debugging (reading state, checking a selector), not to get around the page tools: attach files with page_upload, wait with page_wait. Never read or return cookies, tokens, passwords or auth headers (document.cookie and credential-looking storage values are refused or redacted). Never on private sites.",
+    shape: {
+      ...tabIdArg,
+      expression: z.string().min(1).max(MAX_EXPRESSION_CHARS),
+      awaitPromise: z.boolean().optional().describe("Await a returned promise (default true); false returns at once"),
+      timeoutMs: z.number().int().min(1_000).max(MAX_TIMEOUT_MS).optional().describe("How long to await a returned promise (default 30000, max 120000)"),
+      ...intent,
+    },
     kind: "act",
     async run(args, ctx) {
       requirePageEval(); // not in the Firefox Add-ons build (lib/extinfo.mjs)
       requireDevTools();
       if (/document\s*\.\s*cookie|cookieStore/.test(args.expression)) throw new Error("Reading cookies is not allowed; use page_storage for cookie names and flags.");
-      const r = await ctx.act("eval", { expression: args.expression }, { ...args, irreversible: !!args.irreversible });
+      const timeoutMs = clampTimeout(args.timeoutMs) ?? DEFAULT_TIMEOUTS.eval;
+      const r = await ctx.act("eval", { expression: args.expression, awaitPromise: args.awaitPromise !== false, timeoutMs }, { ...args, irreversible: !!args.irreversible });
+      if (r.timedOut) return { isError: true, content: [{ type: "text", text: `Timed out: ${r.error} This does not mean it failed: the code keeps running in the page and may still finish or change things. Check the page's state (page_wait for a selector or text, page_read, devtools_network) before running it again, so nothing is done twice. Pass a larger timeoutMs (up to ${MAX_TIMEOUT_MS / 1000} s) for slow work.` }] };
       if (!r.ok) return { isError: true, content: [{ type: "text", text: `${r.error}${r.stack ? `\n${r.stack}` : ""}` }] };
       return text(`${r.type ? `type: ${r.type}\n` : ""}${r.json}`);
     },
@@ -116,6 +126,7 @@ export const DEV_TOOLS = [
       method: z.enum(["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"]).optional(),
       headers: z.record(z.string(), z.string()).optional().describe("Extra request headers (no Cookie/Authorization: the session supplies them)"),
       body: z.string().optional().describe("Request body (e.g. JSON text)"),
+      timeoutMs: z.number().int().min(1_000).max(MAX_TIMEOUT_MS).optional().describe("How long to wait for the response (default 75000, max 120000)"),
       requested_by_user: intent.requested_by_user,
     },
     kind: "act",
@@ -147,7 +158,7 @@ export const DEV_TOOLS = [
       }
       let r;
       try {
-        r = await ctx.browser("session_fetch", { url: args.url, method, headers, body: args.body, maxChars: MAX_BODY_CHARS });
+        r = await ctx.browser("session_fetch", { url: args.url, method, headers, body: args.body, maxChars: MAX_BODY_CHARS, ...(args.timeoutMs ? { timeoutMs: clampTimeout(args.timeoutMs) } : {}) });
       } catch (err) {
         ctx.record({ toolUseId, action: "session_fetch", url: args.url, title: "", target: `${method} ${args.url}`, ok: false });
         throw err;

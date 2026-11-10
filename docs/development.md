@@ -154,6 +154,10 @@ ENSO_TEST_SDK=1 npm test          # also one real turn on your Claude plan
 | `windows.test.mjs` | `run.cmd` starting `host.mjs` through `cmd.exe`, the registry value, `enso.cmd` and the Cursor entry. | Windows |
 | `secrets-store.test.mjs` | The real secret store: libsecret through `secret-tool`, or Credential Manager. | `ENSO_TEST_REAL_SECRETS=1` |
 | `connections.test.mjs`, `host-connect.test.mjs` | OAuth sign-in against `mock-oauth-mcp.mjs`, secret storage. They store and delete test items in the real secret store. | macOS unless `ENSO_SKIP_KEYCHAIN=1`; Linux and Windows with `ENSO_TEST_REAL_SECRETS=1` |
+| `transfer.test.mjs` | Messages over 1 MB in chunks (5 MB round trip), the upload store, `lib/upload.mjs` path checks and streaming, every `page_wait` condition (`extension/waits.js`) on a fake clock, timeout defaults and messages. | Always |
+| `upload-host.test.mjs` | `host.mjs` and its MCP endpoint with a stand-in extension: 5 MB `page_type`, `page_upload` streaming (SHA-256 checked) and refusals, `page_wait`, timeouts that say the action may still be running. | Always |
+| `pageupload.test.mjs` | `page_upload` into file inputs and a drop zone, and `page_wait`'s probes, in the page agent on a fixture page (Playwright's Chromium). | Skips without Chromium |
+| `upload-firefox.test.mjs` | The same against real content-script compartments: a separate headless Zen or Firefox (own profile) with a temporary test extension; also `page_eval` awaiting a promise with `timeoutMs`. | Skips without Zen or Firefox, with `ENSO_SKIP_FIREFOX=1`, and in CI unless `ENSO_TEST_FIREFOX=1` |
 | `sdk-mcp.test.mjs` | One real Agent SDK turn with an MCP server. | `ENSO_TEST_SDK=1` |
 
 Tests use temporary data folders and random ports; they don't touch your
@@ -161,7 +165,8 @@ Tests use temporary data folders and random ports; they don't touch your
 (`ENSO_SECRETS=file`) unless real secrets are asked for. `mcp`, `t3`, `setup`
 and `install` use bash fakes and are skipped on Windows.
 
-There are no automated tests for the extension. Check UI changes on the mock
+The extension's UI has no automated tests (the page agent, `transfer.js` and
+`waits.js` do, above). Check UI changes on the mock
 (headless browser, light and dark, sidebar width and full page) and in Zen.
 
 ## CI

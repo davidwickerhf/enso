@@ -12,6 +12,7 @@ import { claudeCli, prewarm, runSubscriptionTurn, subscriptionAvailable, subscri
 import { log, logError, onMessage, send } from "./lib/native.mjs";
 import { helperLog, logFile, tailLines } from "./lib/logfile.mjs";
 import { pageActionNeedsApproval } from "./lib/pagetools.mjs";
+import { BrowserTimeoutError, requestBudget } from "./lib/timeouts.mjs";
 import { setExtensionInfo, unavailableTools } from "./lib/extinfo.mjs";
 import { turnContext } from "./lib/prompt.mjs";
 import { deleteSkill, expandSkill, listSkills, saveSkill } from "./lib/skills.mjs";
@@ -196,12 +197,17 @@ const pending = new Map();
 let reqSeq = 0;
 function browserRequest(type, action, args, tabId, agent) {
   const reqId = `r${++reqSeq}`;
-  send({ type, reqId, action, args, tabId, agent }); // agent: who is acting (MCP client label), shown on the page ribbon
+  try {
+    send({ type, reqId, action, args, tabId, agent }); // agent: who is acting (MCP client label), shown on the page ribbon; large requests go in chunks
+  } catch (err) {
+    return Promise.reject(err); // too large to send (MessageTooLargeError): a clear error, nothing sent
+  }
+  const ms = requestBudget(action, args);
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => {
       pending.delete(reqId);
-      reject(new Error(`The browser did not answer (${action}).`));
-    }, action === "session_fetch" ? 75_000 : action === "navigate" || action === "back" ? 45_000 : 20_000);
+      reject(new BrowserTimeoutError(action, ms));
+    }, ms);
     pending.set(reqId, { resolve, reject, timer });
   });
 }
@@ -297,7 +303,7 @@ function makeContext(conversationId, settings, tabId, space) {
       const toolName = `page_${action}`;
       const toolUseId = pageQueue.get(toolName)?.shift();
       if (pageActionNeedsApproval(intent)) {
-        const titles = { eval: "Run JavaScript on the page", storage: "Read the page's storage values" };
+        const titles = { eval: "Run JavaScript on the page", storage: "Read the page's storage values", upload: "Attach files to the page" };
         const decision = await ctx.approve({ toolUseId, server: "Page", tool: toolName, title: titles[action] ?? `${action[0].toUpperCase()}${action.slice(1)} on the page`, input: bridgeArgs, reason: intent.irreversible ? "This can't be undone." : "Claude suggested this step itself." });
         if (decision === "deny") throw new Error("The user declined this page action.");
       }
@@ -308,7 +314,7 @@ function makeContext(conversationId, settings, tabId, space) {
         ctx.emit({ kind: "page.action", toolUseId, url: "", title: "", action, target: String(bridgeArgs.ref ?? bridgeArgs.url ?? ""), ok: false });
         throw err;
       }
-      ctx.record({ toolUseId, action, url: result.url, title: result.title, target: result.description ?? bridgeArgs.url ?? bridgeArgs.key ?? "", ok: result.ok !== false });
+      ctx.record({ toolUseId, action, url: result.url, title: result.title, target: result.target ?? result.description ?? bridgeArgs.url ?? bridgeArgs.key ?? "", ok: result.ok !== false });
       return result;
     },
     async confirm(tool, title, input) {

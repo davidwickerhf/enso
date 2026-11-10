@@ -5,6 +5,32 @@ share one version number. Dates are the tag dates. Releases are published to
 <https://enso.wicker.life> by the release workflow ([docs/releasing.md](docs/releasing.md));
 the extension updates itself, the helper updates when you run the installer again.
 
+## Unreleased
+
+Agents can give pages files, wait for slow work, and send large payloads.
+
+- **`page_upload`** attaches files from this computer to a file input, or drops
+  them on a drop zone, exactly as they are on disk: streamed in 512 KiB chunks,
+  checked by size and SHA-256 before anything is attached, built as `File`
+  objects in the page's own compartment so the page's handlers can read them.
+  No code is evaluated, so it works in every build. Up to 100 MB and 20 files
+  per call; credential folders, browser profiles and Ensō's data are refused.
+- **`page_wait`** waits for a selector to appear or go, text, a URL, the network
+  going idle, or the page loading, instead of polling.
+- **Timeouts.** `page_eval` awaits promises for up to `timeoutMs` (default 30 s,
+  up to 120 s; `awaitPromise: false` returns at once), and `page_navigate`,
+  `page_back`, `page_upload` and `session_fetch` take `timeoutMs` too. A timeout
+  now says the action may still be running and how to check, instead of
+  "The browser did not answer".
+- **Large payloads.** Messages from the helper to the extension over 900 KB go
+  in chunks under native messaging's 1 MB limit (up to 64 MB), so long
+  `page_type` text and `page_eval` expressions arrive whole; too large is a
+  clear error. The MCP server takes requests up to 16 MB and no longer garbles
+  a multi-byte character split across network chunks.
+- **Agent instructions** (the MCP server's and Ensō's own): use `page_upload` for
+  files and never shrink or edit a user's file to fit a limit; use `page_wait`;
+  a timeout isn't a failure, so check before retrying.
+
 ## 0.5.7.1 (10 November 2026)
 
 The same code as 0.5.7, as the direct download build for enso.wicker.life

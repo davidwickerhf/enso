@@ -1,0 +1,55 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Upload fixture</title>
+<style>
+  .zone { width: 320px; height: 120px; border: 2px dashed #888; margin: 8px 0; display: flex; align-items: center; justify-content: center; }
+</style></head>
+<body>
+<!-- A test page for page_upload and page_wait (helper/test/pageupload.test.mjs, upload-firefox.test.mjs). It records what it receives in window.got. -->
+<h1>Upload fixture</h1>
+<p><label>Report <input type="file" id="single" accept=".pdf,.docx"></label></p>
+<p><label for="multi">Attachments</label> <input type="file" id="multi" multiple></p>
+<p><button type="button" id="upload-button">Upload</button><input type="file" id="hidden" style="display:none"></p>
+<div id="host"></div>
+<div id="zone" class="zone">Drop files here</div>
+<div id="deaf" class="zone">Not a drop zone</div>
+<div id="spinner">Uploading…</div>
+<p id="status"></p>
+<script>
+  window.got = {};
+  window.events = [];
+  async function describe(files) {
+    return Promise.all(Array.from(files, async f => {
+      const digest = await crypto.subtle.digest("SHA-256", await f.arrayBuffer());
+      const sha256 = Array.from(new Uint8Array(digest), b => b.toString(16).padStart(2, "0")).join("");
+      return { name: f.name, size: f.size, type: f.type, lastModified: f.lastModified, sha256 };
+    }));
+  }
+  function watchInput(input, id) {
+    input.addEventListener("input", () => window.events.push(`${id}:input`));
+    input.addEventListener("change", async e => {
+      window.events.push(`${id}:change`);
+      window.got[id] = await describe(e.target.files);
+    });
+  }
+  for (const id of ["single", "multi", "hidden"]) watchInput(document.getElementById(id), id);
+  document.getElementById("upload-button").addEventListener("click", () => document.getElementById("hidden").click());
+  const shadow = document.getElementById("host").attachShadow({ mode: "open" });
+  shadow.innerHTML = '<input type="file" class="in-shadow">';
+  watchInput(shadow.querySelector("input"), "shadow");
+  const zone = document.getElementById("zone");
+  for (const type of ["dragenter", "dragover"]) zone.addEventListener(type, e => { e.preventDefault(); window.events.push(`zone:${type}`); });
+  zone.addEventListener("drop", async e => {
+    e.preventDefault();
+    window.events.push("zone:drop");
+    window.got.zone = await describe(e.dataTransfer.files);
+  });
+  window.showLater = () => {
+    const p = document.createElement("p");
+    p.id = "later";
+    p.textContent = "Upload complete";
+    document.body.append(p);
+    document.getElementById("spinner").style.display = "none";
+  };
+  window.ready = true;
+</script>
+</body></html>

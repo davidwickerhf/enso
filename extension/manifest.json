@@ -35,6 +35,8 @@
   "background": {
     "scripts": [
       "channel.js",
+      "transfer.js",
+      "waits.js",
       "ui/route.js",
       "background.js"
     ]

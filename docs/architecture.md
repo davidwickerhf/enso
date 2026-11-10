@@ -156,8 +156,10 @@ starts programs with a minimal environment. On Windows `run.cmd` lives in
 update replaces; its stderr goes to `%LOCALAPPDATA%\Enso\Logs\helper-stderr.log`.
 On macOS and Linux `run.sh` appends stderr to `helper.log`. Messages are framed as a 4-byte
 little-endian length followed by UTF-8 JSON (`lib/native.mjs`); a frame to the
-browser must stay under 1 MB, so larger messages are replaced by a short
-"message too large" notice. Nothing else may be written to stdout; the helper
+browser must stay under 1 MB, so larger messages (up to 64 MB) go as `chunk`
+frames that `extension/transfer.js` reassembles
+([PROTOCOL.md](PROTOCOL.md#chunked-messages)); files for `page_upload` stream in
+512 KiB `upload_chunk` requests instead. Nothing else may be written to stdout; the helper
 logs to stderr with an `[enso]` prefix. The helper exits when stdin closes,
 which happens when Zen quits.
 

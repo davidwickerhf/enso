@@ -14,6 +14,7 @@ the limits you set. Privacy (what leaves the computer) is in [privacy.md](privac
 - [Session access](#session-access)
 - [External control](#external-control)
 - [The MCP server](#the-mcp-server)
+- [Files to pages (`page_upload`)](#files-to-pages-page_upload)
 - [Notes to agents, Pause and Stop](#notes-to-agents)
 - [Screenshots to agents and T3 Code](#screenshots-to-agents-and-t3-code)
 - [Secrets](#secrets)
@@ -277,6 +278,27 @@ To Claude, MCP clients, the UI or the logs:
 - request or response bodies in the network log (never captured);
 - the cookies copied into a headless profile (they stay in the helper);
 - the API key, GitHub token, OAuth tokens and MCP tokens.
+
+## Files to pages (`page_upload`)
+
+`page_upload` reads files from this computer and attaches them to a page. It is
+an action with the same approval rule as `page_type` (Ensō asks unless the user
+asked for it; MCP callers need Access = Full), and it is logged with the file
+names. What it never does:
+
+- read a URL, or anything that isn't a regular file (folders are refused);
+- read from credential and data folders, even through a symlink: `~/.ssh`,
+  `~/.gnupg`, `~/.aws`, `~/.azure`, `~/.kube`, `~/.docker`, `~/.config/gcloud`,
+  `~/.config/gh`, `~/.password-store`, `~/Library/Keychains`, `~/.netrc`,
+  `~/.npmrc`, `~/.pypirc`, `~/.git-credentials`, Ensō's data folder (tokens) and
+  the Zen and Firefox profile folders;
+- attach anything to a private site (the page tools are off there);
+- change a file: the extension checks each file's size and SHA-256 against what
+  the helper read and attaches nothing on a mismatch.
+
+The total per call is capped (100 MB by default). The agent instructions say
+never to shrink or edit a user's file to fit, and to stop and tell the user
+instead.
 
 ## Notes to agents
 
