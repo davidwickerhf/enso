@@ -277,9 +277,9 @@ engines) and the `zen-browser` MCP server offer the same 44 tools:
 
 | Group | Module | Tools |
 |---|---|---|
-| Page | `pagetools.mjs` | `page_read`, `page_screenshot`, `page_scroll`, `page_click`, `page_type`, `page_select`, `page_press`, `page_navigate`, `page_back` |
+| Page | `pagetools.mjs` | `page_read`, `page_query`, `page_inspect`, `page_screenshot`, `page_scroll`, `page_click`, `page_type`, `page_select`, `page_press`, `page_navigate`, `page_back` |
 | Browser | `browsertools.mjs` | `tabs_list`, `tab_read`, `history_search`, `tabs_open`, `tabs_group`, `tabs_ungroup`, `group_update`, `tabs_close`, `create_report` |
-| Developer | `devtools.mjs` | `devtools_console`, `devtools_network`, `page_eval`, `page_storage`, `session_fetch` |
+| Developer | `devtools.mjs` | `devtools_console`, `devtools_network`, `page_eval` (not with the listed build, `extinfo.mjs`), `page_storage`, `session_fetch` |
 | Headless | `headless.mjs` | `headless_start`, `headless_navigate`, `headless_read`, `headless_click`, `headless_type`, `headless_eval`, `headless_screenshot`, `headless_console`, `headless_stop` |
 | GitHub | `github.mjs` | `github_my_work`, `github_search`, `github_notifications`, `github_pr`, `github_issue`, `github_repo`, `github_comment`, `github_review`, `github_set_labels`, `github_set_assignees`, `github_close_reopen`, `github_mark_notifications_read` |
 

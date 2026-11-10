@@ -68,6 +68,12 @@ You can also send an agent a screenshot of the page, even while it's idle: press
 
 Agents are asked to say what they are doing when they start (`session_start`). Those that don't still show up, with their name and their latest step.
 
+## Running JavaScript: page_eval and the two builds
+
+Agents can debug your pages with `devtools_console`, `devtools_network`, `page_storage`, and two fixed queries that run no code: `page_query` (the elements matching a CSS selector, with their text, attributes, visibility and position) and `page_inspect` (one element's computed styles, size, scroll size, and whether it is visible, in view or covered by something else).
+
+`page_eval`, which runs JavaScript an agent writes in your page, is only in the **direct download build** from this site (and development builds). The **Firefox Add-ons build** doesn't have it: addons.mozilla.org doesn't allow add-ons to run code that isn't part of the add-on. With that build, agents don't see `page_eval` at all, and Ensō tells them it isn't available. See [Install → Two builds](/docs/install#two-builds) for which one you have and how to switch.
+
 ## What agents may do
 
 Ensō can't ask you on an agent's behalf; the agent's own permission prompts apply. With external control on **Full**, page actions run when the agent calls them. Some things are refused for agents however you set it:

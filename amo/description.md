@@ -2,7 +2,7 @@ Ensō puts Claude in your browser. It is made for Zen (and runs in Firefox 139 o
 
 **Sidebar chat.** Ask about the page you're on, mention other tabs with @, attach files or screenshots. Claude can read the page and, when you ask, click, type and fill forms for you. Actions it starts on its own ask first, and sending, paying or deleting always asks.
 
-**A calm new tab.** A short daily brief and widgets for your calendar, mail, tasks (Commonfold, monday.com and other task apps), GitHub, quick links and a note. A search box with your search engine's suggestions and your history.
+**A calm new tab.** A daily brief when you turn it on, and widgets for your calendar, mail, tasks (Commonfold, monday.com and other task apps), GitHub, quick links and a note. A search box with your tabs, bookmarks and history, and your search engine's suggestions if you want them.
 
 **Your browser as a tool for agents.** Claude Code, Codex, Cursor and other MCP clients can read and act in your signed-in Zen through Ensō, with every action shown on the page and in an activity log, and buttons to pause or stop an agent. You can also send a screenshot of a tab to an agent or to T3 Code with Ctrl+Shift+2 (⌘⇧2 on a Mac).
 

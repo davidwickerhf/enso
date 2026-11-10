@@ -10,6 +10,7 @@
 
 import { z } from "zod";
 import { pageActionNeedsApproval } from "./pagetools.mjs";
+import { requirePageEval } from "./extinfo.mjs";
 import { SAFETY_NOTE, allowSessionAccess, isSensitiveHost, parseSite, redactHeaders, redactUrl, requireDevTools, sessionAccessFor } from "./safety.mjs";
 
 const text = t => ({ content: [{ type: "text", text: t }] });
@@ -78,6 +79,7 @@ export const DEV_TOOLS = [
     shape: { ...tabIdArg, expression: z.string().min(1).max(20_000), ...intent },
     kind: "act",
     async run(args, ctx) {
+      requirePageEval(); // not in the Firefox Add-ons build (lib/extinfo.mjs)
       requireDevTools();
       if (/document\s*\.\s*cookie|cookieStore/.test(args.expression)) throw new Error("Reading cookies is not allowed; use page_storage for cookie names and flags.");
       const r = await ctx.act("eval", { expression: args.expression }, { ...args, irreversible: !!args.irreversible });

@@ -9,6 +9,7 @@ import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/
 import { z } from "zod";
 import { log } from "./native.mjs";
 import { ALL_BROWSER_TOOLS, browserSideToolByName } from "./toolset.mjs";
+import { unavailableTools } from "./extinfo.mjs";
 import { systemPrompt } from "./prompt.mjs";
 import { appendMemory, getEngineState, listActions, searchHistory, setEngineState } from "./store.mjs";
 import { describeTool } from "./tools-meta.mjs";
@@ -109,7 +110,7 @@ const schema = shape => {
 
 function claudeTools(config) {
   const tools = [
-    ...ALL_BROWSER_TOOLS.map(t => ({ name: `mcp__browser__${t.name}`, description: t.description, input_schema: schema(t.shape) })),
+    ...ALL_BROWSER_TOOLS.filter(t => !unavailableTools().includes(t.name)).map(t => ({ name: `mcp__browser__${t.name}`, description: t.description, input_schema: schema(t.shape) })),
     ...ZEN_TOOLS.map(t => ({ name: `mcp__zen__${t.name}`, description: t.description, input_schema: schema(t.shape) })),
     ...[...toolIndex].map(([name, { server, tool }]) => ({
       name,

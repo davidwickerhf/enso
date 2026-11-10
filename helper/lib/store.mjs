@@ -87,6 +87,31 @@ export function getSettings() {
   const user = readJson(path.join(DATA, "settings.json"), {});
   return { ...defaults, ...user, dashboard: { ...defaults.dashboard, ...user.dashboard } };
 }
+
+// Defaults that changed for new installs only. 0.5.7: the Home brief no longer
+// refreshes by itself (dashboard.autoRefreshMinutes 60 -> 0, config.json).
+// On the first start of 0.5.7 or later, an install that was already in use
+// (it has settings, a brief or an MCP token from an earlier helper) gets the
+// old default written into settings.json where it never chose a value, so
+// nothing changes for it; a value the user chose is left as it is. A new
+// install only gets the marker. Runs once (settingsEpoch).
+export const SETTINGS_EPOCH = 1;
+export function pinPreviousDefaults() {
+  const file = path.join(DATA, "settings.json");
+  const user = readJson(file, {});
+  if ((user.settingsEpoch ?? 0) >= SETTINGS_EPOCH) return { pinned: [] };
+  const existing = ["settings.json", "dashboard.json", "mcp-token", "profile.md"].some(f => existsSync(path.join(DATA, f)));
+  const next = { ...user, settingsEpoch: SETTINGS_EPOCH };
+  const pinned = [];
+  if (existing && typeof user.dashboard?.autoRefreshMinutes !== "number") {
+    next.dashboard = { ...user.dashboard, autoRefreshMinutes: 60 };
+    pinned.push("dashboard.autoRefreshMinutes");
+  }
+  mkdirSync(DATA, { recursive: true });
+  writeJson(file, next);
+  return { existing, pinned };
+}
+
 export function updateSettings(patch) {
   const user = readJson(path.join(DATA, "settings.json"), {});
   writeJson(path.join(DATA, "settings.json"), { ...user, ...patch });

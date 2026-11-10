@@ -3,6 +3,9 @@
 // helper with `profile.save` (profile.md and settings.spaceHints in the data
 // folder). Everything can be changed later in Settings → You & memory; "Skip for
 // now" just marks onboarding as done.
+//
+// The last step also offers the daily brief, off for new installs: one click
+// sets Settings → General → Refresh the brief to "Once a day".
 
 import { h, clear, spaceIcon } from "../dom.js";
 
@@ -86,10 +89,19 @@ export function createOnboarding(store) {
           spaceHintFields(s.spaces, draft, { idPrefix: "ob-sh" }),
         ];
     const last = step === all.length - 1;
+    const briefOn = !!s.settings?.dashboard?.autoRefreshMinutes;
+    const briefCard = last && s.settings ? h("div", { class: ["ob-brief", briefOn && "on"] },
+      h("div", { class: "ob-brief-text" },
+        h("strong", null, briefOn ? "Daily brief is on" : "A brief each morning?"),
+        h("p", null, "Once a day, Ensō asks Claude (Anthropic) to sum up your calendar, mail and tasks from the tools you connect. Nothing is sent until you turn it on; change it in Settings → General.")),
+      briefOn
+        ? h("button", { type: "button", class: "btn small ghost", onclick: () => { actions.updateSettings({ dashboard: { autoRefreshMinutes: 0 } }); render(); } }, "Turn off")
+        : h("button", { type: "button", class: "btn small", onclick: () => { actions.updateSettings({ dashboard: { autoRefreshMinutes: 1440 } }); render(); } }, "Turn on the daily brief")) : null;
     clear(el, h("div", { class: "ob-card" },
       h("div", { class: "ob-head" }, h("img", { class: "ob-mark", src: "icons/enso.svg", alt: "", width: 36, height: 36 }), dots),
       h("form", { class: "ob-form", novalidate: true, onsubmit: e => { e.preventDefault(); next(); } },
         ...body,
+        briefCard,
         error ? h("p", { class: "form-error", role: "alert" }, error) : null,
         h("div", { class: "ob-actions" },
           step > 0 ? h("button", { type: "button", class: "btn ghost", onclick: () => { step--; error = ""; render(); focusFirst(); } }, "Back") : h("button", { type: "button", class: "btn ghost", onclick: () => actions.skipOnboarding() }, "Skip for now"),
@@ -99,6 +111,10 @@ export function createOnboarding(store) {
   return {
     el,
     show() { step = 0; error = ""; render(); focusFirst(); },
-    update(topics) { if (topics.has("space") || topics.has("profile")) render(); },
+    update(topics) {
+      if (topics.has("space") || topics.has("profile")) return render();
+      // Settings (the brief card): not while someone is typing in a field.
+      if ((topics.has("settings") || topics.has("state")) && !el.contains(document.activeElement?.matches?.("input, textarea") ? document.activeElement : null)) render();
+    },
   };
 }

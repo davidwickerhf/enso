@@ -1,5 +1,5 @@
 import { error, redirect } from '@sveltejs/kit';
-import { findRelease, latest, releaseUrl } from '$lib/server/releases';
+import { findRelease, latest, latestDirect, releaseUrl } from '$lib/server/releases';
 import { getStore, releaseObjectKey } from '$lib/server/storage';
 import type { RequestHandler } from './$types';
 
@@ -13,14 +13,15 @@ const ALIASES: Record<string, ['extension' | 'helper', ('darwin' | 'linux' | 'wi
 
 /**
  * Release files. With S3 the bytes are public objects and this redirects to
- * them; without S3 they are streamed from Postgres. `enso-latest.xpi` and
- * `enso-helper-latest[-darwin|-linux|-win32].tar.gz` always point at the
- * newest version (for that platform).
+ * them; without S3 they are streamed from Postgres. `enso-latest.xpi` points
+ * at the newest direct-download extension (a four-part version such as 0.5.7.1,
+ * see latestDirect), `enso-helper-latest[-darwin|-linux|-win32].tar.gz` at the
+ * newest helper (for that platform).
  */
 export const GET: RequestHandler = async ({ params }) => {
 	const alias = ALIASES[params.file];
 	if (alias) {
-		const r = await latest(alias[0], alias[1]);
+		const r = params.file === 'enso-latest.xpi' ? await latestDirect() : await latest(alias[0], alias[1]);
 		if (!r) error(404, 'No release published yet');
 		redirect(302, releaseUrl(r.filename));
 	}

@@ -25,9 +25,28 @@ Zen and Firefox installed as a Flatpak or Snap are untested. They run in a sandb
 
 ## 1. Add the extension
 
-[Download the extension](/releases/enso-latest.xpi) in Zen. Zen asks whether to add Ensō and lists the permissions it needs ([what each one is for](#why-it-asks-for-these-permissions)); click **Add**.
+Pick one of the [two builds](#two-builds): **Get it for Firefox** on the [home page](/#install) (recommended), or the [direct download](/releases/enso-latest.xpi) if you want `page_eval` for debugging. Zen asks whether to add Ensō and lists the permissions it needs ([what each one is for](#why-it-asks-for-these-permissions)); click **Add**.
 
-The extension is signed by Mozilla, so it installs with signature checks on, and it updates itself (from addons.mozilla.org since 0.5.5).
+Both are signed by Mozilla, so they install with signature checks on, and both update themselves.
+
+## Two builds
+
+The same Ensō, built two ways. Everything else (chat, the new tab, memory, agents, the helper) is identical.
+
+| | Firefox Add-ons | Direct download |
+|---|---|---|
+| From | addons.mozilla.org | [this site](/releases/enso-latest.xpi) |
+| Versions | 0.5.7 | 0.5.7.1 |
+| Updates | from Mozilla, after review | from this site |
+| `page_eval` | no | yes |
+
+`page_eval` lets agents run JavaScript in your pages to debug them. Firefox Add-ons versions have three parts, direct download versions four.
+
+`page_query` and `page_inspect`, which answer most debugging questions (which elements match a selector, why one is hidden or covered) without running code, are in both. Until the listing on addons.mozilla.org is public, **Get it for Firefox** gives you the direct download.
+
+**Which one you have:** **Settings → Setup → This copy of Ensō** says "Firefox Add-ons build", "Direct download build" or "Development build".
+
+**Switching:** remove Ensō in Zen (**Settings → Extensions & Themes**, or `about:addons`, then **Remove**), then install the other build. Your settings, conversations and memory live in the helper's folder on your computer, not in the extension, so they are kept; you don't need to run the install command again. Two settings live in the extension itself and go back to their defaults: **Type straight into Ensō on new tabs** and **Search suggestions while typing**.
 
 ## 2. Run one command
 
@@ -126,7 +145,7 @@ Press <kbd>⌘E</kbd> (<kbd>Ctrl+E</kbd> on Linux and Windows) for the sidebar, 
 
 ## Updating
 
-- **The extension** updates itself from this site. If a new version needs a new permission, Zen asks first.
+- **The extension** updates itself: the Firefox Add-ons build from addons.mozilla.org, the direct download build from this site. If a new version needs a new permission, Zen asks first.
 - **The helper**: **Settings → Setup → Update** when a new version is out (or `enso update`, or the install command again). It replaces the program files, keeps your settings and data, and Ensō reconnects by itself.
 
 Check the versions in **Add-ons and themes** and in **Settings → Setup** (or `enso setup`).

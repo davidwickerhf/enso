@@ -116,9 +116,18 @@
 	<ol class="steps">
 		<li>
 			<h3>Add the extension</h3>
-			<p>{data.firefox.listed ? 'From Firefox Add-ons, in Zen or Firefox.' : 'Open the download in Zen.'} Zen asks you to confirm. Updates arrive on their own after that.</p>
-			<a class="btn" href={data.firefox.href}>Get it for Firefox</a>
-			{#if data.firefox.listed}<p class="alt"><a href="/releases/enso-latest.xpi">Or download the signed file</a></p>{/if}
+			<p>Two builds, the same Ensō. Zen asks you to confirm, and updates arrive on their own after that.</p>
+			<div class="builds">
+				<div class="build">
+					<a class="btn" href={data.firefox.href}>Get it for Firefox</a>
+					<p><strong>Firefox Add-ons, recommended.</strong> {data.firefox.listed ? 'Reviewed by Mozilla and updated from addons.mozilla.org.' : 'Until the listing on addons.mozilla.org is public, this is the direct download.'}</p>
+				</div>
+				<div class="build">
+					<a class="btn ghost" href="/releases/enso-latest.xpi">Direct download</a>
+					<p><strong>For developers.</strong> Includes page_eval, which lets agents run JavaScript in your pages to debug them. Updates from enso.wicker.life.</p>
+				</div>
+			</div>
+			<p class="alt"><a href="/docs/install#two-builds">Which one should I choose?</a></p>
 		</li>
 		<li>
 			<h3>Run one command</h3>
@@ -321,6 +330,19 @@
 	.steps p.alt {
 		margin: 0.7rem 0 0;
 		font-size: 0.9rem;
+	}
+	.builds {
+		display: grid;
+		gap: 1rem;
+	}
+	.build p {
+		margin: 0.45rem 0 0;
+		font-size: 0.9rem;
+		color: var(--ink-2);
+	}
+	.build p strong {
+		color: var(--ink);
+		font-weight: 600;
 	}
 	.req {
 		margin: 2.5rem 0 0;

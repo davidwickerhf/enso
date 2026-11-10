@@ -14,7 +14,7 @@ Every new tab opens on a single box, with the cursor already in it. It is an add
 As you type, Ensō offers what you probably meant:
 
 - **A site.** If the text looks like an address, or matches a site in your history or bookmarks, it completes inline (`goo` → `google.com`). Press <kbd>→</kbd> or <kbd>Tab</kbd> to accept.
-- **A search** with your default search engine, plus that engine's suggestions.
+- **A search** with your default search engine, plus that engine's suggestions if you turn on **Search suggestions while typing** in **Settings → General → New tab & Home** (off by default: what you type then goes to the engine as you type).
 - **Your open tabs, bookmarks and history.**
 - **Ask Ensō.** Send it to the chat instead.
 
