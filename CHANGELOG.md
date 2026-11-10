@@ -49,6 +49,9 @@ new page tools that answer questions without running code.
   off by default.
 - `/releases/enso-latest.xpi` on the site always serves the newest direct
   download build (four-part version).
+- **Firefox 142 or newer** (was 139): `data_collection_permissions` needs
+  Firefox 140 on desktop and 142 on Android, and AMO's validator warned about
+  the older minimum. Zen is on Firefox 159.
 
 ## 0.5.6.1 (10 November 2026)
 

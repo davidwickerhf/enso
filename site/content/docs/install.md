@@ -16,7 +16,7 @@ The helper runs on macOS, Linux and Windows. On other systems the extension inst
 | | |
 |---|---|
 | System | macOS; Linux (x86_64, arm64); Windows 10 or 11 (x64, arm64). |
-| Browser | [Zen](https://zen-browser.app). Firefox 139 or newer works too, without Zen's spaces. |
+| Browser | [Zen](https://zen-browser.app). Firefox 142 or newer works too, without Zen's spaces. |
 | Engine | Your Claude subscription (through Claude Code) **or** an Anthropic API key. Both are set up from Ensō afterwards; see [Engines](/docs/engines). |
 
 Nothing else has to be installed first. If there is no Node.js 18 or newer, the installer fetches Ensō's own copy (Node.js 24.22.2). On Linux, unpacking that copy needs `xz` (the `xz-utils` package on most systems); with Node 18+ already installed it isn't needed.
