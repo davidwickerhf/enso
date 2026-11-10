@@ -133,7 +133,8 @@ async function agent(tabId, action, args, who) {
   } catch (err) {
     throw new Error(`Could not reach this page (${err?.message || "it may still be loading or be a restricted page"}).`);
   }
-  const res = await browser.tabs.sendMessage(tabId, { enso: true, action, args, ...(who ? { agent: who } : {}) });
+  const session = who ? actingSession(tabId, who) : undefined;
+  const res = await browser.tabs.sendMessage(tabId, { enso: true, action, args, ...(who ? { agent: who } : {}), ...(session ? { session } : {}) });
   if (!res?.ok) throw new Error(res?.error ?? "The page did not answer.");
   return res.result;
 }
@@ -571,8 +572,8 @@ async function browserAction(action, args) {
 
 // ---------- external agents: presence on the page, in the tab title and on the toolbar ----------
 // The helper pushes `agents` (live sessions of MCP clients, lib/agentsessions.mjs).
-// For each tab with a session: the page pill and "✦ " title prefix (pageagent.js
-// "presence") and a copper per-tab badge on Ensō's toolbar button. Zen's own tab
+// For each tab with sessions: one page pill and one "✦ " title prefix for all of
+// them (pageagent.js "presence") and a copper per-tab badge on Ensō's toolbar button. Zen's own tab
 // list can't be styled by extensions; the title prefix is what shows there.
 
 const AGENT_BADGE = "#d9643a";
@@ -581,12 +582,14 @@ let agentSessions = [];
 let titlePrefixOn = true; // settings.agentTitlePrefix
 const presenceSent = new Map(); // tabId -> last presence sent (JSON)
 
-function setAgentBadge(tabId, s) {
+function setAgentBadge(tabId, list) {
   const ba = browser.browserAction;
-  ba.setBadgeText({ tabId, text: s.stopped ? "" : "AI" }).catch?.(() => {});
-  ba.setBadgeBackgroundColor({ tabId, color: s.paused ? AGENT_BADGE_PAUSED : AGENT_BADGE }).catch?.(() => {});
+  const live = list.filter(s => !s.stopped);
+  ba.setBadgeText({ tabId, text: !live.length ? "" : live.length > 1 ? `AI${live.length}` : "AI" }).catch?.(() => {});
+  ba.setBadgeBackgroundColor({ tabId, color: live.length && live.every(s => s.paused) ? AGENT_BADGE_PAUSED : AGENT_BADGE }).catch?.(() => {});
   ba.setBadgeTextColor?.({ tabId, color: "#ffffff" })?.catch?.(() => {});
-  ba.setTitle({ tabId, title: `Ensō · ${s.client}${s.task ? `: ${s.task}` : " is working on this tab"}${s.paused ? " (paused)" : ""}` }).catch?.(() => {});
+  const line = s => `${s.client}${s.task ? `: ${s.task}` : " is working on this tab"}${s.stopped ? " (stopped)" : s.paused ? " (paused)" : ""}`;
+  ba.setTitle({ tabId, title: list.length > 1 ? `Ensō · ${list.length} agents\n${list.map(line).join("\n")}` : `Ensō · ${line(list[0])}` }).catch?.(() => {});
 }
 function clearAgentBadge(tabId) {
   const ba = browser.browserAction;
@@ -594,15 +597,24 @@ function clearAgentBadge(tabId) {
   ba.setTitle({ tabId, title: null }).catch?.(() => {});
 }
 
+// Every session on a tab goes to the page together (newest first): one pill, one title prefix.
+function presenceFor(list) {
+  return { agents: list.map(s => ({ id: s.id, label: s.client, task: s.task, startedAt: s.startedAt ?? "", running: !!s.running, paused: !!s.paused, stopped: !!s.stopped })), titlePrefix: titlePrefixOn };
+}
+
 async function syncPresence() {
   const byTab = new Map();
-  for (const s of agentSessions) if (Number.isInteger(s.tabId) && !byTab.has(s.tabId)) byTab.set(s.tabId, s); // newest first
-  for (const [tabId, s] of byTab) {
-    const p = { label: s.client, task: s.task, running: !!s.running, paused: !!s.paused, stopped: !!s.stopped, titlePrefix: titlePrefixOn };
+  for (const s of agentSessions) {
+    if (!Number.isInteger(s.tabId)) continue;
+    if (!byTab.has(s.tabId)) byTab.set(s.tabId, []);
+    byTab.get(s.tabId).push(s); // newest first
+  }
+  for (const [tabId, list] of byTab) {
+    const p = presenceFor(list);
     const key = JSON.stringify(p);
     if (presenceSent.get(tabId) === key) continue;
     presenceSent.set(tabId, key);
-    setAgentBadge(tabId, s);
+    setAgentBadge(tabId, list);
     agent(tabId, "presence", p).catch(() => {}); // unloaded or private tabs: no pill
   }
   for (const tabId of [...presenceSent.keys()]) {
@@ -611,6 +623,16 @@ async function syncPresence() {
     clearAgentBadge(tabId);
     browser.tabs.sendMessage(tabId, { enso: true, action: "presence", args: { off: true } }, { frameId: 0 }).catch(() => {});
   }
+}
+
+/**
+ * Which session of `who` is acting on a tab, so the page flashes in its shade.
+ * The helper names only the client; with two sessions of the same client on
+ * one tab, the one running a tool (else the most recent) is the best guess.
+ */
+function actingSession(tabId, who) {
+  const mine = agentSessions.filter(s => s.tabId === tabId && s.client === who);
+  return (mine.find(s => s.running) ?? mine[0])?.id;
 }
 
 // A navigation drops the content script (and Firefox resets tab-specific badges): show it again.
@@ -634,26 +656,32 @@ async function openShortcut() {
 
 // The pill: pill.html (an extension frame over it) opens the sidebar on click;
 // the content script's own click handler is the fallback when the frame can't load.
-async function pillClicked(tab, opened) {
-  broadcast({ type: "agents.focus", tabId: tab.id });
+async function pillClicked(tab, opened, sessionId = null) {
+  broadcast({ type: "agents.focus", tabId: tab.id, ...(sessionId ? { sessionId } : {}) });
   if (opened) return;
   const open = await browser.sidebarAction.isOpen({ windowId: tab.windowId }).catch(() => false);
   if (!open) browser.tabs.sendMessage(tab.id, { enso: true, action: "pill_hint", args: { text: `Press ${await openShortcut()} for Ensō` } }, { frameId: 0 }).catch(() => {});
+}
+// With several agents on the tab, the row clicked in the expanded pill picks the card.
+async function pillPick(tabId, y) {
+  const r = await browser.tabs.sendMessage(tabId, { enso: true, action: "pill_pick", args: { y } }, { frameId: 0 }).catch(() => null);
+  return r?.ok ? r.result?.sessionId ?? null : null;
 }
 browser.runtime.onMessage.addListener((msg, sender) => {
   if (!sender.tab) return;
   if (msg?.ensoPill && sender.url === browser.runtime.getURL("pill.html")) {
     if (msg.ensoPill === "ready") browser.tabs.sendMessage(sender.tab.id, { enso: true, action: "pill_ready", args: {} }, { frameId: 0 }).catch(() => {});
-    if (msg.ensoPill === "click") pillClicked(sender.tab, !!msg.opened);
+    if (msg.ensoPill === "click") pillPick(sender.tab.id, msg.y).then(id => pillClicked(sender.tab, !!msg.opened, id));
   } else if (msg?.ensoPillFallback && sender.frameId === 0) {
     // Not a user action as far as Firefox is concerned, so open() is usually refused; then focus or hint.
+    const id = typeof msg.sessionId === "string" ? msg.sessionId : null;
     let opening;
     try {
       opening = browser.sidebarAction.open();
     } catch (err) {
       opening = Promise.reject(err);
     }
-    opening.then(() => pillClicked(sender.tab, true), () => pillClicked(sender.tab, false));
+    opening.then(() => pillClicked(sender.tab, true, id), () => pillClicked(sender.tab, false, id));
   }
 });
 

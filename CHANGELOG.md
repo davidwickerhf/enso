@@ -27,6 +27,15 @@ Agents can give pages files, wait for slow work, and send large payloads.
   `page_type` text and `page_eval` expressions arrive whole; too large is a
   clear error. The MCP server takes requests up to 16 MB and no longer garbles
   a multi-byte character split across network chunks.
+- **Several agents on one page.** One pill per tab however many sessions work
+  there: "Claude Code · task", or "2 agents · Claude Code: task (+1)" led by the
+  most important state (working, then paused, then idle); hovering or clicking
+  it lists each agent with its task and state, and clicking a row opens that
+  agent's card in Ensō. Each agent's outline flashes have their own shade and
+  name. The sidebar shows one card with a tab per agent. The "✦ " title prefix
+  appears once, never "✦ ✦ ", and goes only when the last session ends; after an
+  extension update the old copy's pill, flashes and prefix are removed instead
+  of stacking under the new one's.
 - **Agent instructions** (the MCP server's and Ensō's own): use `page_upload` for
   files and never shrink or edit a user's file to fit a limit; use `page_wait`;
   a timeout isn't a failure, so check before retrying.

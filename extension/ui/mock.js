@@ -9,9 +9,10 @@
 // (no_api_key error), and Stop while an answer streams.
 // ?onboarding=1 starts without a profile (the first-run card), like a new install (brief off).
 // ?channel=listed | unlisted | dev shows that build's edition (ui/edition.js).
-// ?agents=running | paused | delivered | idle | stopped | list | t3 shows external
+// ?agents=running | paused | delivered | idle | stopped | list | t3 | sametab shows external
 // agents (Claude Code, Codex) working in tabs: the agent card and the Agents row
-// (t3: Claude Code running inside a T3 Code thread).
+// (t3: Claude Code running inside a T3 Code thread; sametab: two Claude Code
+// sessions on the active tab, one card with a tab each, and Codex elsewhere).
 // Send screenshot: ?shot=sheet | picker | agent | fallback opens the send sheet with a
 // fake capture; ?t3=off | down | revoked | fallback sets the T3 Code connection;
 // ?links=1 adds linked threads (Settings → Agents & screenshots).
@@ -764,7 +765,14 @@ Want me to draft the reply to Jonas, or open the [Vercel deployment](https://ver
     if (agentPreset === "idle") Object.assign(docs, { running: false, actions: [step(5, "session_start", "Start a session", "")], startedAt: ago(5), lastAt: ago(5) });
     if (agentPreset === "stopped") Object.assign(docs, { running: false, stopped: true });
     if (agentPreset === "t3") Object.assign(docs, { client: "Claude Code", task: "Fix the chart legend overlap on the launch dashboard", t3ThreadId: "th-legend", t3: { threadId: "th-legend", title: "Launch dashboard: legend overlaps the chart", projectTitle: "atlas-web", openable: true } });
-    agents = agentPreset === "list" ? [docs, codex, cursor] : agentPreset === "idle" || agentPreset === "t3" ? [docs] : [docs, codex];
+    const docs2 = {
+      id: "ag-docs-pdf", client: "Claude Code", clientName: "claude-code", task: "Export the brief as PDF and download it", tabId: 16,
+      url: docs.url, title: docs.title, startedAt: ago(60), lastAt: ago(14), endsAt: iso(now() + 106_000), running: false, paused: true, pausedAt: ago(14), stopped: false, explicit: true, idleMs: 14000,
+      actions: [step(58, "session_start", "Start a session", ""), step(40, "page_click", "Click", 'menuitem "File"'), step(15, "page_click", "Click", 'menuitem "Download"')], notes: [],
+    };
+    if (agentPreset === "sametab") {
+      agents = [docs, docs2, codex];
+    } else agents = agentPreset === "list" ? [docs, codex, cursor] : agentPreset === "idle" || agentPreset === "t3" ? [docs] : [docs, codex];
   }
   // ---- send screenshot: T3 Code threads, connected agents, links ----
   const params = new URLSearchParams(globalThis.location?.search ?? "");

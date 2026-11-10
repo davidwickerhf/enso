@@ -8,6 +8,11 @@
 //   - the "✦ " title prefix while an agent session is active, following a
 //     page that rewrites its title, restored exactly at the end;
 //   - the session pill appears and goes;
+//   - several agents on one tab: one pill ("2 agents · …"), a list on hover
+//     with each agent's task and state, "✦ " in the title exactly once and
+//     restored when the sessions end in any order, a shade per agent on the
+//     outline flashes, and a new copy of the script (an extension update)
+//     removing the old copy's pill, flashes and doubled title prefix;
 //   - page_query and page_inspect (fixed queries, no code evaluation) on a
 //     fixture page, in the source and in the listed build, which has no eval action.
 // Needs Playwright's Chromium (playwright-core is a dev dependency; the browser
@@ -86,6 +91,19 @@ const queryFixture = `<!doctype html><html><head><title>Fixture shop</title><bas
 <script>window.ready = true;</script>
 </body></html>`;
 
+// A page several agents work on at once (the SharePoint document of the bug report, simplified).
+const multiFixture = `<!doctype html><html><head><title>Interview notes</title>
+<style>body { margin: 0; font: 15px/1.5 -apple-system, system-ui, sans-serif; background: #f4f1ec; color: #222; }
+header { height: 48px; background: #185abd; color: #fff; display: flex; align-items: center; padding: 0 16px; font-weight: 600; }
+main { max-width: 760px; margin: 28px auto; background: #fff; padding: 40px 56px; min-height: 520px; box-shadow: 0 1px 4px rgba(0,0,0,.12); }
+h1 { font-size: 24px; margin: 0 0 12px; } button { margin: 4px 8px 4px 0; padding: 6px 12px; }</style></head><body>
+<header>Word · Interview notes</header>
+<main><h1>Interview notes</h1>
+<p>Participant 4 described the onboarding flow as slow and asked for a way to export the summary.</p>
+<button id="share">Share</button><button id="download">Download</button><button id="comment">Comment</button>
+<p>Follow-up questions are in the second section.</p></main>
+<script>window.ready = true;</script></body></html>`;
+
 let failed = false;
 try {
   const context = await browser.newContext();
@@ -93,6 +111,7 @@ try {
     const app = /\/spreadsheets\//.test(route.request().url()) ? "Sheets" : "Docs";
     route.fulfill({ status: 200, contentType: "text/html", body: docsFixture(app) });
   });
+  await context.route("https://work.example.test/**", route => route.fulfill({ status: 200, contentType: "text/html", body: multiFixture }));
   await context.route("https://shop.example.test/**", route => route.fulfill({ status: 200, contentType: "text/html", body: queryFixture }));
   const open = async (url, agentCode = AGENT) => {
     const page = await context.newPage();
@@ -146,6 +165,148 @@ try {
   assert.equal(await docs.title(), "After", "the setting turns the prefix off");
   await send(docs, "presence", { off: true });
   console.log("ok - title prefix follows title rewrites and is restored exactly; the pill comes and goes");
+
+  // ---- several agents on one tab: one pill, the title prefix once ----
+  {
+    const page = await open("https://work.example.test/sites/team/interview.docx");
+    const A = { id: "a1", label: "Claude Code", task: "Summarise the interview", startedAt: "2026-11-10T10:00:00Z", running: true };
+    const B = { id: "b2", label: "Claude Code", task: "Export the notes as PDF and download it", startedAt: "2026-11-10T10:01:00Z", running: false };
+    const C = { id: "c3", label: "Codex", task: "", startedAt: "2026-11-10T10:02:00Z", paused: true };
+    const presence = (...agents) => send(page, "presence", { agents, titlePrefix: true });
+    const state = async () => (await send(page, "pill_state")).result;
+    const pills = () => page.locator("[data-enso-pill]").count();
+
+    r = await presence(A);
+    assert.equal(r.ok, true, r.error);
+    let st = await state();
+    assert.equal(await pills(), 1);
+    assert.equal(st.text, "✦ Claude Code · Summarise the interview");
+    assert.equal(st.state, "");
+    assert.equal(await page.title(), "✦ Interview notes");
+    await page.hover("[data-enso-pill]");
+    await page.waitForTimeout(50);
+    assert.equal((await state()).expanded, false, "one agent: the pill already says it all, no list");
+    await page.mouse.move(5, 400);
+    console.log("ok - one agent: one pill, \"Claude Code · <task>\", one prefix");
+
+    await presence(B, A); // newest first, as background.js sends them
+    st = await state();
+    assert.equal(await pills(), 1, "still one pill");
+    assert.equal(st.text, "✦ 2 agents · Claude Code: Summarise the interview (+1)", "the working agent leads");
+    assert.equal(await page.title(), "✦ Interview notes", "the prefix once with two sessions");
+    await page.hover("[data-enso-pill]");
+    await page.waitForFunction(() => document.querySelector("[data-enso-pill]")?.hasAttribute("data-expanded"));
+    st = await state();
+    assert.equal(st.expanded, true);
+    assert.deepEqual(st.rows.map(x => [x.id, x.state]), [["a1", "working"], ["b2", "idle"]]);
+    assert.match(st.rows[1].text, /Claude Code · Export the notes as PDF and download it\s*Idle/);
+    assert.equal(st.shades.a1, "#d9643a", "the oldest keeps Ensō's copper");
+    assert.notEqual(st.shades.b2, st.shades.a1, "a distinct shade per agent");
+    await page.mouse.move(5, 400);
+    await page.waitForFunction(() => !document.querySelector("[data-enso-pill]")?.hasAttribute("data-expanded"));
+    console.log("ok - two agents: one pill, \"2 agents · …(+1)\", the list on hover");
+
+    await presence(C, B, { ...A, running: false });
+    st = await state();
+    assert.equal(await pills(), 1);
+    assert.equal(st.text, "✦ 3 agents · Codex (+2)", "nobody working: the paused one leads");
+    assert.equal(st.state, "· Paused");
+    await page.hover("[data-enso-pill]");
+    await page.waitForFunction(() => document.querySelector("[data-enso-pill]")?.hasAttribute("data-expanded"));
+    st = await state();
+    assert.deepEqual(st.rows.map(x => [x.id, x.state]), [["c3", "paused"], ["b2", "idle"], ["a1", "idle"]]);
+    assert.match(st.rows[0].text, /Codex · no task given\s*Paused/);
+    assert.equal(new Set(Object.values(st.shades)).size, 3, "three shades");
+    const pick = await send(page, "pill_pick", { y: 0 });
+    assert.equal(pick.result.sessionId, "c3", "a click on the pill itself: the agent it leads with");
+    await page.mouse.move(5, 400);
+    await presence(C, B, A); // A working again
+    st = await state();
+    assert.equal(st.text, "✦ 3 agents · Claude Code: Summarise the interview (+2)");
+    assert.equal(st.state, "· 1 paused");
+    assert.equal(await page.title(), "✦ Interview notes");
+    console.log("ok - three agents: one pill, the most important state leads, paused shown per agent");
+
+    // Each agent's flash in its own shade, with its name.
+    const snapRefs = (await send(page, "snapshot")).result.elements;
+    const ref = name => snapRefs.find(e => e.name === name).ref;
+    const flashOf = async (session, agentLabel, name) => {
+      await page.evaluate(([action, args, agent, session]) => window.__enso({ enso: true, action, args, agent, session }), ["click", { ref: ref(name) }, agentLabel, session]);
+      return page.evaluate(() => { const f = [...document.querySelectorAll("[data-enso-flash]")].at(-1); return { session: f.getAttribute("data-session"), border: f.style.borderColor, label: f.textContent }; });
+    };
+    const fa = await flashOf("a1", "Claude Code", "Share");
+    const fc = await flashOf("c3", "Codex", "Comment");
+    assert.equal(fa.session, "a1");
+    assert.equal(fc.session, "c3");
+    assert.notEqual(fa.border, fc.border, "two agents' flashes differ in colour");
+    assert.equal(fa.label, "Claude Code · clicking");
+    assert.equal(fc.label, "Codex · clicking");
+    console.log("ok - outline flashes carry the acting agent's shade and name");
+
+    // The page rewrites its title; sessions end in a mixed order; the prefix stays single, then goes exactly.
+    await page.evaluate(() => (document.title = "Interview notes (saved)"));
+    await page.waitForFunction(() => document.title === "✦ Interview notes (saved)");
+    await presence(C, A); // B ends
+    assert.equal(await page.title(), "✦ Interview notes (saved)");
+    await presence(C); // A ends
+    assert.equal(await page.title(), "✦ Interview notes (saved)");
+    assert.equal((await state()).text, "✦ Codex is working on this page");
+    await presence(); // C ends: an empty list
+    assert.equal(await page.title(), "Interview notes (saved)", "removed only with the last session, the page's title exactly");
+    await page.waitForTimeout(400);
+    assert.equal(await pills(), 0);
+    for (const order of [[A, B, C], [C, A, B]]) {
+      await presence(...order);
+      for (let i = order.length - 1; i >= 1; i--) {
+        await presence(...order.slice(0, i).reverse());
+        assert.equal(await page.title(), "✦ Interview notes (saved)");
+      }
+      await send(page, "presence", { off: true });
+      assert.equal(await page.title(), "Interview notes (saved)");
+    }
+    console.log("ok - title prefix exactly once, removed only when the last session ends, in any order");
+
+    // An older build left a doubled prefix: cleaned up, never stacked.
+    await page.evaluate(() => (document.title = "✦ ✦ Interview notes"));
+    await presence(A);
+    assert.equal(await page.title(), "✦ Interview notes", "a doubled prefix is collapsed to one");
+    await page.evaluate(() => (document.title = "✦ Interview notes v2")); // a stray prefix arriving with a rewrite
+    await page.waitForFunction(() => document.title === "✦ Interview notes v2");
+    await send(page, "presence", { off: true });
+    assert.equal(await page.title(), "Interview notes v2");
+    console.log("ok - a doubled \"✦ ✦ \" prefix from an older build is cleaned up");
+
+    // An extension update: a new copy of the script in a new sandbox. The live old copy stands down,
+    // and what a dead old copy (or an older build) left is removed.
+    await presence(B, A);
+    await page.evaluate(() => {
+      const ghost = document.createElement("div"); // an older build's pill and flash, whose code is gone
+      ghost.setAttribute("data-enso-pill", "");
+      ghost.textContent = "✦ Claude Code is working on this page";
+      document.documentElement.appendChild(ghost);
+      const flash = document.createElement("div");
+      flash.setAttribute("aria-hidden", "true");
+      Object.assign(flash.style, { position: "fixed", zIndex: 2147483646, pointerEvents: "none", border: "2px solid #d9643a" });
+      document.documentElement.appendChild(flash);
+      document.title = "✦ ✦ Interview notes";
+    });
+    assert.equal(await pills(), 2);
+    await page.evaluate(() => delete window.__ensoAgent); // a new sandbox doesn't see the old copy's marker
+    await page.addScriptTag({ content: AGENT });
+    assert.equal(await pills(), 0, "the old copy's pill and the older build's pill are gone");
+    assert.equal(await page.evaluate(() => [...document.documentElement.children].filter(n => n.style?.zIndex === "2147483646").length), 0, "stale flashes are gone");
+    assert.equal(await page.title(), "Interview notes", "the stale prefix is gone until a session says otherwise");
+    await page.evaluate(() => (document.title = "Interview notes!"));
+    await page.waitForTimeout(50);
+    assert.equal(await page.title(), "Interview notes!", "the old copy no longer follows the title");
+    await presence(B, A); // background.js sends the sessions to the new copy
+    assert.equal(await pills(), 1, "one pill from the new copy");
+    assert.equal(await page.title(), "✦ Interview notes!");
+    await send(page, "presence", { off: true });
+    assert.equal(await page.title(), "Interview notes!");
+    console.log("ok - a re-injected copy replaces the old one: its pill, flashes and title prefix go");
+    await page.close();
+  }
 
   // ---- Google Sheets keeps the normal path ----
   const sheets = await open("https://docs.google.com/spreadsheets/d/fixture/edit");

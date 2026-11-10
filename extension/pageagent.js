@@ -1,7 +1,7 @@
 // Page agent: injected into a tab when the assistant reads or acts on it.
 // Builds a numbered list of interactive elements, performs clicks/typing on
-// them, and shows what it is doing (outline flash + pill, "✦ " title prefix
-// while an external agent's session is active). Types into Google Docs through
+// them, and shows what it is doing (outline flash + one pill per tab, "✦ "
+// title prefix once while any external agent's session is active). Types into Google Docs through
 // its hidden input frame. Answers messages from background.js: { enso: true, action, args }.
 //
 // Developer tools: console capture in the page's own JS world (through
@@ -16,8 +16,9 @@
 // addons.mozilla.org, which doesn't evaluate JavaScript at all.
 
 (() => {
-  if (window.__ensoAgent) return;
+  if (window.__ensoAgent) return; // already running in this sandbox (copies from before an update: "one copy per page" below)
   window.__ensoAgent = true;
+  const INSTANCE = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
 
   const ACCENT = "#d9643a";
   let refs = new Map();
@@ -91,27 +92,78 @@
 
   // ---------- feedback on the page ----------
   // Ensō's own turns: a short-lived ribbon per action. External agents with a
-  // live session (lib/agentsessions.mjs → background.js "presence"): a pill that
-  // stays for the whole session, "<Client> · <task>", with a live dot while it
-  // acts. Clicking the pill opens Ensō's sidebar (through pill.html, an
-  // extension frame laid over it, because sidebarAction.open() needs a click in
-  // an extension page). Every element acted on flashes a soft outline.
+  // live session (lib/agentsessions.mjs → background.js "presence"): one pill
+  // per tab for the whole time any session is active, however many agents work
+  // on the page. One agent: "<Client> · <task>". Several: "2 agents · <Client>:
+  // <task> (+1)", the most important state first (working > paused > idle >
+  // stopped); hovering, focusing or clicking it expands a list of each agent
+  // with its task and state. Clicking opens Ensō's sidebar on that agent's card
+  // (through pill.html, an extension frame laid over the pill, because
+  // sidebarAction.open() needs a click in an extension page). Every element
+  // acted on flashes a soft outline in the acting agent's shade, with its name.
 
   const reduceMotion = () => matchMedia("(prefers-reduced-motion: reduce)").matches;
   let agentName = "Claude"; // who is acting: Ensō's own Claude, or the MCP client (Codex, Cursor…) named in the request
-  let presence = null; // { label, task, running, paused, stopped, titlePrefix } while an external session is active
-  let pill = null; // { host, box, text, state, dot, frame, ready }
+  let actorId = null; // the session acting, when background.js could tell (several agents on one tab)
+  let sessions = []; // [{ id, label, task, running, paused, stopped }] while external sessions are active on this tab
+  let titlePrefixWanted = false;
+  let pill = null; // { host, wrap, box, text, state, dot, list, frame, ready }
   let liveTimer = null;
   let fadeTimer = null;
+  let expanded = false;
+  let pinTimer = null;
+  let collapseTimer = null;
 
+  // A shade per agent, kept for as long as it has a session here, so its
+  // flashes, its row in the list and its tab in the sidebar (views/agents.js
+  // SHADES, same rule: the first free one, oldest first) match. The first is Ensō's copper.
+  const SHADES = [ACCENT, "#2f7f86", "#8a4f9e", "#b0802a", "#4a6db0", "#a8455a"];
+  const shadeOf = new Map(); // session id -> shade
+  function assignShades() {
+    const live = new Set(sessions.map(s => s.id));
+    for (const id of [...shadeOf.keys()]) if (!live.has(id)) shadeOf.delete(id);
+    const oldestFirst = sessions.map((s, i) => [s, i]).sort((a, b) => a[0].startedAt.localeCompare(b[0].startedAt) || b[1] - a[1]).map(x => x[0]);
+    for (const s of oldestFirst) {
+      if (shadeOf.has(s.id)) continue;
+      const used = new Set(shadeOf.values());
+      shadeOf.set(s.id, SHADES.find(c => !used.has(c)) ?? SHADES[shadeOf.size % SHADES.length]);
+    }
+  }
+
+  const stateOf = s => (s.stopped ? "stopped" : s.paused ? "paused" : s.running ? "working" : "idle");
+  const RANK = { working: 0, paused: 1, idle: 2, stopped: 3 };
+  const STATE_LABEL = { working: "Working", paused: "Paused", idle: "Idle", stopped: "Stopped" };
+  /** Sessions, most important state first; among equals, the order background.js sent (newest first). */
+  const ranked = () => sessions.map((s, i) => [s, i]).sort((a, b) => RANK[stateOf(a[0])] - RANK[stateOf(b[0])] || a[1] - b[1]).map(x => x[0]);
+
+  /** The pill's text, state and colour for the current sessions (exported to the tests through the DOM). */
+  function pillSummary() {
+    if (!sessions.length) return { text: `✦ ${agentName} is working on this page`, state: "", tone: "working" };
+    const order = ranked();
+    const top = order[0];
+    const tone = stateOf(top);
+    if (sessions.length === 1) {
+      return { text: top.task ? `✦ ${top.label} · ${top.task}` : `✦ ${top.label} is working on this page`, state: tone === "stopped" ? "· Stopped" : tone === "paused" ? "· Paused" : "", tone };
+    }
+    const more = sessions.length - 1;
+    const text = `✦ ${sessions.length} agents · ${top.label}${top.task ? `: ${top.task}` : ""} (+${more})`;
+    const paused = sessions.filter(s => stateOf(s) === "paused").length;
+    const state = tone === "stopped" ? "· Stopped" : tone === "paused" ? "· Paused" : paused ? `· ${paused} paused` : "";
+    return { text, state, tone };
+  }
+
+  let fading = null; // the pill on its way out, removed at once if a new one is needed
   function buildPill() {
     if (pill) return pill;
+    fading?.remove();
+    fading = null;
     const host = document.createElement("div");
-    host.setAttribute("data-enso-pill", "");
+    host.setAttribute("data-enso-pill", INSTANCE);
+    host.id = `enso-pill-${INSTANCE}`;
     Object.assign(host.style, { position: "fixed", top: "10px", left: "50%", transform: "translateX(-50%)", zIndex: 2147483647, display: "block", margin: 0, padding: 0, border: 0, background: "none", maxWidth: "min(560px, calc(100vw - 24px))" });
     const root = host.attachShadow({ mode: "closed" });
     const wrap = document.createElement("div");
-    Object.assign(wrap.style, { position: "relative", display: "inline-block", maxWidth: "100%" });
+    Object.assign(wrap.style, { position: "relative", display: "flex", flexDirection: "column", alignItems: "center", maxWidth: "100%" });
     const box = document.createElement("div");
     box.setAttribute("role", "status");
     box.setAttribute("aria-live", "polite");
@@ -128,40 +180,139 @@
     const state = document.createElement("span");
     Object.assign(state.style, { flex: "none", fontWeight: "600", opacity: "0.9" });
     box.append(dot, text, state);
+    // Each agent with its task and state, under the pill while it is expanded.
+    const list = document.createElement("div");
+    list.setAttribute("role", "list");
+    list.setAttribute("aria-label", "Agents on this page");
+    Object.assign(list.style, {
+      display: "none", marginTop: "6px", padding: "4px", boxSizing: "border-box", width: "min(420px, calc(100vw - 24px))", maxWidth: "100%",
+      background: "#2b231e", color: "#f6efe9", font: "500 12px/1.35 -apple-system, system-ui, sans-serif",
+      borderRadius: "12px", boxShadow: "0 8px 24px rgba(0,0,0,.24)", cursor: "pointer", userSelect: "none",
+    });
     // Fallback when the extension frame can't load (a page that blocks it): ask background.js.
-    box.addEventListener("click", () => browser.runtime.sendMessage({ ensoPillFallback: true }).catch(() => {}));
+    const fallback = e => {
+      setExpanded(true, 5000);
+      browser.runtime.sendMessage({ ensoPillFallback: true, sessionId: pickAt(e.clientY - wrap.getBoundingClientRect().top) }).catch(() => {});
+    };
+    box.addEventListener("click", fallback);
+    list.addEventListener("click", fallback);
     const frame = document.createElement("iframe");
     frame.src = browser.runtime.getURL("pill.html");
     frame.title = "Open Ensō";
     frame.setAttribute("tabindex", "0");
     Object.assign(frame.style, { position: "absolute", inset: 0, width: "100%", height: "100%", border: 0, margin: 0, padding: 0, background: "transparent", colorScheme: "normal", opacity: 0, pointerEvents: "none", borderRadius: "999px" });
     frame.setAttribute("allowtransparency", "true");
-    wrap.append(box, frame);
+    // Hover and keyboard focus expand the list (the frame takes the pointer, so its own element's events count).
+    wrap.addEventListener("mouseenter", () => setExpanded(true));
+    wrap.addEventListener("mouseleave", () => setExpanded(false));
+    frame.addEventListener("focus", () => setExpanded(true));
+    frame.addEventListener("blur", () => setExpanded(false));
+    wrap.append(box, list, frame);
     root.append(wrap);
     document.documentElement.appendChild(host);
-    pill = { host, box, text, state, dot, frame, ready: false, pulse: null };
+    pill = { host, wrap, box, text, state, dot, list, frame, ready: false, pulse: null, rows: [] };
     return pill;
+  }
+
+  /** Expand (or collapse) the list; `pinMs` keeps it open for a while after a click. */
+  function setExpanded(on, pinMs = 0) {
+    clearTimeout(collapseTimer);
+    if (pinMs) {
+      clearTimeout(pinTimer);
+      pinTimer = setTimeout(() => {
+        pinTimer = null;
+        setExpanded(false);
+      }, pinMs);
+    }
+    if (!on && pinTimer) return;
+    if (!on) {
+      collapseTimer = setTimeout(() => {
+        expanded = false;
+        if (pill) renderPill();
+      }, 180); // moving from the pill to the list doesn't flicker it shut
+      return;
+    }
+    expanded = true;
+    if (pill) renderPill();
+  }
+
+  /** The session whose row is at `y` (pixels from the top of the pill), else the pill's top agent. */
+  function pickAt(y) {
+    const p = pill;
+    if (p && expanded && sessions.length > 1) {
+      const top = p.wrap.getBoundingClientRect().top;
+      for (const row of p.rows) {
+        const r = row.el.getBoundingClientRect();
+        if (y >= r.top - top && y <= r.bottom - top) return row.id;
+      }
+    }
+    return ranked()[0]?.id ?? null;
+  }
+
+  function renderList(p) {
+    const show = expanded && sessions.length > 1;
+    p.list.style.display = show ? "block" : "none";
+    p.frame.style.borderRadius = show ? "14px" : "999px";
+    p.host.toggleAttribute("data-expanded", show);
+    if (!show) {
+      p.list.replaceChildren();
+      p.rows = [];
+      return;
+    }
+    const order = ranked();
+    p.list.replaceChildren();
+    p.rows = order.map(s => {
+      const st = stateOf(s);
+      const row = document.createElement("div");
+      row.setAttribute("role", "listitem");
+      row.setAttribute("data-session", s.id);
+      row.setAttribute("data-state", st);
+      Object.assign(row.style, { display: "flex", alignItems: "center", gap: "8px", padding: "6px 8px", borderRadius: "8px", minWidth: 0 });
+      const dot = document.createElement("span");
+      Object.assign(dot.style, { width: "8px", height: "8px", borderRadius: "50%", flex: "none", background: shadeOf.get(s.id) ?? ACCENT, boxShadow: st === "working" ? `0 0 0 3px ${shadeOf.get(s.id) ?? ACCENT}55` : "none", opacity: st === "stopped" ? "0.5" : "1" });
+      const who = document.createElement("span");
+      Object.assign(who.style, { flex: "1 1 auto", minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" });
+      const name = document.createElement("strong");
+      name.textContent = s.label;
+      Object.assign(name.style, { fontWeight: "650" });
+      const task = document.createElement("span");
+      task.textContent = s.task ? ` · ${s.task}` : " · no task given";
+      Object.assign(task.style, { opacity: s.task ? "0.85" : "0.55" });
+      who.append(name, task);
+      const chip = document.createElement("span");
+      chip.textContent = STATE_LABEL[st];
+      Object.assign(chip.style, { flex: "none", fontSize: "11px", fontWeight: "600", padding: "2px 7px", borderRadius: "999px", background: st === "working" ? "rgba(217,100,58,.28)" : st === "paused" ? "rgba(138,90,63,.45)" : "rgba(255,255,255,.12)", color: st === "working" ? "#ffd9c7" : "#f0e6de" });
+      row.append(dot, who, chip);
+      p.list.append(row);
+      return { id: s.id, el: row };
+    });
+    const hint = document.createElement("div");
+    hint.textContent = "Click an agent to open it in Ensō";
+    Object.assign(hint.style, { padding: "4px 8px 3px", fontSize: "10.5px", opacity: "0.55" });
+    p.list.append(hint);
   }
 
   function renderPill() {
     const p = buildPill();
     if (!p.host.isConnected) document.documentElement.appendChild(p.host); // pages that rebuild <html> children
-    const label = presence?.label || agentName;
-    const task = presence?.task ? ` · ${presence.task}` : "";
-    p.text.textContent = presence ? `✦ ${label}${task}` : `✦ ${agentName} is working on this page`;
-    if (presence && !presence.task) p.text.textContent = `✦ ${label} is working on this page`;
-    p.state.textContent = presence?.stopped ? "· Stopped" : presence?.paused ? "· Paused" : "";
-    p.box.style.background = presence?.stopped ? "#6b625a" : presence?.paused ? "#8a5a3f" : ACCENT;
-    p.box.setAttribute("aria-label", `${p.text.textContent.replace(/^✦ /, "")}${p.state.textContent}. Click to open Ensō.`);
-    p.host.title = "Open Ensō to see what it is doing, pause or stop it";
+    const sum = pillSummary();
+    p.text.textContent = sum.text;
+    p.state.textContent = sum.state;
+    p.box.style.background = sum.tone === "stopped" ? "#6b625a" : sum.tone === "paused" ? "#8a5a3f" : ACCENT;
+    p.host.setAttribute("data-count", String(sessions.length));
+    const n = sessions.length;
+    p.box.setAttribute("aria-label", `${sum.text.replace(/^✦ /, "")}${sum.state}. ${n > 1 ? "Hover to see each agent; click" : "Click"} to open Ensō.`);
+    p.host.title = n > 1 ? "Agents working on this page: click to open Ensō, see each one, pause or stop it" : "Open Ensō to see what it is doing, pause or stop it";
     p.box.style.opacity = "1";
-    const live = !!(presence?.running || liveTimer) && !presence?.paused && !presence?.stopped;
+    p.list.style.opacity = "1";
+    const live = sessions.length ? sum.tone === "working" || (!!liveTimer && sum.tone === "idle") : !!liveTimer;
     p.dot.style.opacity = live ? "1" : "0.55";
     if (live && !p.pulse && !reduceMotion()) p.pulse = p.dot.animate([{ opacity: 1, transform: "scale(1)" }, { opacity: 0.35, transform: "scale(0.8)" }, { opacity: 1, transform: "scale(1)" }], { duration: 1200, iterations: Infinity });
     if (!live && p.pulse) {
       p.pulse.cancel();
       p.pulse = null;
     }
+    renderList(p);
   }
 
   /** Ensō's own turns, and any action: show the pill; without a session it fades after a few seconds. */
@@ -169,74 +320,103 @@
     clearTimeout(liveTimer);
     liveTimer = setTimeout(() => {
       liveTimer = null;
-      if (presence) renderPill();
+      if (sessions.length) renderPill();
     }, 1500);
     renderPill();
     clearTimeout(fadeTimer);
-    if (!presence) fadeTimer = setTimeout(() => pill && !presence && (pill.box.style.opacity = "0"), 4000);
+    if (!sessions.length) fadeTimer = setTimeout(() => pill && !sessions.length && (pill.box.style.opacity = "0"), 4000);
   }
 
+  const normSession = (x, i) => ({
+    id: String(x?.id ?? `s${i}`).slice(0, 64),
+    label: String(x?.label ?? "").trim().slice(0, 40) || "An agent",
+    task: String(x?.task ?? "").slice(0, 200),
+    startedAt: String(x?.startedAt ?? ""),
+    running: !!x?.running,
+    paused: !!x?.paused,
+    stopped: !!x?.stopped,
+  });
+
+  function removePill() {
+    if (!pill) return;
+    pill.box.style.opacity = "0";
+    pill.list.style.opacity = "0";
+    const p = pill;
+    pill = null;
+    expanded = false;
+    fading = p.host;
+    setTimeout(() => {
+      p.host.remove();
+      if (fading === p.host) fading = null;
+    }, reduceMotion() ? 0 : 250);
+  }
+
+  /**
+   * background.js sends every session on this tab at once: { agents: [...], titlePrefix }.
+   * (A single { label, task, running, paused, stopped } still works: one session.) { off: true } ends them all.
+   */
   function setPresence(next) {
-    presence = next && typeof next === "object" && !next.off ? { label: String(next.label ?? "").slice(0, 40), task: String(next.task ?? "").slice(0, 200), running: !!next.running, paused: !!next.paused, stopped: !!next.stopped, titlePrefix: next.titlePrefix !== false } : null;
+    if (!next || typeof next !== "object" || next.off) sessions = [];
+    else if (Array.isArray(next.agents)) sessions = next.agents.slice(0, 12).map(normSession);
+    else sessions = [normSession({ id: "single", ...next }, 0)];
+    titlePrefixWanted = sessions.length > 0 && next?.titlePrefix !== false;
+    assignShades();
     clearTimeout(fadeTimer);
-    if (presence) {
-      renderPill();
-      titlePrefix(presence.titlePrefix);
-    } else {
-      titlePrefix(false);
-      if (pill) {
-        pill.box.style.opacity = "0";
-        const p = pill;
-        pill = null;
-        setTimeout(() => p.host.remove(), reduceMotion() ? 0 : 250);
-      }
-    }
-    return { shown: !!presence, title: document.title };
+    if (sessions.length) renderPill();
+    else removePill();
+    titlePrefix(titlePrefixWanted);
+    return { shown: sessions.length > 0, count: sessions.length, title: document.title };
   }
 
-  // "✦ " in front of the page title while an agent is active, so Zen's tab list shows it.
-  // Pages that rewrite their title (Google Docs, Gmail) are followed with a
-  // MutationObserver; on end the page's latest own title is put back exactly.
+  // "✦ " in front of the page title while any agent is active, exactly once
+  // whatever the number of sessions, so Zen's tab list shows it. Pages that
+  // rewrite their title (Google Docs, Gmail) are followed with a
+  // MutationObserver. Idempotent: the title is always "✦ " + the page's own
+  // title with every leading "✦ " removed, so a doubled prefix left by an older
+  // build is cleaned up too; on end the page's latest own title is put back exactly.
   const TITLE_PREFIX = "✦ ";
-  let titleOn = false;
-  let pageTitle = null; // the page's own title, without our prefix
+  const PREFIXES = /^(?:✦ )+/;
   let titleObserver = null;
   function applyTitle() {
     const current = document.title;
-    if (current === TITLE_PREFIX + pageTitle) return;
-    pageTitle = current;
-    document.title = TITLE_PREFIX + current;
+    const want = TITLE_PREFIX + current.replace(PREFIXES, "");
+    if (current !== want) document.title = want;
   }
   function titlePrefix(on) {
-    if (on && !titleOn) {
-      titleOn = true;
-      pageTitle = document.title;
-      document.title = TITLE_PREFIX + pageTitle;
-      titleObserver = new MutationObserver(() => titleOn && applyTitle());
-      titleObserver.observe(document.head ?? document.documentElement, { subtree: true, childList: true, characterData: true });
-    } else if (!on && titleOn) {
-      titleOn = false;
-      titleObserver?.disconnect();
-      titleObserver = null;
-      if (document.title === TITLE_PREFIX + pageTitle) document.title = pageTitle;
-      pageTitle = null;
+    if (on) {
+      applyTitle();
+      if (!titleObserver) {
+        titleObserver = new MutationObserver(() => titleObserver && applyTitle());
+        titleObserver.observe(document.head ?? document.documentElement, { subtree: true, childList: true, characterData: true });
+      }
+    } else {
+      if (titleObserver) {
+        titleObserver.disconnect();
+        titleObserver = null;
+      }
+      if (PREFIXES.test(document.title)) document.title = document.title.replace(PREFIXES, "");
     }
   }
 
-  /** A soft outline flash on the element acted on, with who is acting. */
+  /** A soft outline flash on the element acted on, in the acting agent's shade, with its name. */
   function highlight(el, verb = "") {
     const r = el.getBoundingClientRect();
     const still = reduceMotion();
+    const actor = (actorId && sessions.find(s => s.id === actorId)) || (sessions.length === 1 ? sessions[0] : sessions.find(s => s.label === agentName));
+    const shade = (actor && shadeOf.get(actor.id)) || ACCENT;
+    const who = actor?.label || agentName;
     const box = document.createElement("div");
     box.setAttribute("aria-hidden", "true");
+    box.setAttribute("data-enso-flash", INSTANCE);
+    if (actor) box.setAttribute("data-session", actor.id);
     Object.assign(box.style, {
       position: "fixed", left: `${r.left - 4}px`, top: `${r.top - 4}px`, width: `${r.width + 8}px`, height: `${r.height + 8}px`,
-      border: `2px solid ${ACCENT}`, borderRadius: "8px", boxShadow: `0 0 0 4px ${ACCENT}33`, zIndex: 2147483646,
+      border: `2px solid ${shade}`, borderRadius: "8px", boxShadow: `0 0 0 4px ${shade}33`, zIndex: 2147483646,
       pointerEvents: "none", boxSizing: "border-box", margin: 0,
     });
     const tag = document.createElement("div");
-    tag.textContent = verb ? `${presence?.label || agentName} · ${verb}` : presence?.label || agentName;
-    Object.assign(tag.style, { position: "absolute", left: "-2px", top: r.top > 26 ? "-22px" : "calc(100% + 4px)", background: ACCENT, color: "white", font: "600 10.5px/1 -apple-system, system-ui, sans-serif", padding: "4px 7px", borderRadius: "6px", whiteSpace: "nowrap" });
+    tag.textContent = verb ? `${who} · ${verb}` : who;
+    Object.assign(tag.style, { position: "absolute", left: "-2px", top: r.top > 26 ? "-22px" : "calc(100% + 4px)", background: shade, color: "white", font: "600 10.5px/1 -apple-system, system-ui, sans-serif", padding: "4px 7px", borderRadius: "6px", whiteSpace: "nowrap" });
     box.append(tag);
     document.documentElement.appendChild(box);
     if (!still) box.animate([{ opacity: 0, transform: "scale(1.04)" }, { opacity: 1, transform: "scale(1)" }], { duration: 160, easing: "cubic-bezier(.22,1,.36,1)" });
@@ -245,6 +425,39 @@
       box.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 400, fill: "forwards" }).onfinish = () => box.remove();
     }, 1200);
   }
+
+  // ---------- one copy per page ----------
+  // A copy of this script from before an extension update or reload runs in
+  // another sandbox (window.__ensoAgent above can't see it) or is dead, and its
+  // pill, flashes and title prefix stay on the page. A new copy tells live
+  // copies to stand down (a DOM event, which crosses sandboxes) and removes
+  // what any older copy left, including builds that predate this event.
+  const REPLACE_EVENT = "enso-agent-replaced";
+  let retired = false; // replaced by a newer copy: ignore messages
+  function standDown() {
+    document.removeEventListener(REPLACE_EVENT, onReplaced);
+    clearTimeout(liveTimer);
+    clearTimeout(fadeTimer);
+    clearTimeout(pinTimer);
+    clearTimeout(collapseTimer);
+    sessions = [];
+    titleObserver?.disconnect();
+    titleObserver = null;
+    pill?.host.remove();
+    fading?.remove();
+    pill = fading = null;
+    for (const n of document.querySelectorAll(`[data-enso-flash="${INSTANCE}"]`)) n.remove();
+    retired = true;
+  }
+  function onReplaced(e) {
+    if (e.detail !== INSTANCE) standDown();
+  }
+  document.dispatchEvent(new CustomEvent(REPLACE_EVENT, { detail: INSTANCE }));
+  document.addEventListener(REPLACE_EVENT, onReplaced);
+  for (const n of document.querySelectorAll("[data-enso-pill], [data-enso-flash]")) n.remove();
+  // Flashes of builds before data-enso-flash: an outline box on <html> at our z-index.
+  for (const n of document.documentElement.children) if (n.tagName === "DIV" && n.getAttribute("aria-hidden") === "true" && n.style.zIndex === "2147483646" && n.style.pointerEvents === "none") n.remove();
+  if (PREFIXES.test(document.title)) document.title = document.title.replace(PREFIXES, ""); // background.js puts it back, once, while a session is active
 
   // ---------- actions ----------
 
@@ -664,6 +877,18 @@
       }
       return {};
     },
+    /** A click in pill.html at `y` px from its top: which agent it was on (and keep the list open a moment). */
+    pill_pick({ y }) {
+      if (!pill) return { sessionId: null };
+      const sessionId = pickAt(Number(y) || 0);
+      if (sessions.length > 1) setExpanded(true, 5000);
+      return { sessionId };
+    },
+    /** What the pill shows (its shadow root is closed to the page): for diagnostics and the tests. */
+    pill_state() {
+      if (!pill || !pill.host.isConnected) return { shown: false, count: sessions.length };
+      return { shown: true, count: sessions.length, text: pill.text.textContent, state: pill.state.textContent, expanded: pill.list.style.display !== "none", rows: pill.rows.filter(r => r.el.isConnected).map(r => ({ id: r.id, text: r.el.textContent, state: r.el.getAttribute("data-state") })), shades: Object.fromEntries(shadeOf) };
+    },
     pill_hint({ text }) {
       if (!pill) return {};
       const before = pill.state.textContent;
@@ -1021,14 +1246,17 @@
     return { status: res.status, statusText: res.statusText, url: res.url, redirected: res.redirected, headers: hdrs, contentType: type, body: text.length > cap ? text.slice(0, cap) : text, bodyLength: length, truncated: text.length > cap, tabOrigin: location.origin, tabTitle: document.title };
   }
 
-  const PASSIVE = new Set(["presence", "pill_ready", "pill_hint", "text", "ping", "probe", "upload_part", "console_flush", "region_select", "region_key", "page_size"]); // not an action by anyone
+  const PASSIVE = new Set(["presence", "pill_ready", "pill_pick", "pill_state", "pill_hint", "text", "ping", "probe", "upload_part", "console_flush", "region_select", "region_key", "page_size"]); // not an action by anyone
   browser.runtime.onMessage.addListener(msg => {
-    if (!msg?.enso) return undefined;
+    if (!msg?.enso || retired) return undefined;
     return (async () => {
       try {
         const fn = actions[msg.action];
         if (!fn) throw new Error(`Unknown page action ${msg.action}`);
-        if (!PASSIVE.has(msg.action)) agentName = typeof msg.agent === "string" && msg.agent.trim() ? msg.agent.trim().slice(0, 40) : "Claude";
+        if (!PASSIVE.has(msg.action)) {
+          agentName = typeof msg.agent === "string" && msg.agent.trim() ? msg.agent.trim().slice(0, 40) : "Claude";
+          actorId = typeof msg.session === "string" ? msg.session : null;
+        }
         return { ok: true, result: await fn(msg.args ?? {}) };
       } catch (err) {
         return { ok: false, error: String(err?.message ?? err) };
