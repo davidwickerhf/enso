@@ -39,7 +39,12 @@ export async function stopAndRemove(child, dir) {
   if (child && child.exitCode === null && child.signalCode === null) {
     const exited = new Promise(r => child.once("exit", r));
     child.kill();
-    await Promise.race([exited, new Promise(r => setTimeout(r, 5000))]);
+    await Promise.race([exited, new Promise(r => setTimeout(r, 10_000))]);
   }
-  rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
+  // Windows: processes the helper started (MCP servers) may hold the folder a little longer.
+  try {
+    rmSync(dir, { recursive: true, force: true, maxRetries: 40, retryDelay: 250 });
+  } catch (err) {
+    console.log(`note - couldn't remove ${dir} (${err.code}); it is a temporary folder`);
+  }
 }

@@ -21,7 +21,7 @@
 // ENSO_SECRETS=keychain|libsecret|credman|file forces a backend (tests, CI).
 
 import { spawn, spawnSync } from "node:child_process";
-import { chmodSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { currentPlatform, dataDir, powershellExe, which } from "./platform.mjs";
 
@@ -50,8 +50,8 @@ function run(cmd, args, { input, env } = {}) {
     if (input != null) child.stdin.end(input);
   });
 }
-function runSync(cmd, args, { input, env } = {}) {
-  const r = spawnSync(cmd, args, { input, encoding: "utf8", ...(env ? { env } : {}), stdio: [input == null ? "ignore" : "pipe", "pipe", "pipe"], timeout: 20_000, windowsHide: true });
+function runSync(cmd, args, { input, env, timeout = 20_000 } = {}) {
+  const r = spawnSync(cmd, args, { input, encoding: "utf8", ...(env ? { env } : {}), stdio: [input == null ? "ignore" : "pipe", "pipe", "pipe"], timeout, windowsHide: true });
   return { code: r.error ? 127 : r.status ?? 1, out: r.stdout ?? "", err: r.stderr ?? "" };
 }
 
@@ -289,7 +289,10 @@ let probeNote = null;
 /** Is secret-tool there, and does it reach a Secret Service? (A miss exits 1 with nothing on stderr.) */
 function libsecretWorks(env = process.env) {
   if (!which("secret-tool", { env })) return { ok: false, note: "secret-tool isn't installed (it comes with libsecret-tools / libsecret)" };
-  const r = runSync("secret-tool", ["lookup", "service", "enso-probe", "account", DEFAULT_ACCOUNT]);
+  // Without a session bus secret-tool can hang trying to start one: don't even ask.
+  const bus = env.XDG_RUNTIME_DIR ? path.join(env.XDG_RUNTIME_DIR, "bus") : typeof process.getuid === "function" ? `/run/user/${process.getuid()}/bus` : "";
+  if (!env.DBUS_SESSION_BUS_ADDRESS && !(bus && existsSync(bus))) return { ok: false, note: "no desktop session (D-Bus) to reach a keyring" };
+  const r = runSync("secret-tool", ["lookup", "service", "enso-probe", "account", DEFAULT_ACCOUNT], { timeout: 5000, env: utf8Env() });
   if (r.code === 0 || (r.code === 1 && !r.err.trim())) return { ok: true };
   return { ok: false, note: `no keyring answered (${r.err.split("\n")[0].trim().slice(0, 120) || `exit ${r.code}`})` };
 }
