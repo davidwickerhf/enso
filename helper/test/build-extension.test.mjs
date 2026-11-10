@@ -45,7 +45,7 @@ try {
   ok("eval( / .eval( / new Function are found, words that contain eval are not");
 
   // ---- channel.js ----
-  assert.equal(readFileSync(path.join(src, "channel.js"), "utf8"), channelSource("dev"), "extension/channel.js is the dev channel file");
+  assert.equal(readFileSync(path.join(src, "channel.js"), "utf8").replace(/\r\n/g, "\n"), channelSource("dev"), "extension/channel.js is the dev channel file (CRLF on a Windows checkout)");
   const manifest = JSON.parse(readFileSync(path.join(src, "manifest.json"), "utf8"));
   assert.equal(manifest.background.scripts[0], "channel.js", "background.js sees ENSO_CHANNEL");
   assert.throws(() => channelSource("beta"), /Unknown channel/);
