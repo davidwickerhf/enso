@@ -22,8 +22,19 @@ REPO="$(cd "$(dirname "$0")/.." && pwd)"
 HELPER="$REPO/helper"
 EXTENSION_ID="${ENSO_EXTENSION_ID:-enso@wicker.life}"
 HOST_NAME="enso"
-SUPPORT="$HOME/Library/Application Support"
-APP_DIR="$SUPPORT/Enso"
+# Folders as in install.sh and helper/lib/platform.mjs (Windows: not supported by this script).
+case "$(uname -s)" in
+  Darwin)
+    SUPPORT="$HOME/Library/Application Support"
+    APP_DIR="$SUPPORT/Enso"
+    LOG_DIR="$HOME/Library/Logs/Enso"
+    MANIFEST_DIRS=("$SUPPORT/Mozilla/NativeMessagingHosts" "$SUPPORT/zen/NativeMessagingHosts") ;;
+  Linux)
+    APP_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/enso"
+    LOG_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/enso"
+    MANIFEST_DIRS=("$HOME/.mozilla/native-messaging-hosts" "$HOME/.zen/native-messaging-hosts") ;;
+  *) echo "scripts/dev.sh runs on macOS and Linux." >&2; exit 1 ;;
+esac
 OPEN=0
 MCP=0
 for arg in "$@"; do
@@ -48,20 +59,20 @@ if [ ! -e "$HELPER/node_modules" ]; then
 fi
 
 # 2. The script Zen starts. Same as install.sh's (keep them in sync): stderr goes
-#    to ~/Library/Logs/Enso/helper.log, so crashes before Node's own logging are there too.
+#    to <log folder>/helper.log, so crashes before Node's own logging are there too.
 cat >"$HELPER/run.sh" <<EOF
 #!/bin/bash
 # Written by scripts/dev.sh: runs the helper from this checkout.
 NODE="$NODE"
 HOST="$HELPER/host.mjs"
 MIN_NODE=18
+LOG_DIR="$LOG_DIR"
 EOF
 cat >>"$HELPER/run.sh" <<'RUNSH'
-LOG_DIR="$HOME/Library/Logs/Enso"
 LOG="$LOG_DIR/helper.log"
 mkdir -p "$LOG_DIR" 2>/dev/null
 # Keep it near 1 MB × 2 (the helper rotates too, while it runs).
-if [ -f "$LOG" ] && [ "$(stat -f %z "$LOG" 2>/dev/null || echo 0)" -gt 1000000 ]; then mv -f "$LOG" "$LOG.1" 2>/dev/null; fi
+if [ -f "$LOG" ] && [ "$(wc -c <"$LOG" 2>/dev/null | tr -d ' ' || echo 0)" -gt 1000000 ]; then mv -f "$LOG" "$LOG.1" 2>/dev/null; fi
 note() {
 	printf '%s run.sh: %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*" >>"$LOG" 2>/dev/null
 	printf 'Ensō helper: %s\n' "$*" >&2
@@ -101,7 +112,7 @@ manifest="$("$NODE" -e '
   const [name, path, id] = process.argv.slice(1);
   process.stdout.write(JSON.stringify({ name, description: "Ensō helper (dev checkout)", path, type: "stdio", allowed_extensions: [id] }, null, 2) + "\n");
 ' "$HOST_NAME" "$HELPER/run.sh" "$EXTENSION_ID")"
-for dir in "$SUPPORT/Mozilla/NativeMessagingHosts" "$SUPPORT/zen/NativeMessagingHosts"; do
+for dir in "${MANIFEST_DIRS[@]}"; do
   mkdir -p "$dir" && printf '%s' "$manifest" >"$dir/$HOST_NAME.json"
   echo "Wrote $dir/$HOST_NAME.json"
 done
@@ -127,7 +138,7 @@ if [ "$MCP" = 1 ]; then
 fi
 
 if [ "$OPEN" = 1 ]; then
-  open -a Zen "$XPI"
+  if [ "$(uname -s)" = Darwin ]; then open -a Zen "$XPI"; else (nohup "$(command -v zen || command -v zen-browser || echo xdg-open)" "$XPI" >/dev/null 2>&1 &); fi
   echo "Zen is asking to add or update Ensō $VERSION (needs xpinstall.signatures.required = false)."
 fi
 echo "Done. Quit and reopen Zen to restart the helper after helper changes."
