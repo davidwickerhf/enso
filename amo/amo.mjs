@@ -135,7 +135,8 @@ function releaseNotes(version) {
   if (start < 0) return null;
   const rest = log.slice(start).split("\n").slice(1).join("\n");
   const end = rest.search(/^## /m);
-  return (end < 0 ? rest : rest.slice(0, end)).replace(/\*\*(.+?)\*\*/g, "$1").replace(/`([^`]+)`/g, "$1").trim().slice(0, 3000) || null;
+  const text = (end < 0 ? rest : rest.slice(0, end)).replace(/\*\*(.+?)\*\*/g, "$1").replace(/`([^`]+)`/g, "$1").replace(/\n {2}(?=\S)/g, " ").replace(/([^\n])\n(?=[^\n-])/g, "$1 ").trim();
+  return (text.length > 3000 ? `${text.slice(0, text.lastIndexOf("\n", 2900))}\n…` : text) || null;
 }
 
 const read = p => readFileSync(path.join(here, p), "utf8").trim();

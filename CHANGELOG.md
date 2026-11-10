@@ -5,9 +5,10 @@ share one version number. Dates are the tag dates. Releases are published to
 <https://enso.wicker.life> by the release workflow ([docs/releasing.md](docs/releasing.md));
 the extension updates itself, the helper updates when you run the installer again.
 
-## Unreleased
+## 0.5.5 (10 November 2026)
 
-Setup from inside Ensō: one command, then buttons.
+Setup from inside Ensō, a privacy policy that matches the code, and a listing
+on addons.mozilla.org.
 
 - **First-run guide.** Without a helper, Ensō explains why one terminal step is
   needed, shows the install command with a Copy button and how to open
