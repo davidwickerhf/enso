@@ -3,20 +3,11 @@
 // session file lists every space with its container and its tabs.
 
 import { existsSync, readFileSync, statSync } from "node:fs";
-import { homedir } from "node:os";
 import path from "node:path";
+import { zenProfileDir } from "./platform.mjs";
 
-const ZEN = path.join(homedir(), "Library/Application Support/zen");
-
-function profileDir() {
-  try {
-    const ini = readFileSync(path.join(ZEN, "installs.ini"), "utf8");
-    const rel = ini.match(/^Default=(.+)$/m)?.[1]?.trim();
-    return rel ? path.join(ZEN, rel) : null;
-  } catch {
-    return null;
-  }
-}
+// The profile folder per OS comes from lib/platform.mjs (installs.ini, else profiles.ini).
+const profileDir = () => zenProfileDir();
 
 // mozLz4: "mozLz40\0", 4-byte little-endian size, then one LZ4 block.
 function lz4Block(src, size) {

@@ -1,47 +1,33 @@
-// Secrets in the macOS login Keychain, through /usr/bin/security.
+// Longer secrets (MCP sign-ins, the T3 token) in the OS's secret store
+// (lib/secrets.mjs: the macOS Keychain, libsecret on Linux, the Windows
+// Credential Manager). The name stays keychain.mjs for history.
 //
-// Values never appear on a command line (where `ps` could read them): writes
-// go through `security -i`, which reads its commands from stdin, and reads use
-// `find-generic-password -w`, which prints the secret to our stdout pipe.
-// `security -i` stops at ~4 KB per line, so a value is base64-encoded and
-// split over several items: <service>, <service>~1, <service>~2, …
-// The head item holds "enso1:<count>:<first chunk>".
+// Values never appear on a command line (see lib/secrets.mjs). Some stores
+// limit an item's size (`security -i` stops at ~4 KB per line, a Windows
+// credential holds 2560 bytes), so a value is base64-encoded and split over
+// several items: <service>, <service>~1, <service>~2, … The head item holds
+// "enso1:<count>:<first chunk>". Stores without a limit get one item.
 
-import { spawn } from "node:child_process";
+import { backend, checkName, DEFAULT_ACCOUNT } from "./secrets.mjs";
 
-const ACCOUNT = "enso";
-const CHUNK = 3000;
-const SAFE = /^[A-Za-z0-9._~-]+$/;
-
-function run(args, input) {
-  return new Promise(resolve => {
-    const child = spawn("/usr/bin/security", args, { stdio: [input == null ? "ignore" : "pipe", "pipe", "ignore"] });
-    let out = "";
-    child.stdout.on("data", d => (out += d));
-    child.on("error", () => resolve({ code: 1, out: "" }));
-    child.on("close", code => resolve({ code, out }));
-    if (input != null) child.stdin.end(input);
-  });
-}
+const ACCOUNT = DEFAULT_ACCOUNT;
 
 function check(service) {
-  if (!SAFE.test(service)) throw new Error(`Bad Keychain service name: ${service}`);
-}
-
-async function readItem(service) {
-  const r = await run(["find-generic-password", "-a", ACCOUNT, "-s", service, "-w"]);
-  return r.code === 0 ? r.out.replace(/\n$/, "") : null;
+  checkName(service);
 }
 
 /** The stored string, or null when there is none (or it is damaged). */
 export async function readSecret(service) {
   check(service);
-  const head = await readItem(service);
+  const b = backend();
+  const head = await b.get(service, ACCOUNT);
   const m = head && /^enso1:(\d+):([A-Za-z0-9+/=]*)$/.exec(head);
   if (!m) return null;
+  const count = Number(m[1]);
   let b64 = m[2];
-  for (let i = 1; i < Number(m[1]); i++) {
-    const part = await readItem(`${service}~${i}`);
+  const rest = Array.from({ length: Math.max(0, count - 1) }, (_, i) => `${service}~${i + 1}`);
+  const parts = b.getMany ? await b.getMany(rest, ACCOUNT) : await Promise.all(rest.map(s => b.get(s, ACCOUNT)));
+  for (const part of parts) {
     if (part == null) return null;
     b64 += part;
   }
@@ -49,28 +35,35 @@ export async function readSecret(service) {
 }
 
 async function deleteChunksFrom(service, start) {
-  for (let i = start; i < 100; i++) {
-    const r = await run(["delete-generic-password", "-a", ACCOUNT, "-s", `${service}~${i}`]);
-    if (r.code !== 0) break;
+  const b = backend();
+  if (b.deleteMany) {
+    // One round trip for a batch of candidates (Windows starts PowerShell per call).
+    for (let from = start; from < 100; from += 20) {
+      const ok = await b.deleteMany(Array.from({ length: 20 }, (_, i) => `${service}~${from + i}`));
+      if (!ok.every(Boolean)) break;
+    }
+    return;
   }
+  for (let i = start; i < 100; i++) if (!(await b.delete(`${service}~${i}`, ACCOUNT))) break;
 }
 
-/** Store (or replace) a string. Throws when the Keychain did not take it. */
+/** Store (or replace) a string. Throws when the store did not take it. */
 export async function writeSecret(service, value, label = "Enso MCP sign-in") {
   check(service);
+  const b = backend();
   const b64 = Buffer.from(String(value), "utf8").toString("base64");
+  const size = Number.isFinite(b.chunk) ? b.chunk : Math.max(b64.length, 1);
   const chunks = [];
-  for (let i = 0; i < b64.length || i === 0; i += CHUNK) chunks.push(b64.slice(i, i + CHUNK));
+  for (let i = 0; i < b64.length || i === 0; i += size) chunks.push(b64.slice(i, i + size));
+  const items = chunks.map((c, i) => ({ service: i ? `${service}~${i}` : service, account: ACCOUNT, label, value: i ? c : `enso1:${chunks.length}:${c}` }));
   // Tail chunks first, the head last, so a reader never sees a head pointing at missing parts.
-  const lines = chunks.map((c, i) => ({ i, line: `add-generic-password -U -a ${ACCOUNT} -s ${i ? `${service}~${i}` : service} -l "${String(label).replace(/["\\\n]/g, "")}" -w ${i ? c : `enso1:${chunks.length}:${c}`}` }));
-  const ordered = [...lines.slice(1), lines[0]].map(l => l.line).join("\n") + "\n";
-  await run(["-i"], ordered);
+  await b.setMany([...items.slice(1), items[0]]);
   await deleteChunksFrom(service, chunks.length);
-  if ((await readSecret(service)) !== String(value)) throw new Error("The Keychain did not store the sign-in.");
+  if ((await readSecret(service)) !== String(value)) throw new Error(`${b.location()[0].toUpperCase()}${b.location().slice(1)} did not store the sign-in.`);
 }
 
 export async function deleteSecret(service) {
   check(service);
-  await run(["delete-generic-password", "-a", ACCOUNT, "-s", service]);
+  await backend().delete(service, ACCOUNT);
   await deleteChunksFrom(service, 1);
 }

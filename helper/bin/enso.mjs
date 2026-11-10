@@ -1,5 +1,6 @@
 #!/usr/bin/env node
-// The `enso` command (installed as ~/Library/Application Support/Enso/bin/enso).
+// The `enso` command (installed as <data>/bin/enso, or <data>\bin\enso.cmd on
+// Windows; the data folder per OS is in lib/platform.mjs).
 //
 //   enso mcp [--read-only] [--client <label>]   stdio MCP server for clients to spawn (forwards to Zen)
 //   enso mcp install [--client claude|codex|cursor|all] [--read-only]
@@ -95,7 +96,7 @@ async function t3Command(sub) {
 
 /** The Claude Code UserPromptSubmit hook. Never fails the prompt: any error prints nothing. */
 async function inboxCommand() {
-  const { execFileSync } = await import("node:child_process");
+  const { parentPid } = await import("../lib/platform.mjs");
   const { launcherUrl, t3ThreadFromEnv } = await import("../lib/mcplauncher.mjs");
   // Claude Code runs the hook through a shell: our ancestors include the Claude Code
   // process that also started `enso mcp`, whose launcher told Ensō its parent pid.
@@ -103,11 +104,8 @@ async function inboxCommand() {
   let pid = process.ppid;
   for (let i = 0; i < 6 && pid > 1; i++) {
     pids.push(pid);
-    try {
-      pid = Number.parseInt(execFileSync("/bin/ps", ["-o", "ppid=", "-p", String(pid)], { encoding: "utf8", timeout: 1000 }).trim(), 10);
-    } catch {
-      break;
-    }
+    pid = parentPid(pid);
+    if (!Number.isFinite(pid)) break;
   }
   try {
     const res = await fetch(launcherUrl().replace(/\/mcp$/, "/inbox"), {
@@ -163,7 +161,7 @@ async function setupCommand(flags) {
   const sub = st.engine.subscription;
   const engineOk = st.engine.selected === "api" ? st.engine.api.stored : sub.found && sub.loggedIn !== false;
   const engineText = st.engine.selected === "api"
-    ? st.engine.api.stored ? "API key in the Keychain" : "API key: none stored (Settings → Setup, or security add-generic-password -s enso-anthropic -a enso -w)"
+    ? st.engine.api.stored ? `API key in ${st.secrets?.location ?? "the Keychain"}` : `API key: none stored (Settings → Setup, or ${(await import("../lib/secrets.mjs")).addItemHint("enso-anthropic")})`
     : !sub.found ? `Claude Code not found: ${sub.installCommand}` : sub.loggedIn === false ? "Claude Code found, not signed in: claude auth login" : `Claude Code ${sub.version ?? ""}${sub.subscriptionType ? ` (${sub.subscriptionType})` : ""}`;
   console.log(`${mark(engineOk)} Engine       ${engineText}`);
   for (const c of st.agents.clients) {

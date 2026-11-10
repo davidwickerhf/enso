@@ -6,8 +6,8 @@
 //
 // The token comes, in order, from the GitHub CLI (`gh auth token`, so orgs
 // that allow the CLI's OAuth app work without installing a GitHub App), from
-// GH_TOKEN / GITHUB_TOKEN, or from the Keychain (service "enso-github", for
-// people without gh; saved through `security -i` on stdin). It is read at use
+// GH_TOKEN / GITHUB_TOKEN, or from the OS secret store (item "enso-github", for
+// people without gh; lib/secrets.mjs, the value goes on stdin). It is read at use
 // time, kept in memory only, never logged and never returned to the model.
 // Orgs that still block it can be read with session_fetch on github.com, if
 // the user allowed that site in Ensō → Settings → Developer.
@@ -18,6 +18,7 @@
 
 import { execFile } from "node:child_process";
 import { z } from "zod";
+import { deleteItem, getItem, secretsInfo, setItem } from "./secrets.mjs";
 import { getSettings } from "./store.mjs";
 
 const API = "https://api.github.com";
@@ -42,7 +43,7 @@ async function resolveToken() {
   if (fromGh) return { token: fromGh, via: "GitHub CLI" };
   const fromEnv = process.env.GH_TOKEN || process.env.GITHUB_TOKEN;
   if (fromEnv) return { token: fromEnv, via: "environment" };
-  const fromKeychain = await run("security", ["find-generic-password", "-s", KEYCHAIN_SERVICE, "-w"]);
+  const fromKeychain = (await getItem(KEYCHAIN_SERVICE).catch(() => null))?.trim();
   if (fromKeychain) return { token: fromKeychain, via: "Keychain" };
   return null;
 }
@@ -111,15 +112,18 @@ export async function githubStatus({ fresh = false } = {}) {
   return value;
 }
 
-/** Saves a pasted token in the Keychain after checking it works. The token goes to `security` on stdin, never on a command line. */
+/** Saves a pasted token in the OS's secret store after checking it works. The token goes to the store on stdin, never on a command line. */
 export async function saveGithubToken(raw) {
   const value = String(raw ?? "").trim();
   if (!/^[A-Za-z0-9_]{20,255}$/.test(value)) throw new Error("That doesn't look like a GitHub token (ghp_…, github_pat_… or gho_…).");
   const res = await fetch(`${API}/user`, { headers: { Authorization: `Bearer ${value}`, Accept: "application/vnd.github+json", "User-Agent": "Enso" }, signal: AbortSignal.timeout(15_000) });
   if (!res.ok) throw new Error(res.status === 401 ? "GitHub rejected this token." : `GitHub answered ${res.status}.`);
   const { login } = await res.json();
-  const ok = await run("security", ["-i"], { input: `add-generic-password -U -s ${KEYCHAIN_SERVICE} -a enso -w ${value}\n` });
-  if (ok === null) throw new Error("Could not save the token in the Keychain.");
+  try {
+    await setItem(KEYCHAIN_SERVICE, value, { label: "Enso GitHub token" });
+  } catch {
+    throw new Error(`Could not save the token in ${secretsInfo().location}.`);
+  }
   tokenCache = null;
   statusCache = null;
   overviewCache = null;
@@ -127,7 +131,7 @@ export async function saveGithubToken(raw) {
 }
 
 export async function forgetGithubToken() {
-  await run("security", ["delete-generic-password", "-s", KEYCHAIN_SERVICE]);
+  await deleteItem(KEYCHAIN_SERVICE);
   tokenCache = null;
   statusCache = null;
   overviewCache = null;

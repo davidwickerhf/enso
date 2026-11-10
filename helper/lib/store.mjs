@@ -1,4 +1,6 @@
-// Everything the helper remembers, under ~/Library/Application Support/Enso/:
+// Everything the helper remembers, in the data folder (lib/platform.mjs:
+// ~/Library/Application Support/Enso on macOS, ~/.local/share/enso on Linux,
+// %APPDATA%\Enso on Windows):
 //   settings.json           user settings (merged over config.json defaults)
 //   config.local.json       the user's config overlay (see lib/config.mjs)
 //   profile.md              who the user is, written by onboarding (editable)
@@ -15,15 +17,14 @@
 
 import { randomUUID } from "node:crypto";
 import { appendFileSync, cpSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
-import { homedir } from "node:os";
 import path from "node:path";
+import { dataDir, legacyDataDir } from "./platform.mjs";
 
-const SUPPORT = path.join(homedir(), "Library/Application Support");
 // ENSO_DATA (or the older ZEN_CHAT_DATA) points the helper at another folder, e.g. for tests.
 const DATA_OVERRIDE = process.env.ENSO_DATA || process.env.ZEN_CHAT_DATA || "";
-export const DATA = DATA_OVERRIDE || path.join(SUPPORT, "Enso");
-// Where pre-rename installs kept their data. With a data override, only an explicit ENSO_LEGACY_DATA is migrated.
-const LEGACY = process.env.ENSO_LEGACY_DATA || (DATA_OVERRIDE ? "" : path.join(SUPPORT, "zen-chat"));
+export const DATA = dataDir();
+// Where pre-rename installs kept their data (macOS only). With a data override, only an explicit ENSO_LEGACY_DATA is migrated.
+const LEGACY = process.env.ENSO_LEGACY_DATA || (DATA_OVERRIDE ? "" : legacyDataDir());
 const MIGRATED = ".migrated-from-zen-chat";
 export const LEGACY_ITEMS = ["conversations", "memory", "memory.md", "profile.md", "reports", "actions.jsonl", "settings.json", "servers.json", "connections.json", "skills.json", "mcp-token", "dashboard.json"];
 

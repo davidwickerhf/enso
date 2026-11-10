@@ -2,7 +2,6 @@
 // and MCP servers connected by this process. Used when the user switches the
 // engine to "API key" in settings.
 
-import { execFileSync } from "node:child_process";
 import Anthropic from "@anthropic-ai/sdk";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
@@ -13,12 +12,14 @@ import { ALL_BROWSER_TOOLS, browserSideToolByName } from "./toolset.mjs";
 import { systemPrompt } from "./prompt.mjs";
 import { appendMemory, getEngineState, listActions, searchHistory, setEngineState } from "./store.mjs";
 import { describeTool } from "./tools-meta.mjs";
+import { addItemHint, getItemSync, secretsInfo } from "./secrets.mjs";
 
 const MAX_TOOL_TEXT = 200_000;
 
+/** A secret by service name from the OS's store (lib/secrets.mjs), any account; null when missing. */
 export function keychain(service) {
   try {
-    return execFileSync("security", ["find-generic-password", "-s", service, "-w"], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
+    return getItemSync(service)?.trim() || null;
   } catch {
     return null;
   }
@@ -161,7 +162,7 @@ let client = null;
 export async function runApiTurn(ctx, { prompt, events }) {
   const key = apiKey(ctx.config);
   if (!key) {
-    ctx.emit({ kind: "error", code: "no_api_key", text: `No Anthropic API key in the Keychain (service "${ctx.config.keychainService}"). Add one with: security add-generic-password -s ${ctx.config.keychainService} -a "$USER" -w — or switch the engine to your Claude subscription in settings.` });
+    ctx.emit({ kind: "error", code: "no_api_key", text: `No Anthropic API key in ${secretsInfo().location} (item "${ctx.config.keychainService}"). Add one in Settings → Setup, or with: ${addItemHint(ctx.config.keychainService)} — or switch the engine to your Claude subscription in settings.` });
     return null;
   }
   client ??= new Anthropic({ apiKey: key });

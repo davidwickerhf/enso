@@ -11,19 +11,17 @@
 // Cleanup: headless_stop, 10 minutes idle, helper exit, and stale temp
 // profiles from an earlier crash at the next start.
 
-import { spawn, execFileSync } from "node:child_process";
+import { spawn } from "node:child_process";
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync, copyFileSync } from "node:fs";
 import net from "node:net";
-import { homedir, tmpdir } from "node:os";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import { z } from "zod";
 import { ELEMENT_KEY, Marionette } from "./marionette.mjs";
 import { log } from "./native.mjs";
 import { formatSnapshot, pageActionNeedsApproval } from "./pagetools.mjs";
 import { allowSessionAccess, isSensitiveHost, parseSite, requireHeadless, sessionAccessFor } from "./safety.mjs";
-
-const ZEN_BIN = "/Applications/Zen.app/Contents/MacOS/zen";
-const ZEN_DATA = path.join(homedir(), "Library/Application Support/zen");
+import { browserBinaries, browserProfileDir, findBrowserBinary, processCommandLine, zenProfileDir } from "./platform.mjs";
 const PREFIX = "enso-headless-";
 const FIRST_PORT = 2829;
 const IDLE_MS = 10 * 60_000;
@@ -33,11 +31,12 @@ let session = null; // { dir, profile, port, proc, mn, sites, copied, startedAt,
 
 // ---------- profile ----------
 
+/** Zen's live profile (only read: cookies and localStorage are copied from it). */
 export function liveProfileDir() {
-  const ini = readFileSync(path.join(ZEN_DATA, "installs.ini"), "utf8");
-  const rel = /^Default=(.+)$/m.exec(ini)?.[1]?.trim();
-  if (!rel) throw new Error("No Zen profile found in installs.ini.");
-  return path.isAbsolute(rel) ? rel : path.join(ZEN_DATA, rel);
+  // Zen's profile; Firefox's when only Firefox is installed.
+  const dir = zenProfileDir() ?? browserProfileDir("firefox");
+  if (!dir) throw new Error("No Zen or Firefox profile found (installs.ini / profiles.ini).");
+  return dir;
 }
 
 const hostMatches = (cookieHost, site) => {
@@ -268,7 +267,7 @@ export function cleanupStale() {
     try {
       const pid = Number(readFileSync(path.join(dir, "pid"), "utf8"));
       if (pid) {
-        const cmd = execFileSync("ps", ["-o", "command=", "-p", String(pid)], { encoding: "utf8" }).trim();
+        const cmd = processCommandLine(pid);
         if (cmd.includes(dir)) process.kill(pid, "SIGKILL");
       }
     } catch {}
@@ -311,7 +310,9 @@ setInterval(() => {
 }, 30_000).unref();
 
 async function startHeadless({ sites, includeLocalStorage, live }) {
-  if (!existsSync(ZEN_BIN)) throw new Error(`Zen is not at ${ZEN_BIN}.`);
+  const found = findBrowserBinary();
+  if (!found) throw new Error(`Zen wasn't found (looked in ${[...new Set(browserBinaries().map(c => c.bin))].slice(0, 4).join(", ")}…). Set ENSO_BROWSER_BIN to its executable.`);
+  const ZEN_BIN = found.bin;
   cleanupStale();
   const dir = mkdtempSync(path.join(tmpdir(), PREFIX));
   const profile = path.join(dir, "profile");

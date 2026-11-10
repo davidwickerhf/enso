@@ -19,45 +19,60 @@
 // `<launcher> inbox --session-env`: screenshots and notes sent to an idle Claude
 // Code arrive with the user's next message (as text with the PNG's path).
 //
+// On Windows the clients start Node itself (`node.exe <helper>\bin\enso.mjs mcp`):
+// Node-based clients can't spawn the enso.cmd shim without a shell. The shim
+// (<data>\bin\enso.cmd) is for people typing `enso` in a terminal.
+//
 // Config files are backed up (0600) before they are changed. Only what changed
 // is printed, never values: these files hold other services' secrets.
 
 import { spawnSync } from "node:child_process";
-import { accessSync, chmodSync, constants, copyFileSync, existsSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
-import { homedir } from "node:os";
+import { chmodSync, copyFileSync, existsSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { dataDir } from "./mcpauth.mjs";
+import { claudeCandidates, clientConfigPaths, currentPlatform, isExecutable, launcherFile, which } from "./platform.mjs";
 
 export const SERVER_NAME = "zen-browser";
 export const CLIENTS = ["claude", "codex", "cursor", "opencode"];
 export const CLIENT_NAMES = { claude: "Claude Code", codex: "Codex", cursor: "Cursor", opencode: "OpenCode" };
 const CODEX_ENV_VARS = ["T3CODE_THREAD_ID"];
 
-const home = () => homedir();
-const codexConfig = () => path.join(process.env.CODEX_HOME || path.join(home(), ".codex"), "config.toml");
-const cursorConfig = () => path.join(home(), ".cursor", "mcp.json");
-const claudeJson = () => path.join(home(), ".claude.json");
-const claudeSettings = () => path.join(process.env.CLAUDE_CONFIG_DIR || path.join(home(), ".claude"), "settings.json");
-const opencodeDir = () => path.join(process.env.XDG_CONFIG_HOME || path.join(home(), ".config"), "opencode");
+const codexConfig = () => clientConfigPaths().codexConfig;
+const cursorConfig = () => clientConfigPaths().cursorConfig;
+const claudeJson = () => clientConfigPaths().claudeJson;
+const claudeSettings = () => clientConfigPaths().claudeSettings;
+const opencodeDir = () => clientConfigPaths().opencodeDir;
 const ENSO_MJS = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "bin", "enso.mjs");
+const WIN = () => currentPlatform() === "win32";
 
 // ---------- launcher path ----------
 
-/** The stable launcher: <data>/bin/enso, written by install.sh / dev.sh (or here, when missing). */
-export const launcherPath = (dir = dataDir()) => path.join(dir, "bin", "enso");
+/** The stable launcher: <data>/bin/enso (enso.cmd on Windows), written by the installer / dev.sh (or here, when missing). */
+export const launcherPath = (dir = dataDir()) => launcherFile(dir);
 
 export function ensureLauncher(dir = dataDir(), log = () => {}) {
   const file = launcherPath(dir);
   if (existsSync(file)) return file;
   mkdirSync(path.dirname(file), { recursive: true });
-  writeFileSync(file, `#!/bin/bash\n# Ensō launcher (\`enso mcp\` and friends). Written by \`enso mcp install\`.\nexec "${process.execPath}" "${path.resolve(ENSO_MJS)}" "$@"\n`, { mode: 0o755 });
-  chmodSync(file, 0o755);
+  if (WIN()) writeFileSync(file, `@echo off\r\nrem Ensō launcher (enso mcp and friends). Written by enso mcp install.\r\n"${process.execPath}" "${path.resolve(ENSO_MJS)}" %*\r\n`);
+  else {
+    writeFileSync(file, `#!/bin/bash\n# Ensō launcher (\`enso mcp\` and friends). Written by \`enso mcp install\`.\nexec "${process.execPath}" "${path.resolve(ENSO_MJS)}" "$@"\n`, { mode: 0o755 });
+    chmodSync(file, 0o755);
+  }
   log(`Wrote ${file}`);
   return file;
 }
 
 const launcherArgs = readOnly => (readOnly ? ["mcp", "--read-only"] : ["mcp"]);
+
+/**
+ * What a client should start: { command, args }. macOS/Linux: the launcher
+ * script. Windows: this Node with enso.mjs (a .cmd needs a shell to start).
+ */
+export function launcherCommand(launcher, args = [], { platform = currentPlatform() } = {}) {
+  return platform === "win32" ? { command: process.execPath, args: [path.resolve(ENSO_MJS), ...args] } : { command: launcher, args };
+}
 
 // ---------- backups and atomic writes ----------
 
@@ -320,20 +335,20 @@ export function codexEntryKind(text) {
 
 // ---------- Claude Code ----------
 
-function executable(file) {
-  try {
-    accessSync(file, constants.X_OK);
-    return statSync(file).isFile();
-  } catch {
-    return false;
-  }
-}
+const executable = file => isExecutable(file);
 
 export function findClaudeBin() {
   if (process.env.ENSO_CLAUDE_PATH) return executable(process.env.ENSO_CLAUDE_PATH) ? process.env.ENSO_CLAUDE_PATH : null;
-  for (const dir of (process.env.PATH ?? "").split(path.delimiter)) if (dir && executable(path.join(dir, "claude"))) return path.join(dir, "claude");
-  for (const f of [path.join(home(), ".local/bin/claude"), path.join(home(), ".claude/local/claude"), "/opt/homebrew/bin/claude", "/usr/local/bin/claude"]) if (executable(f)) return f;
-  return null;
+  return which("claude") ?? claudeCandidates().find(executable) ?? null;
+}
+
+/** Run the claude CLI (npm's claude.cmd on Windows goes through its cli.js, since a .cmd needs a shell). */
+function runClaude(bin, args) {
+  if (/\.cmd$/i.test(bin)) {
+    const js = path.join(path.dirname(bin), "node_modules", "@anthropic-ai", "claude-code", "cli.js");
+    if (existsSync(js)) return spawnSync(process.execPath, [js, ...args], { stdio: "ignore", timeout: 30_000, windowsHide: true });
+  }
+  return spawnSync(bin, args, { stdio: "ignore", timeout: 30_000, windowsHide: true });
 }
 
 function claudeEntry() {
@@ -357,9 +372,10 @@ function installClaude({ launcher, readOnly }) {
   if (!bin) return { client: "claude", ok: false, changes: [], note: "Claude Code not found (install it, or set ENSO_CLAUDE_PATH)" };
   const changes = [];
   const before = entryKind(claudeEntry());
-  const rm = spawnSync(bin, ["mcp", "remove", SERVER_NAME, "-s", "user"], { stdio: "ignore", timeout: 30_000 });
+  const rm = runClaude(bin, ["mcp", "remove", SERVER_NAME, "-s", "user"]);
   if (rm.status === 0) changes.push(`removed the previous ${SERVER_NAME} entry${before ? ` (${before})` : ""}`);
-  const add = spawnSync(bin, ["mcp", "add", "--scope", "user", SERVER_NAME, "--", launcher, ...launcherArgs(readOnly)], { stdio: "ignore", timeout: 30_000 });
+  const lc = launcherCommand(launcher, launcherArgs(readOnly));
+  const add = runClaude(bin, ["mcp", "add", "--scope", "user", SERVER_NAME, "--", lc.command, ...lc.args]);
   if (add.status !== 0) return { client: "claude", ok: false, changes, note: `claude mcp add failed (exit ${add.status ?? add.signal})` };
   changes.push(`added ${SERVER_NAME} (user scope, stdio launcher${readOnly ? ", read-only" : ""})`);
   return { client: "claude", ok: true, changes };
@@ -368,7 +384,7 @@ function installClaude({ launcher, readOnly }) {
 function uninstallClaude() {
   const bin = findClaudeBin();
   if (!bin) return { client: "claude", ok: false, changes: [], note: "Claude Code not found" };
-  const rm = spawnSync(bin, ["mcp", "remove", SERVER_NAME, "-s", "user"], { stdio: "ignore", timeout: 30_000 });
+  const rm = runClaude(bin, ["mcp", "remove", SERVER_NAME, "-s", "user"]);
   return { client: "claude", ok: true, changes: rm.status === 0 ? [`removed ${SERVER_NAME} (user scope)`] : [], note: rm.status === 0 ? "" : "not registered" };
 }
 
@@ -379,7 +395,8 @@ function editCodex(mode, { launcher, readOnly } = {}) {
   const exists = existsSync(file);
   if (!exists && mode === "uninstall") return { client: "codex", ok: true, changes: [], note: "no config.toml" };
   const text = exists ? readFileSync(file, "utf8") : "";
-  const { text: next, changes } = editCodexToml(text, { mode, command: launcher, args: launcherArgs(readOnly), envVars: CODEX_ENV_VARS });
+  const lc = launcherCommand(launcher, launcherArgs(readOnly));
+  const { text: next, changes } = editCodexToml(text, { mode, command: lc.command, args: lc.args, envVars: CODEX_ENV_VARS });
   if (next === text) return { client: "codex", ok: true, changes: [], note: mode === "uninstall" ? "not registered" : "already up to date" };
   const backupFile = exists ? backup(file) : null;
   writeKeepingMode(file, next);
@@ -407,7 +424,7 @@ function editCursor(mode, { launcher, readOnly } = {}) {
     delete json.mcpServers[SERVER_NAME];
     changes.push(`removed mcpServers.${SERVER_NAME}`);
   } else {
-    const entry = { command: launcher, args: launcherArgs(readOnly) };
+    const entry = launcherCommand(launcher, launcherArgs(readOnly));
     if (JSON.stringify(json.mcpServers[SERVER_NAME]) === JSON.stringify(entry)) return { client: "cursor", ok: true, changes: [], note: "already up to date" };
     json.mcpServers[SERVER_NAME] = entry;
     changes.push(`${before ? `replaced the ${before} entry with` : "added"} mcpServers.${SERVER_NAME} (stdio launcher${readOnly ? ", read-only" : ""})`);
@@ -424,7 +441,8 @@ function editCursor(mode, { launcher, readOnly } = {}) {
 export function editOpencodeJson(json, { mode = "install", launcher, readOnly = false } = {}) {
   json = structuredClone(json ?? {});
   const changes = [];
-  const command = [launcher, ...launcherArgs(readOnly), "--client", "OpenCode"];
+  const lc = launcherCommand(launcher, [...launcherArgs(readOnly), "--client", "OpenCode"]);
+  const command = [lc.command, ...lc.args];
   json.mcp ??= {};
   // Current layout: mcp.servers.<name>. Older files keep servers directly under mcp.
   const legacy = !json.mcp.servers && Object.entries(json.mcp).some(([k, v]) => k !== "servers" && v && typeof v === "object" && "type" in v);
@@ -457,7 +475,8 @@ function editOpencode(mode, { launcher, readOnly } = {}) {
   try {
     json = text.trim() ? JSON.parse(text) : { $schema: "https://opencode.ai/config.json" };
   } catch {
-    const manual = JSON.stringify({ mcp: { servers: { [SERVER_NAME]: { type: "local", command: [launcher ?? launcherPath(), ...launcherArgs(readOnly), "--client", "OpenCode"] } } } });
+    const lc = launcherCommand(launcher ?? launcherPath(), [...launcherArgs(readOnly), "--client", "OpenCode"]);
+    const manual = JSON.stringify({ mcp: { servers: { [SERVER_NAME]: { type: "local", command: [lc.command, ...lc.args] } } } });
     return { client: "opencode", ok: false, changes: [], note: `${file} has comments or isn't plain JSON; left unchanged. Add ${mode === "uninstall" ? `nothing; remove mcp.servers.${SERVER_NAME}` : manual} yourself` };
   }
   const { json: next, changes } = editOpencodeJson(json, { mode, launcher, readOnly });
@@ -488,7 +507,8 @@ export function editClaudeHooks(json, { mode = "install", launcher } = {}) {
     changes.push("removed the UserPromptSubmit hook (enso inbox)");
     return { json, changes };
   }
-  const command = `${JSON.stringify(launcher)} ${HOOK_MARK}`;
+  const lc = launcherCommand(launcher);
+  const command = `${[lc.command, ...lc.args].map(a => JSON.stringify(a)).join(" ")} ${HOOK_MARK}`;
   const current = groups.flatMap(g => g.hooks ?? []).find(ours);
   if (current?.command === command) return { json, changes };
   json.hooks ??= {};
