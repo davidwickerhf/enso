@@ -11,17 +11,17 @@ Ensō is meant to know you, so you don't have to explain yourself every time. Wh
 
 ## Profile
 
-A short description of you: name, what you do, how you like answers. It is included in every conversation and gives Home its greeting. Ensō asks for it the first time you open it (your name, a few lines about you, and optionally what each Zen space is for); change it any time in **Settings → Profile**. It is the file `profile.md` in Ensō's data folder (`~/Library/Application Support/Enso` on macOS, `~/.local/share/enso` on Linux, `%APPDATA%\Enso` on Windows).
+A short description of you: name, what you do, how you like answers. It is included in every conversation and gives Home its greeting. Ensō asks for it the first time you open it (your name, a few lines about you, and optionally what each Zen space is for); change it any time in **Settings → You & memory**. It is the file `profile.md` in Ensō's data folder (`~/Library/Application Support/Enso` on macOS, `~/.local/share/enso` on Linux, `%APPDATA%\Enso` on Windows).
 
 ## Memory
 
 A list of lasting facts and preferences, one per line, each with the date it was added. Ensō adds to it when you tell it something worth keeping ("I'm vegetarian", "call me Dave", "my thesis is due on 12 June"), or when you ask it to remember something. It tells you when it saves something, and the tool call shows exactly what was written.
 
-You can edit or delete any line in **Settings → Memory**. It is the file `memory.md` in the same folder.
+You can edit or delete any line in **Settings → You & memory → Memory**. It is the file `memory.md` in the same folder.
 
 ## Memory per space
 
-If you use [Zen spaces](/docs/spaces), Ensō can keep a fact to the space you are in, such as a work detail in your work space. Choose **Everywhere** or a space at the top of **Settings → Memory** to see and edit either. A space's memory goes only with messages in that space, in `memory/<space id>.md`.
+If you use [Zen spaces](/docs/spaces), Ensō can keep a fact to the space you are in, such as a work detail in your work space. Choose **Everywhere** or a space at the top of **Settings → You & memory → Memory** to see and edit either. A space's memory goes only with messages in that space, in `memory/<space id>.md`.
 
 ## What memory is not
 

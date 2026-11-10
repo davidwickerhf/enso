@@ -237,7 +237,7 @@ export function createChatView(store, ctx) {
       const sub = s.engines?.subscription;
       body.push(h("div", { class: "error-actions" },
         sub?.available !== false ? h("button", { type: "button", class: "btn primary", onclick: () => actions.updateSettings({ engine: "subscription" }) }, "Use Claude subscription") : null,
-        h("button", { type: "button", class: "btn", onclick: () => actions.go("settings") }, "Open settings")));
+        h("button", { type: "button", class: "btn", onclick: () => actions.go("settings", { section: "setup" }) }, "Open Setup")));
     } else if (code === "host_disconnected" || code === "host_missing") {
       title = "Ensō's helper isn't running";
       body.push(h("p", null, ev.text), h("p", null, "Install or update it, then reopen Zen:"), codeBlock(installInfo(s.platform).command, installInfo(s.platform).shell === "powershell" ? "powershell" : "shell"));
@@ -249,10 +249,10 @@ export function createChatView(store, ctx) {
         s.platform === "win" ? codeBlock("irm https://claude.ai/install.ps1 | iex\nclaude", "powershell") : codeBlock("curl -fsSL https://claude.ai/install.sh | bash\nclaude", "shell"),
         h("div", { class: "error-actions" },
           api?.available ? h("button", { type: "button", class: "btn primary", onclick: () => actions.updateSettings({ engine: "api" }) }, "Use my API key") : null,
-          h("button", { type: "button", class: "btn", onclick: () => actions.go("settings") }, "Open settings")));
+          h("button", { type: "button", class: "btn", onclick: () => actions.go("settings", { section: "setup" }) }, "Open Setup")));
     } else if (code === "engine_unavailable" || code === "not_logged_in") {
       title = "The Claude subscription isn't available";
-      body.push(h("p", null, ev.text), h("div", { class: "error-actions" }, h("button", { type: "button", class: "btn", onclick: () => actions.go("settings") }, "Open settings")));
+      body.push(h("p", null, ev.text), h("div", { class: "error-actions" }, h("button", { type: "button", class: "btn", onclick: () => actions.go("settings", { section: "setup" }) }, "Open Setup")));
     } else {
       body.push(h("p", null, ev.text || "Unknown error"));
       if (code) body.push(h("p", { class: "muted small" }, `Code: ${code}`));

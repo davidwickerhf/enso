@@ -65,7 +65,7 @@ These are ordinary files in your home folder, readable by your user account, and
 
 - Anything from [private sites](#private-sites): banking, payment, password-manager, health, tax and government sites. Ensō doesn't read or act on them at all.
 - Your browsing history, except search results Ensō looks up when you ask it to, which become part of that conversation.
-- Pages you didn't include. Ensō sends the current page only when the page chip is on (it is on by default; turn the default off in Settings), and other tabs only when you mention them.
+- Pages you didn't include. Ensō sends the current page only when the page chip is on (it is on by default; turn the default off in Settings → General), and other tabs only when you mention them.
 - Cookie values, passwords and tokens. Claude never sees them.
 
 ## Private sites

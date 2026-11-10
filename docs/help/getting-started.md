@@ -49,8 +49,9 @@ portal.
    Why a terminal step? Browsers don't let an extension install or start a
    program, and an extension can't open a terminal either. It's the only one.
 3. **Finish in Setup.** After a few words about you, Ensō opens
-   **Settings → Setup**: install or sign in to Claude Code (or paste an API key),
-   let Claude Code, Codex, Cursor or OpenCode use Zen, connect T3 Code and GitHub.
+   **Settings → Setup**: install or sign in to Claude Code (or paste an API key).
+   Then, if you like, let Claude Code, Codex, Cursor or OpenCode use Zen
+   (**Agents & screenshots**) and connect T3 Code and GitHub (**Connections**).
    Each item is a button; the same checks run in a terminal with `enso setup`.
 
 Prefer to read the script first: `curl -fsSL https://enso.wicker.life/install.sh -o install.sh`, read it, then `bash install.sh`. On Windows: `irm https://enso.wicker.life/install.ps1 -OutFile install.ps1`, read it, then `powershell -ExecutionPolicy Bypass -File install.ps1`.
@@ -77,7 +78,7 @@ Press <kbd>⌘E</kbd> (<kbd>Ctrl+E</kbd>) to open the sidebar. Ensō asks:
 
 Both go into files on your computer and are sent with each message so Claude knows
 the context. **Skip for now** leaves them empty. Change them later in
-**Settings → Profile**.
+**Settings → You & memory**.
 
 ## Which engine should I use?
 
@@ -86,7 +87,7 @@ the context. **Skip for now** leaves them empty. Change them later in
   others) work in Ensō too. No extra bill; it counts against your plan's limits.
 - **API key**: pay per token. Paste the key in **Settings → Setup → Claude**,
   or add it to your system's secret store by hand (each asks for the key and
-  doesn't echo it), then choose **API key** in **Settings → Engine**:
+  doesn't echo it), then choose **API key** in **Settings → General → Engine**:
 
   ```sh
   security add-generic-password -s enso-anthropic -a enso -w           # macOS

@@ -19,7 +19,7 @@ All three show the same conversations, so you can start in one and continue in a
 
 ## Two parts
 
-You add the extension, then run one command for the helper; everything after that is buttons in **Settings → Setup**:
+You add the extension, then run one command for the helper; everything after that is buttons in **Settings**:
 
 1. **The browser extension**: the sidebar, new tab and full page. It also carries out page actions in your tabs.
 2. **The local helper**: a small Node.js program that Zen starts whenever the extension needs it. It runs Claude (through Claude Code or an API key), talks to your tools, and stores your conversations, memory and settings on your computer. It runs on macOS, Linux and Windows.

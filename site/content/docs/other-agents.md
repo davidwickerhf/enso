@@ -11,7 +11,7 @@ While Zen is open, other AI agents on your computer can use it through Ensō: Cl
 
 ## Set it up
 
-Open **Settings → Setup → Use Zen from your agents**. Ensō lists Claude Code, Codex, Cursor and OpenCode and shows which are installed; turn on the ones that may use Zen. Two more switches: **Read only** (below) and the **Claude Code hook**, which delivers your [screenshots](/docs/screenshots) to an idle Claude Code with your next message. Start a new session in that agent and ask "what tabs do I have open?".
+Open **Settings → Agents & screenshots**. Ensō lists Claude Code, Codex, Cursor and OpenCode and shows which are on your computer; turn on the ones that may use Zen. Two more switches there: **Register read only** (below) and the **Claude Code hook**, which delivers your [screenshots](/docs/screenshots) to an idle Claude Code with your next message. Start a new session in that agent and ask "what tabs do I have open?".
 
 Each switch runs the same code as the `enso` command, so you can also do it in a terminal:
 
@@ -42,14 +42,14 @@ Any app that can start an MCP server command can use it. Point it at the `enso` 
 ## Look, but don't touch
 
 - **One agent:** `enso mcp install --client cursor --read-only`. It can list and read tabs, take screenshots, read the console and network, search history and read GitHub; nothing else is even listed.
-- **All agents:** **Settings → Claude Code can use Zen → External control**: **Full**, **Read only** or **Off**.
+- **All agents:** **Settings → Agents & screenshots → Access**: **Full**, **Read** or **Off**.
 
 ## Seeing what an agent is doing
 
 While an agent works in Zen, you can see it in three places:
 
 - **On the page**, a pill at the top names it and what it is doing: "✦ Claude Code · Draft the methods section". A dot pulses while it acts, and each thing it clicks or types into flashes a soft outline with its name. Click the pill to open Ensō's sidebar on that tab.
-- **In Zen's tab list**, the tab's title starts with ✦, and Ensō's toolbar button shows a copper **AI** badge on that tab. The title goes back to normal when the agent is done. Turn the ✦ off in **Settings → Claude Code can use Zen → Mark the tab while an agent works**.
+- **In Zen's tab list**, the tab's title starts with ✦, and Ensō's toolbar button shows a copper **AI** badge on that tab. The title goes back to normal when the agent is done. Turn the ✦ off in **Settings → Agents & screenshots → Mark the tab an agent uses**.
 - **In Ensō's sidebar**, a card at the top shows the agent, its task, how long it has been working and its recent steps. Sends, deletes and other steps that can't be undone are highlighted. If agents are working in other tabs or spaces, an **Agents** row lists them: click one to go to its tab.
 
 **Activity** in the full page lists every action with the agent's name, and fills in as it happens.

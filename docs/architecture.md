@@ -198,7 +198,7 @@ earlier crash.
 ## Engines
 
 The helper doesn't have a model of its own. Each turn runs on one of two engines,
-chosen in Settings → Engine (`settings.engine`). A conversation can move between
+chosen in Settings → General → Engine (`settings.engine`). A conversation can move between
 them: the first turn on the other engine gets the last 12 messages as a preface.
 
 ```mermaid

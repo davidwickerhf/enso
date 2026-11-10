@@ -7,7 +7,7 @@ group: Start
 
 # Engines
 
-Ensō doesn't have its own model. It asks Claude, in one of two ways. Switch at any time in **Settings → Engine**; a conversation carries over when you switch.
+Ensō doesn't have its own model. It asks Claude, in one of two ways. Switch at any time in **Settings → General → Engine**; a conversation carries over when you switch.
 
 ## Your Claude subscription (default)
 
@@ -25,7 +25,7 @@ irm https://claude.ai/install.ps1 | iex          # the same on Windows, in Power
 claude auth login                                # sign in to your Claude account
 ```
 
-Ensō uses the `claude` you installed; it doesn't ship its own copy. It looks in your `PATH`, `~/.local/bin`, `~/.claude/local`, Homebrew's folders on macOS and Linux, and npm's folder on Windows. If yours is elsewhere, set **Settings → Engine → Claude Code location**.
+Ensō uses the `claude` you installed; it doesn't ship its own copy. It looks in your `PATH`, `~/.local/bin`, `~/.claude/local`, Homebrew's folders on macOS and Linux, and npm's folder on Windows. If yours is elsewhere, set **Settings → Advanced → Claude Code location**.
 
 Ensō deliberately does **not** load your Claude Code settings, hooks or permission rules for chat turns, so a hook you wrote for coding never fires on a browser question. It passes in only the tools you enabled for Ensō.
 
@@ -43,7 +43,7 @@ secret-tool store --label=Ensō service enso-anthropic account enso   # Linux
 cmdkey /generic:enso-anthropic /user:enso /pass                      # Windows
 ```
 
-That is what **Settings → Setup → Claude → API key** does for you: paste the key in its password field and choose **Save to Keychain** (**Save key** on Linux and Windows). It goes straight to the helper, which checks it with Anthropic and stores it in the secret store; it isn't shown again or written to any other file. **Replace key** and **Remove key** are there too. Then the engine is **API key**.
+That is what **Settings → Setup → Claude** does for you: paste the key in its password field and choose **Save to Keychain** (**Save key** on Linux and Windows). It goes straight to the helper, which checks it with Anthropic and stores it in the system's secret store; it isn't shown again or written to any other file. **Replace key** and **Remove key** are there too. Then the engine is **API key**.
 
 With an API key, Ensō connects to your MCP servers itself. claude.ai connectors are only available through the subscription engine, because they belong to your claude.ai account. The Home brief always runs through Claude Code, so it needs Claude Code even on this engine.
 

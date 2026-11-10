@@ -80,14 +80,14 @@ The subscription engine needs the `claude` command.
   `~/.local/bin` and `~/.claude/local`, plus Homebrew and `/usr/local/bin` on
   macOS and Linux, `/snap/bin` on Linux, and npm's folder on Windows
   (`claude.exe` or `claude.cmd`). If `claude` is elsewhere, set its location in
-  **Settings → Engine → Claude Code location**.
+  **Settings → Advanced → Claude Code location**.
 - Quit and reopen Zen.
 
-Or switch to the API key engine in **Settings → Engine**.
+Or switch to the API key engine in **Settings → General → Engine**.
 
 ## "No Anthropic API key"
 
-Paste it in **Settings → Setup → Claude → API key**, or add it to your system's
+Paste it in **Settings → Setup → Claude (with the API-key engine)**, or add it to your system's
 secret store by hand (each asks for the key and doesn't echo it), then send
 again:
 

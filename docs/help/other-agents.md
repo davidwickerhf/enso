@@ -7,9 +7,9 @@ search your history, use GitHub, and test pages in a separate headless Zen.
 
 ## How do I set it up?
 
-Open **Settings → Setup → Use Zen from your agents** and turn on the agents
+Open **Settings → Agents & screenshots** and turn on the agents
 that may use Zen (Claude Code, Codex, Cursor and OpenCode, the ones found on
-your computer). The same panel has **Read only** and the **Claude Code hook**. Start
+your computer). The same section has **Register read only** and the **Claude Code hook**. Start
 a new session in that agent, then ask "what tabs do I have open?".
 
 From a terminal, the same thing for every client it finds:
@@ -31,8 +31,8 @@ Yes, two ways:
 - **One agent:** `enso mcp install --client cursor --read-only`. It can list and
   read tabs, take screenshots, read the console and network, search history and
   read GitHub, nothing else.
-- **All agents:** **Settings → "Claude Code can use Zen" → External control**:
-  **Full**, **Read only** or **Off**.
+- **All agents:** **Settings → Agents & screenshots → Access**:
+  **Full**, **Read** or **Off**.
 
 ## How do I know what an agent did?
 

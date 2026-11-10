@@ -129,7 +129,7 @@
 		</li>
 		<li>
 			<h3>Finish in Setup</h3>
-			<p>Claude, your agents, T3 Code and GitHub: a button each in Settings → Setup. Then open a new tab and ask.</p>
+			<p>Claude, your agents, T3 Code and GitHub: a button each in Settings. Then open a new tab and ask.</p>
 		</li>
 	</ol>
 	<p class="req">

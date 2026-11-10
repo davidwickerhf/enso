@@ -16,7 +16,7 @@ session is sensitive, so it needs your permission per site.
 | Request with your session | An HTTP request made inside a tab of the site, with your login there. | The site needs your permission |
 | Headless Zen | A separate, invisible Zen with a throwaway profile, signed out unless you let it copy a site's session. | Copying a session needs permission |
 
-Turn them off in **Settings → Developer**: **Developer tools** (console,
+Turn them off in **Settings → Advanced**: **Developer tools** (console,
 network, JavaScript, storage, session requests) and **Headless mode**. Every
 action appears in **Activity**.
 
@@ -29,7 +29,7 @@ as you, or to copy your login on that site into the headless Zen.
   **Always allow on this site** and **Deny**. Other agents (Claude Code, Codex)
   are refused; they can't ask.
 - **Always allow on this site** adds it to the list.
-- **Settings → Developer → Session access** shows the list. Add a site
+- **Settings → Privacy & safety → Session access** shows the list. Add a site
   (`github.com` or `https://app.example.com`) or remove one with ×.
 - An entry covers its subdomains: `https://github.com` also allows
   `api.github.com`.

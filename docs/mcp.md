@@ -182,11 +182,12 @@ clients can't connect.
 
 | Where | What |
 |---|---|
-| Settings → "Claude Code can use Zen" → External control | **Full** (default), **Read only** or **Off** for every MCP client. Read refuses page actions, `tabs_close`, `page_eval`, storage values, session requests and GitHub writes. Off refuses everything. |
-| Settings → Developer | Developer tools and Headless mode switches; Session access (the sites where a client may use your session). |
+| Settings → Agents & screenshots → Access | **Full** (default), **Read only** or **Off** for every MCP client. Read refuses page actions, `tabs_close`, `page_eval`, storage values, session requests and GitHub writes. Off refuses everything. |
+| Settings → Advanced | Developer tools and Headless browser switches. |
+| Settings → Privacy & safety → Session access | The sites where a client may use your session. |
 | Activity (full page) | Every action, with the client's name, updated live. |
 | The agent card (sidebar and full page) | The agent on the active tab: task, steps, Pause/Resume, Stop, "Tell the agent…". The Agents row lists sessions in other tabs and spaces. |
-| Settings → "Claude Code can use Zen" → Mark the tab while an agent works | The "✦ " title prefix (default on). |
+| Settings → Agents & screenshots → Mark the tab an agent uses | The "✦ " title prefix (default on). |
 
 MCP clients are never shown an approval: there is nobody to ask. Tools that
 would ask in Ensō refuse instead, and page actions run when external control is
@@ -302,7 +303,7 @@ Colours: `grey`, `blue`, `red`, `yellow`, `green`, `pink`, `purple`, `cyan`, `or
 
 ### Developer tools
 
-Off when Settings → Developer → Developer tools is off. Refused on private sites.
+Off when Settings → Advanced → Developer tools is off. Refused on private sites.
 
 | Tool | What it does | Kind | Read scope | Parameters |
 |---|---|---|---|---|
@@ -315,7 +316,7 @@ Off when Settings → Developer → Developer tools is off. Refused on private s
 ### Headless Zen
 
 A separate, invisible Zen with a temporary profile. Off when Settings →
-Developer → Headless mode is off. One at a time, shared with Ensō; it stops after
+Advanced → Headless browser is off. One at a time, shared with Ensō; it stops after
 10 minutes idle.
 
 | Tool | What it does | Kind | Read scope | Parameters |
@@ -391,10 +392,10 @@ In short:
 | `enso: command not found` | `~/.local/bin` isn't on your `PATH` or didn't exist at install time. Use `~/Library/Application\ Support/Enso/bin/enso`, or run the installer again. If that file is missing (installs from before 0.5.2), run `node ~/Library/Application\ Support/Enso/helper/bin/enso.mjs mcp install`; it writes the launcher. |
 | `enso mcp status` says "token rejected" | A helper started before `enso mcp rotate` (or before 0.5.2) still holds the old token. Quit Zen completely (<kbd>⌘Q</kbd> on macOS) and reopen it. |
 | `status` says "registered over http with the token in its config" | An older registration. Run `enso mcp install`. |
-| "The user has switched off external control of Zen" | Settings → "Claude Code can use Zen" is Off. |
+| "The user has switched off external control of Zen" | Settings → Agents & screenshots → Access is Off. |
 | "Ensō only lets … read Zen right now" | External control is Read, or the connection is `--read-only`. |
 | "This connection to Zen is read-only" | Registered with `--read-only`. Run `enso mcp install` without it for full access. |
-| "The user hasn't allowed session access for …" | Add the site in Settings → Developer → Session access. |
+| "The user hasn't allowed session access for …" | Add the site in Settings → Privacy & safety → Session access. |
 | "This is a private page (banking, health, tax or similar)" | Deliberate; see [security.md](security.md#private-sites). |
 | "This tab is unloaded …" | Zen unloads tabs it hasn't shown for a while. Open or reload the tab. |
 | New tools don't show up after an update | The client cached the list. Restart the client; the launcher refreshes `mcp-tools-cache.json` on the next `tools/list` with Zen open. |
@@ -402,5 +403,5 @@ In short:
 | "The user paused you on this tab" | The user pressed Pause on the agent card. The agent should wait and call `session_status`; Resume lifts it. |
 | "The user stopped this task in Ensō" | The user pressed Stop. It lasts 30 minutes for that agent session; a new agent session (restart the client) isn't affected. |
 | The pill doesn't open the sidebar | The page may block Ensō's frame; the pill then says "Press ⌘E for Ensō" (Ctrl+E on Linux and Windows). |
-| The page title keeps "✦ " | It is removed when the session ends (two minutes after the agent's last call). Turn it off in Settings → "Claude Code can use Zen". |
+| The page title keeps "✦ " | It is removed when the session ends (two minutes after the agent's last call). Turn it off in Settings → Agents & screenshots → Mark the tab an agent uses. |
 | Codex doesn't see it | Check `CODEX_HOME`; `enso mcp install --client codex` edits `$CODEX_HOME/config.toml` when it is set. |

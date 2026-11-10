@@ -38,11 +38,11 @@ A note at the bottom says "Sent to …". For T3 threads, **Open in T3** jumps to
 3. **You linked this site to a T3 project** (from the sheet: "Use atlas-web for localhost:5173"). Its running or most recent thread is chosen.
 4. Otherwise you choose from the list.
 
-Links are listed under **Settings → Send screenshots → Linked threads**, where you can remove them.
+Links are listed under **Settings → Agents & screenshots → Linked threads**, where you can remove them.
 
 ## T3 Code
 
-Connect once: **Settings → Send screenshots → Connect T3**, or in a terminal:
+Connect once: **Settings → Connections → T3 Code → Connect**, or in a terminal:
 
 ```sh
 enso t3 connect
@@ -58,7 +58,7 @@ T3 Code has to be open. Your threads appear in the list only while it is running
 
 Any agent connected to Zen through Ensō (see [Use Zen from other agents](/docs/other-agents)) is listed under **Agents**, even when it's idle. The screenshot waits for it and arrives with its next step in Zen, as an image, marked as coming from you. You can also tell the agent "I sent you a screenshot": it fetches it with `inbox_read`.
 
-So that an idle **Claude Code** gets it with your next message instead, turn on **Claude Code hook** in **Settings → Setup → Use Zen from your agents** (or run `enso mcp install --hooks`).
+So that an idle **Claude Code** gets it with your next message instead, turn on **Claude Code hook** in **Settings → Agents & screenshots** (or run `enso mcp install --hooks`).
 
 Claude Code then gets the screenshot's file path with your message and opens it. Codex and OpenCode have no such hook; they get it with their next step or when they call `inbox_read`.
 

@@ -55,13 +55,13 @@ The subscription engine needs the `claude` command.
 
 - Open **Settings → Setup → Claude**: **Install Claude Code** or **Sign in** open a terminal window with the right command, and the item turns green when it worked.
 - By hand: `claude --version`; if it isn't found, install Claude Code ([setup guide](https://docs.anthropic.com/en/docs/claude-code/setup)), then `claude auth login`.
-- Zen starts the helper with a minimal `PATH`. Ensō looks in your `PATH`, `~/.local/bin` and `~/.claude/local`, plus `/opt/homebrew/bin` and `/usr/local/bin` on macOS, Homebrew and `/snap/bin` on Linux, and npm's folder on Windows (where it looks for `claude.exe` and `claude.cmd`). If `claude` lives somewhere else, set **Settings → Engine → Claude Code location**.
+- Zen starts the helper with a minimal `PATH`. Ensō looks in your `PATH`, `~/.local/bin` and `~/.claude/local`, plus `/opt/homebrew/bin` and `/usr/local/bin` on macOS, Homebrew and `/snap/bin` on Linux, and npm's folder on Windows (where it looks for `claude.exe` and `claude.cmd`). If `claude` lives somewhere else, set **Settings → Advanced → Claude Code location**.
 
-Or switch to the API-key engine in Settings.
+Or switch to the API-key engine in **Settings → General → Engine**.
 
 ## "No Anthropic API key"
 
-Paste it in **Settings → Setup → Claude → API key**. Or add it by hand (each of these asks for the key and doesn't echo it):
+Paste it in **Settings → Setup → Claude (with the API-key engine)**. Or add it by hand (each of these asks for the key and doesn't echo it):
 
 ```sh
 # macOS (login Keychain)

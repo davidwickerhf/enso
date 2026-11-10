@@ -36,8 +36,8 @@ With `ENSO_DATA` set, logs go to `<data>/logs`; `ENSO_LOG_DIR` overrides both.
 
 | Path | Format | What it holds | Written by |
 |---|---|---|---|
-| `profile.md` | Markdown | `# <name>`, then what you wrote about yourself. | Onboarding, Settings → Profile |
-| `memory.md` | Markdown | Global memory: one fact per line, `- <fact> (<YYYY-MM-DD>)`. | The `remember` tool, Settings → Memory |
+| `profile.md` | Markdown | `# <name>`, then what you wrote about yourself. | Onboarding, Settings → You & memory |
+| `memory.md` | Markdown | Global memory: one fact per line, `- <fact> (<YYYY-MM-DD>)`. | The `remember` tool, Settings → You & memory → Memory |
 | `memory/<space-id>.md` | Markdown | Memory for one Zen space (the id with only letters, digits and `-` kept). | Same |
 | `settings.json` | JSON | Your settings, merged over the defaults in `config.json` ([below](#settings)). | `settings.update`, approvals |
 | `config.local.json` | JSON | Your overlay on the shipped `helper/config.json` ([below](#configuration-overlay)). | You, by hand |
@@ -153,10 +153,10 @@ page actions (`click`, `type`, `select`, `press`, `navigate`, `back`, `eval`,
 | `headless` | on (unset) | `false` switches the headless Zen off. |
 | `sessionAccess` | `{}` | `{ "<origin>": "allow" }`: sites where Claude may use your signed-in session. |
 | `serverOverrides` | `{}` | `{ "<server>": true | false }` from the Tools page switches. |
-| `spaceHints` | `{}` | `{ "<space id>": "what this space is for" }` from Settings → Profile. |
+| `spaceHints` | `{}` | `{ "<space id>": "what this space is for" }` from Settings → You & memory. |
 | `homeWidgets` | unset | The new-tab widget layout `[{ id, type, size }]`. |
 | `onboardingDone` | unset | Set when onboarding is saved or skipped. |
-| `claudePath` | unset | Path to the `claude` CLI, from Settings → Engine. |
+| `claudePath` | unset | Path to the `claude` CLI, from Settings → Advanced → Claude Code location. |
 
 ## Configuration overlay
 
@@ -241,7 +241,7 @@ store. Values never appear on a command line.
 
 | Service | Account | What | Set by |
 |---|---|---|---|
-| `enso-anthropic` | `enso` (a read matches any account) | Anthropic API key for the API engine. | Setup → Claude → API key, or by hand: `security add-generic-password -s enso-anthropic -a enso -w` (macOS), `secret-tool store --label=Ensō service enso-anthropic account enso` (Linux), `cmdkey /generic:enso-anthropic /user:enso /pass` (Windows) |
+| `enso-anthropic` | `enso` (a read matches any account) | Anthropic API key for the API engine. | Settings → Setup → Claude, or by hand: `security add-generic-password -s enso-anthropic -a enso -w` (macOS), `secret-tool store --label=Ensō service enso-anthropic account enso` (Linux), `cmdkey /generic:enso-anthropic /user:enso /pass` (Windows) |
 | `zen-chat-anthropic` | any | Legacy name, read when `enso-anthropic` is missing. | Older installs |
 | `enso-github` | `enso` | GitHub token, when you don't use the GitHub CLI. | Tools → GitHub (checked against GitHub first) |
 | `enso-mcp-<name>` | `enso` | OAuth record for a connected MCP server. Values longer than one item holds (about 3000 characters in the Keychain, 6000 with libsecret, 1800 in Credential Manager) are base64-encoded and split over `enso-mcp-<name>`, `enso-mcp-<name>~1`, `~2`, …; the head item starts with `enso1:<count>:`. | Connect on the Tools page |
