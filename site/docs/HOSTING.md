@@ -105,7 +105,7 @@ The repo publishes with `.github/workflows/release.yml`. On a `v*` tag it signs 
 ```sh
 curl --fail-with-body -X PUT -H "Authorization: Bearer $ENSO_RELEASE_TOKEN" \
   -H "Content-Type: application/octet-stream" --data-binary @enso-0.3.0.xpi \
-  "https://enso.wicker.life/api/releases/extension/0.3.0?strict_min_version=139.0"
+  "https://enso.wicker.life/api/releases/extension/0.3.0?strict_min_version=142.0"
 ```
 
 (`helper` instead of `extension` for the tarball.) Re-uploading identical bytes is a no-op; different bytes for a published version are refused (409) unless `?replace=1`. The content type must not be a form type, or SvelteKit's CSRF guard rejects it.

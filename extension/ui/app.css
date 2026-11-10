@@ -250,7 +250,9 @@ img.favicon { width: 16px; height: 16px; border-radius: 4px; flex: none; object-
 .composer-input {
   flex: 1; min-width: 0; resize: none; border: 0; background: transparent; padding: 6px 6px 6px 8px;
   font-size: 14.5px; line-height: 1.5; max-height: 240px; caret-color: var(--accent);
+  transition: height 140ms var(--ease); overflow-wrap: anywhere;
 }
+@media (prefers-reduced-motion: reduce) { .composer-input { transition: none; } }
 .composer-input:focus-visible { outline: none; }
 .composer-input::placeholder { color: var(--text-3); }
 .composer-actions { display: flex; align-items: center; gap: 0; flex: none; }
