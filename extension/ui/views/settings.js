@@ -505,15 +505,24 @@ export function createSettings(store, ctx) {
     if (!st) return [loading("state", "Loading settings…")];
     const always = st.alwaysAllowedTools ?? [];
     const access = st.sessionAccess ?? {};
-    const sites = Object.entries(access).sort(([a], [b]) => a.localeCompare(b));
-    const setAccess = next => save({ sessionAccess: next });
+    const added = st.sessionAccessAdded ?? {}; // { origin: { at, by } }: when a site was allowed, and for which agent
+    // Recently allowed first (so an Allow from an agent's request is easy to find and undo), then A–Z.
+    const sites = Object.entries(access).sort(([a], [b]) => String(added[b]?.at ?? "").localeCompare(String(added[a]?.at ?? "")) || a.localeCompare(b));
+    const setAccess = (next, meta = added) => save({ sessionAccess: next, sessionAccessAdded: meta });
+    const removeSite = origin => {
+      const next = { ...access };
+      delete next[origin];
+      const meta = { ...added };
+      delete meta[origin];
+      setAccess(next, meta);
+    };
     const input = h("input", { type: "text", class: "input", placeholder: "github.com", aria: { label: "Site to allow" } });
     const err = h("p", { class: "form-error", role: "alert", hidden: true });
     const add = () => {
       const origin = normalizeOrigin(input.value);
       if (!origin) { err.textContent = "Enter a site like github.com or https://app.example.com."; err.hidden = false; return; }
       if (isSensitive(origin)) { err.textContent = "Private sites (banking, health, tax and similar) can't be allowed."; err.hidden = false; return; }
-      setAccess({ ...access, [origin]: "allow" });
+      setAccess({ ...access, [origin]: "allow" }, { ...added, [origin]: { at: new Date().toISOString() } });
     };
     return [
       group("Approvals",
@@ -522,12 +531,13 @@ export function createSettings(store, ctx) {
           control: always.length ? h("ul", { class: "tool-list" }, always.map(name => h("li", null, h("code", null, name), iconButton("x", `Stop always allowing ${name}`, () => save({ alwaysAllowedTools: always.filter(t => t !== name) }), { class: "small" })))) : null })),
       group("Your signed-in sessions",
         row({ label: "Session access", stacked: true, keys: "session access allowlist cookies signed in sites headless allow site subdomains",
-          desc: "Sites where Claude and your agents may make requests as you, or copy your sign-in to the headless browser. Other sites ask in Ensō; agents are refused. Covers subdomains.",
+          desc: "Sites where Claude and your agents may make requests as you, or copy your sign-in to the headless browser. Other sites ask in Ensō; an agent that needs one asks you on the page and in the sidebar. Covers subdomains. Recently allowed sites come first.",
           control: [
-            sites.length ? h("ul", { class: "tool-list" }, sites.map(([origin, value]) => h("li", null,
-              h("code", null, origin),
+            sites.length ? h("ul", { class: "tool-list", aria: { label: "Allowed sites" } }, sites.map(([origin, value]) => h("li", { dataset: { origin } },
+              h("span", { class: "access-site" }, h("code", null, origin),
+                added[origin]?.at ? h("span", { class: "access-site-meta" }, `Allowed ${relTime(added[origin].at)}${added[origin].by ? ` for ${added[origin].by}` : ""}`) : null),
               h("span", { class: ["tag", value === "allow" && "accent"] }, value === "allow" ? "Allowed" : "Ask"),
-              iconButton("x", `Remove ${origin}`, () => { const next = { ...access }; delete next[origin]; setAccess(next); }, { class: "small" })))) : h("p", { class: "hint" }, "No sites yet. Choose “Always allow on this site” when Claude asks, or add one."),
+              iconButton("x", `Remove ${origin}`, () => removeSite(origin), { class: "small" })))) : h("p", { class: "hint" }, "No sites yet. Choose “Always allow on this site” when Claude asks, Allow when an agent asks, or add one."),
             h("form", { class: "form-actions", onsubmit: ev => { ev.preventDefault(); add(); } }, input, h("button", { type: "submit", class: "btn small" }, icon("plus"), "Allow")),
             err] }),
         row({ label: "Private sites", keys: "blocked private sites banking health tax sensitive off-limits", desc: "Banking, health, tax and similar sites are always off-limits: no reading, acting, sharing or session access." })),

@@ -70,6 +70,8 @@ All messages are objects with a `type`. Times are ISO strings. Ids are strings.
 | `agents.dismiss` | `id` | `agents` (removes the session from the list, e.g. a stopped one) |
 | `agents.handover` | `id` (an `AgentSession` id) | `agents` (tab leases: the tab of that session goes to it, shared mode there ends; its next tool result starts with the hand-over note) |
 | `agents.share` | `tabId`, `on` | `agents` (on: every agent on the tab may act, `control: "shared"`; off: one at a time again, the last holder keeps it) |
+| `access.allow` | `id` (an `AccessRequest` id), `via?: "pill"` | the user's Allow on an agent's session-access request: adds exactly its origin to `settings.sessionAccess` (and `sessionAccessAdded`); `settings` + `agents` (the request `granted`) + `actions.added` (`action: "session_access"`). Only pending requests of live agents; never a private site. Only background.js sends it: from Ensō's pages, or for a trusted click in the pill frame on a tab of that site |
+| `access.dismiss` | `id`, `via?` | Not now: `agents` (the request `dismissed`; the agent isn't asked about that site again in its task) |
 | `send.targets` | `tabId`, `url` (the captured tab) | `send.targets` (see [Send screenshots](#send-screenshots)) |
 | `send.screenshot` | `target: { kind: "t3" \| "agent", id }`, `image` (PNG/JPEG data URL, ≤ 25 MB), `message`, `url`, `title`, `includePage` (bool, default true), `consoleErrors?` ([{ text, source }], only when ticked) | `send.result` + `actions.added` (`action: "screenshot"`) |
 | `screenshot.save` | `image`, `url` | `screenshot.saved` `{ ok, path }` (saved under `<data>/screenshots`; the UI copies the path) |
@@ -195,6 +197,22 @@ prefix and the toolbar badge.
   leaseEndsAt: ISO | null,                 // when the tab's lease lapses without another action
   waitingSince: ISO | null, waitingTool?: "page_click" }
 ```
+`agents` also carries `access: [AccessRequest]` (and `state` carries
+`agentAccess`): agents' session-access requests, pending ones and ones
+answered in the last 15 seconds, newest first.
+```js
+{ id: "ar-9c1b04de2f3a", client: "Claude Code", clientName: "claude-code",
+  sessionId: "3f2a9c1b04de",               // the session that was refused
+  sessionIds: ["3f2a9c1b04de"],            // the agent's live sessions (its card shows the request)
+  tabId: 42 | null, origin: "https://desec.io",
+  tool: "session_fetch" | "headless_start", at: ISO,
+  status: "pending" | "granted" | "dismissed", resolvedAt: ISO | null,
+  told: false }                            // the agent's next tool result carried the answer
+```
+background.js sends pending requests to the pill of every tab on that site
+(`presence` `access: [{ id, label, origin, status }]`) and answers a pill click
+on Allow / Not now with `access.allow` / `access.dismiss`.
+
 A session ends two minutes after its last call (paused: 30 minutes), or when
 the agent calls `session_end`. Since the screenshot work a session also has
 `t3ThreadId` (the T3 Code thread its launcher announced, or null), `t3`
@@ -344,6 +362,7 @@ starts a fresh warm session. A Claude Code registration of the same name
   developerTools: true,                        // console/network/eval/storage/session tools (default on)
   headless: true,                              // headless Zen tools (default on)
   sessionAccess: { "https://github.com": "allow" },  // per-site use of the user's signed-in sessions; missing = "ask"
+  sessionAccessAdded: { "https://github.com": { at: ISO, by?: "Claude Code" } }, // when an entry was allowed, and for which agent (Settings lists recent first)
   serverOverrides: { "claude.ai Gmail": false },      // Tools page switches (tools.toggle)
   spaceHints: { "{space id}": "what this space is for" },
   homeWidgets: [{ id, type, size: "S" | "M" }],       // new-tab widget layout
@@ -353,8 +372,9 @@ starts a fresh warm session. A Claude Code registration of the same name
 ```
 `sessionAccess` keys are origins; an entry also covers its subdomains (same
 scheme; for headless sites given as bare hostnames the scheme is ignored).
-"Always allow on this site" in an approval writes `"allow"`; the settings view
-lists, adds and removes entries. Banking/health sites can never be allowed.
+"Always allow on this site" in an approval, or Allow on an agent's access
+request, writes `"allow"`; the settings view lists (recently allowed first),
+adds and removes entries. Banking/health sites can never be allowed.
 
 ### `ConversationSummary`
 ```js

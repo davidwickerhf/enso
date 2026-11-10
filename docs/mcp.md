@@ -24,6 +24,7 @@ Why it is local and why there is a launcher: [records/001-local-mcp-server.md](r
 - [Controls in Ensō](#controls-in-ensō)
 - [Sessions and steering](#sessions-and-steering)
 - [Tab leases: one agent acts on a tab at a time](#tab-leases-one-agent-acts-on-a-tab-at-a-time)
+- [Session-access requests](#session-access-requests)
 - [Tool reference](#tool-reference)
 - [Files, waiting, timeouts and limits](#files-waiting-timeouts-and-limits)
 - [Etiquette for agents](#etiquette-for-agents)
@@ -186,7 +187,8 @@ clients can't connect.
 |---|---|
 | Settings → Agents & screenshots → Access | **Full** (default), **Read only** or **Off** for every MCP client. Read refuses page actions, `tabs_close`, `page_eval`, storage values, session requests and GitHub writes. Off refuses everything. |
 | Settings → Advanced | Developer tools and Headless browser switches. |
-| Settings → Privacy & safety → Session access | The sites where a client may use your session. |
+| Settings → Privacy & safety → Session access | The sites where a client may use your session, recently allowed first, each with × to remove it. |
+| A session-access request (page pill and agent card) | "<Client> wants to use your login on <site>" with **Allow** and **Not now**, when an agent was refused because the site isn't on the list ([session-access requests](#session-access-requests)). |
 | Activity (full page) | Every action, with the client's name, updated live. |
 | The agent card (sidebar and full page) | The agent on the active tab: task, steps, Pause/Resume, Stop, "Tell the agent…". With several agents on the tab: which one is **In control**, which is **Waiting for the tab**, **Hand over to …** and **Let both act** ([tab leases](#tab-leases-one-agent-acts-on-a-tab-at-a-time)). The Agents row lists sessions in other tabs and spaces. |
 | Settings → Agents & screenshots → Mark the tab an agent uses | The "✦ " title prefix (default on). |
@@ -271,6 +273,29 @@ it for the outline flash's label and colour and for the pill's rows, so two
 sessions of one client on one tab are told apart exactly. Requests outside a
 session (a plain-http client's lone read) carry only the label, and the page
 falls back to the client's name.
+
+## Session-access requests
+
+`session_fetch` and `headless_start` with `sites` only work for origins in
+Session access (Settings → Privacy & safety). An agent refused there used to
+just fail, and the user had to find the setting. Now the refusal asks the user
+in Ensō, and the answer reaches the agent like a note.
+
+| Step | What happens |
+|---|---|
+| The refusal | The tool returns the error "https://desec.io isn't on Ensō's session-access list. Ensō has asked the user to allow it; you'll be told in a later tool result if they do. Don't retry in a loop." (`headless_start` adds "You can start without that site meanwhile."; one line per site.) Nothing reaches the browser. The step shows as **refused** in the agent card. |
+| The request | The helper records one request per agent and origin (agent session id, client, origin, tool, time). Retries don't add more. |
+| The prompt | On the page pill of every tab on that site (same scheme; the host or a subdomain), even with no agent on the tab: "<Client> wants to use your login on <site>" with **Allow** and **Not now**. In Ensō's sidebar: in that agent's card, or above the Agents row when the agent works in another tab. |
+| **Allow** | Adds exactly the requested origin to `settings.sessionAccess` (an entry covers its subdomains, as every entry does), with the date and the agent's name in `sessionAccessAdded`, and logs "allowed <origin> for <client>" in Activity. The agent's next tool result starts with "Note from Ensō: The user allowed https://desec.io for session access. You can retry." |
+| **Not now** | Nothing is added. The next tool result starts with "Note from Ensō: The user didn't allow https://desec.io; don't ask again in this task." Further refusals for that site in this task say so and don't prompt again. |
+| Expiry | Requests end with the agent's sessions (`session_end`, Stop, two minutes idle), or after 30 minutes unanswered. An expired request can't be allowed. |
+| Private sites | Banking, payment, health, tax and government sites (`sensitiveHosts`) never get a request: the refusal stays "This is a private site …; session requests are off here", and they can't be added. |
+| Read-only | With external control at Read (or a `--read-only` connection) the refusal is about Access, and there is no request: allowing the site wouldn't help. |
+
+Only the user can allow: there is no MCP tool, argument or method for it,
+and nothing a web page does counts ([security.md](security.md#session-access)).
+Agents should tell the user that Ensō is asking, then wait or carry on with
+other work. They should never ask the user to edit config files.
 
 ### Screenshots from the user
 
@@ -519,6 +544,9 @@ In short:
 - If a tab is being used by another agent, open your own tab, use `headless_*`,
   or ask the user. Don't retry, work around it or fight over the tab; the user
   can hand it over to you.
+- If a site isn't on the session-access list, Ensō has already asked the user.
+  Say so, then wait or continue with other work; a later result tells you the
+  answer. Don't retry in a loop, and never ask the user to edit config files.
 - Set `requested_by_user: true` only when the user asked for that exact action,
   and `irreversible: true` for sending, submitting, paying, deleting or
   publishing.
@@ -547,7 +575,7 @@ In short:
 | "The user has switched off external control of Zen" | Settings → Agents & screenshots → Access is Off. |
 | "Ensō only lets … read Zen right now" | External control is Read, or the connection is `--read-only`. |
 | "This connection to Zen is read-only" | Registered with `--read-only`. Run `enso mcp install` without it for full access. |
-| "The user hasn't allowed session access for …" | Add the site in Settings → Privacy & safety → Session access. |
+| "… isn't on Ensō's session-access list. Ensō has asked the user to allow it …" | The user sees the request on the page pill (on a tab of that site) and in Ensō's sidebar. **Allow** adds the site; the agent's next result says so. |
 | "This is a private page (banking, health, tax or similar)" | Deliberate; see [security.md](security.md#private-sites). |
 | "This tab is unloaded …" | Zen unloads tabs it hasn't shown for a while. Open or reload the tab. |
 | New tools don't show up after an update | The client cached the list. Restart the client; the launcher refreshes `mcp-tools-cache.json` on the next `tools/list` with Zen open. |
