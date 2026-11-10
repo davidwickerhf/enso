@@ -5,8 +5,9 @@ It puts a chat in the sidebar, a search-or-ask box and widgets on every new tab,
 and an agent that can read and act on web pages. It runs Claude on your own
 Claude subscription (through Claude Code) or on an Anthropic API key, uses the
 tools you connect (mail, calendar, GitHub, any MCP server), and keeps what it
-remembers in files on your Mac. Other agents on the same Mac (Claude Code,
-Codex, Cursor) can use Zen through it too.
+remembers in files on your computer. Other agents on the same computer (Claude
+Code, Codex, Cursor) can use Zen through it too. It runs on macOS, Linux and
+Windows.
 
 Website and user docs: <https://enso.wicker.life>. Licence: the extension, helper and scripts are MIT ([LICENSE](LICENSE)); the website and sync server in `site/` are all rights reserved ([site/LICENSE](site/LICENSE)).
 
@@ -27,31 +28,40 @@ Website and user docs: <https://enso.wicker.life>. Licence: the extension, helpe
 
 ## Install
 
-> **Requires macOS.** The helper runs on macOS only for now. Windows and Linux
-> support is planned; on other systems the installer and the extension say so.
-
-Two steps (Zen, or Firefox 139 or newer, on a Mac):
+The helper runs on macOS, Linux (x86_64, arm64) and Windows 10 or 11 (x64,
+arm64). Two steps, in Zen or Firefox 139 or newer:
 
 1. **Add the extension** from <https://enso.wicker.life> (signed by Mozilla, updates itself).
-2. **Run one command.** Press <kbd>⌘E</kbd>: Ensō shows it with a Copy button, and
-   moves on by itself once it has run.
+2. **Run one command.** Press <kbd>⌘E</kbd> (<kbd>Ctrl+E</kbd> on Linux and
+   Windows): Ensō shows the command for your system with a Copy button, and
+   moves on by itself once it has run. On macOS and Linux, in a terminal:
 
    ```sh
    curl -fsSL https://enso.wicker.life/install.sh | bash
    ```
 
-The installer ([`scripts/install.sh`](scripts/install.sh)) downloads the helper
-listed at `https://enso.wicker.life/api/latest`, checks its SHA-256, installs it
-in `~/Library/Application Support/Enso/helper`, registers it with Zen and
-Firefox and writes the `enso` command. If the Mac has no Node.js 18+, it fetches
-Ensō's own Node (pinned SHA-256) into `Enso/runtime`, so nothing has to be
-installed first. It asks no questions, needs no `sudo` and never touches your data.
+   On Windows, in PowerShell (5.1 or 7):
+
+   ```powershell
+   irm https://enso.wicker.life/install.ps1 | iex
+   ```
+
+The installers ([`scripts/install.sh`](scripts/install.sh) and
+[`site/static/install.ps1`](site/static/install.ps1)) download the helper
+listed at `https://enso.wicker.life/api/latest`, check its SHA-256, install it
+in Ensō's data folder (`~/Library/Application Support/Enso` on macOS,
+`~/.local/share/enso` on Linux, `%APPDATA%\Enso` on Windows), register it with
+Zen and Firefox and write the `enso` command. Without Node.js 18+, they fetch
+Ensō's own Node 24.22.2 (pinned SHA-256; on Linux this needs `xz`) into the
+data folder's `runtime`, so nothing has to be installed first. They ask no
+questions, need no `sudo` or administrator rights and never touch your data.
 
 A WebExtension can't install or start a native program (native messaging needs
 the host's manifest on disk first), so that one command is the only manual step.
 Everything after it is a button in **Settings → Setup**, run by the helper:
 updating the helper, installing and signing in to Claude Code or storing an API
-key in the Keychain, letting Claude Code, Codex, Cursor or OpenCode use Zen,
+key in the system's secret store (Keychain, Credential Manager or the Linux
+keyring), letting Claude Code, Codex, Cursor or OpenCode use Zen,
 connecting T3 Code and GitHub, and rotating the agent token. The same checks and
 actions stay available as `enso setup`, `enso update`, `enso mcp install`,
 `enso t3 connect` and `enso mcp rotate`.
@@ -60,7 +70,7 @@ Step by step, with what each permission is for: [site/content/docs/install.md](s
 
 ## Quick start
 
-1. Press <kbd>⌘E</kbd> in Zen to open the sidebar. The first time, Ensō asks
+1. Press <kbd>⌘E</kbd> (<kbd>Ctrl+E</kbd>) in Zen to open the sidebar. The first time, Ensō asks
    your name, a few lines about you and, optionally, what each Zen space is for,
    then opens Setup.
 2. Ask something about the page you are on: "summarise this", "fill in this
@@ -126,7 +136,7 @@ Details: [docs/architecture.md](docs/architecture.md).
 | `helper/` | The helper: `host.mjs` (message handling), `lib/` (engines, tools, MCP server, connections, storage), `bin/enso.mjs` (the `enso` command), `config.json` (shipped defaults), `test/`. |
 | `docs/` | Developer documentation, decision records and plans. Start at [docs/README.md](docs/README.md). |
 | `site/` | enso.wicker.life: website, help centre (`site/content/docs/`, the user guides), update feed, release downloads and sync server. SvelteKit; see [site/README.md](site/README.md). |
-| `scripts/install.sh` | The release installer: a symlink to `site/static/install.sh`, served at `enso.wicker.life/install.sh`. |
+| `scripts/install.sh` | The macOS and Linux installer: a symlink to `site/static/install.sh`, served at `enso.wicker.life/install.sh`. The Windows installer is `site/static/install.ps1`, served at `enso.wicker.life/install.ps1`. |
 | `scripts/dev.sh` | Run Ensō from this checkout. |
 | `scripts/pack-helper.sh` | Build the helper tarball for a release. |
 | `.github/workflows/` | `ci.yml` (checks on pushes to `main` and on pull requests) and `release.yml` (signs and publishes on a `v*` tag). |
@@ -149,9 +159,9 @@ Releases: [docs/releasing.md](docs/releasing.md).
 |---|---|
 | [docs/README.md](docs/README.md) | Index of everything below. |
 | [Architecture](docs/architecture.md) | The extension's pages, background.js, the page agent, native messaging, the helper's modules, data flow. |
-| [Data model](docs/data-model.md) | Every file in the data folder, Keychain items, extension storage, the Zen Chat migration. |
+| [Data model](docs/data-model.md) | Every file in the data folder, secret store items, extension storage, the Zen Chat migration. |
 | [Security](docs/security.md) | Threat model, approvals, session access, private sites, the MCP server's defences, secrets, OAuth. |
-| [Privacy](docs/privacy.md) | What stays on your Mac and what leaves it, matched to the site's privacy policy. |
+| [Privacy](docs/privacy.md) | What stays on your computer and what leaves it, matched to the site's privacy policy. |
 | [MCP](docs/mcp.md) | Using Zen from Claude Code, Codex, Cursor and others; the tool reference. |
 | [Development](docs/development.md) | Setup, tests, mock UI, debugging. |
 | [Releasing](docs/releasing.md) | Versions, tags, signing, the update feed. |

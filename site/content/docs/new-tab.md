@@ -18,7 +18,7 @@ As you type, Ensō offers what you probably meant:
 - **Your open tabs, bookmarks and history.**
 - **Ask Ensō.** Send it to the chat instead.
 
-The button shows what <kbd>Enter</kbd> will do: **Go** for a site, your engine's name for a search, **Ask** for the chat. Two shortcuts skip the guess: <kbd>⇧⌘↵</kbd> always searches, <kbd>⌃⌘↵</kbd> always asks. Opening and searching happen in the browser itself, so they are instant; only questions go to Claude.
+The button shows what <kbd>Enter</kbd> will do: **Go** for a site, your engine's name for a search, **Ask** for the chat. Two shortcuts skip the guess: <kbd>⇧⌘↵</kbd> always searches, <kbd>⌃⌘↵</kbd> always asks (on Linux and Windows, <kbd>Shift+Ctrl+Enter</kbd> and <kbd>Ctrl+Alt+Enter</kbd>). Opening and searching happen in the browser itself, so they are instant; only questions go to Claude.
 
 Private sites (banking, health, tax; see [Acting on pages](/docs/acting-on-pages#private-sites)) never appear in suggestions.
 

@@ -24,8 +24,8 @@ practical: who you are there, which accounts and tools to use.
 ## How does Ensō know which space I'm in?
 
 Browser extensions can't see Zen's spaces directly. Ensō's helper reads the
-list of spaces from Zen's session file on your Mac (names, icons, containers and
-their tabs), and the extension matches the tab you are on to a space by its
+list of spaces from Zen's session file in your Zen profile (names, icons,
+containers and their tabs), and the extension matches the tab you are on to a space by its
 container. When two spaces share a container (or both have none), it picks the
 space whose tabs are open in the window.
 

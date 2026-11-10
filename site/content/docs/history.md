@@ -13,7 +13,7 @@ Ensō keeps a full record, so you can always check what it did, when, and where.
 
 Every conversation is saved with everything that happened in it: your messages, the answers, its reasoning summaries, each tool call with its input and a preview of the result, every approval you gave or refused, and every page action. Open any past conversation from the history list to read it back or carry on.
 
-Conversations get a title automatically; rename or delete them from the list. Deleting a conversation removes its file from your Mac. Each conversation belongs to the [Zen space](/docs/spaces) of its first message, and the list shows this space's conversations unless you switch to all.
+Conversations get a title automatically; rename or delete them from the list. Deleting a conversation removes its file from your computer. Each conversation belongs to the [Zen space](/docs/spaces) of its first message, and the list shows this space's conversations unless you switch to all.
 
 ## Search
 
@@ -25,9 +25,11 @@ Every click, keystroke, selection and navigation Ensō performs is also written 
 
 ## Where it is stored
 
+In Ensō's data folder: `~/Library/Application Support/Enso` on macOS, `~/.local/share/enso` on Linux, `%APPDATA%\Enso` on Windows.
+
 | What | File |
 |---|---|
-| Conversation list | `~/Library/Application Support/Enso/conversations/index.json` |
+| Conversation list | `conversations/index.json` |
 | One conversation | `conversations/<id>.jsonl`, one event per line |
 | Activity log | `actions.jsonl` |
 

@@ -1,6 +1,6 @@
 # Using Ensō from other agents
 
-While Zen is open, other AI agents on your Mac can use it through Ensō: Claude
+While Zen is open, other AI agents on your computer can use it through Ensō: Claude
 Code in a terminal, Codex, Cursor, T3 Code and other apps that support MCP. They
 can list and read your tabs, act on pages, look at a page's console and network,
 search your history, use GitHub, and test pages in a separate headless Zen.
@@ -9,7 +9,7 @@ search your history, use GitHub, and test pages in a separate headless Zen.
 
 Open **Settings → Setup → Use Zen from your agents** and turn on the agents
 that may use Zen (Claude Code, Codex, Cursor and OpenCode, the ones found on
-your Mac). The same panel has **Read only** and the **Claude Code hook**. Start
+your computer). The same panel has **Read only** and the **Claude Code hook**. Start
 a new session in that agent, then ask "what tabs do I have open?".
 
 From a terminal, the same thing for every client it finds:
@@ -22,7 +22,7 @@ Just one: `enso mcp install --client codex` (`claude`, `codex` or `cursor`).
 Check with `enso mcp status`. Remove with `enso mcp uninstall`.
 
 No password or token ends up in their settings: they start the `enso` command,
-which connects to Zen on your Mac.
+which connects to Zen on your computer.
 
 ## Can I let an agent look but not touch?
 
@@ -68,7 +68,7 @@ sends nothing to us.
 |---|---|
 | `enso: command not found` | Use the full path `~/Library/Application\ Support/Enso/bin/enso`, or run the installer again. |
 | "Zen isn't running" | Open Zen. |
-| `status` says "token rejected" | Quit Zen with <kbd>⌘Q</kbd> and reopen it. |
+| `status` says "token rejected" | Quit Zen completely (<kbd>⌘Q</kbd> on macOS) and reopen it. |
 | "external control" or "read-only" errors | See the settings above. |
 
 More detail, including other apps and every tool: the

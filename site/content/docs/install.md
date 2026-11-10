@@ -7,19 +7,21 @@ group: Start
 
 # Install in two steps
 
-Ensō has two parts: the **browser extension** and a small **helper** program that runs on your Mac. You install the extension, run one command, and do everything else with buttons in Ensō.
+Ensō has two parts: the **browser extension** and a small **helper** program that runs on your computer. You install the extension, run one command, and do everything else with buttons in Ensō.
 
-> **Ensō needs a Mac.** The helper runs on macOS only for now. Windows and Linux support is planned. On Linux or Windows the extension installs, but chat, memory, history, settings and tools don't work without the helper (the new tab's search box, clock, quick links and note do). Follow the work on [GitHub](https://github.com/davidwickerhf/enso).
+The helper runs on macOS, Linux and Windows. On other systems the extension installs, but chat, memory, history, settings and tools don't work without the helper (the new tab's search box, clock, quick links and note do).
 
 ## Requirements
 
 | | |
 |---|---|
-| System | **macOS only for now.** Windows and Linux support is planned; the installer stops with that message on other systems. |
+| System | macOS; Linux (x86_64, arm64); Windows 10 or 11 (x64, arm64). |
 | Browser | [Zen](https://zen-browser.app). Firefox 139 or newer works too, without Zen's spaces. |
 | Engine | Your Claude subscription (through Claude Code) **or** an Anthropic API key. Both are set up from Ensō afterwards; see [Engines](/docs/engines). |
 
-Nothing else has to be installed first. If your Mac has no Node.js 18 or newer, the installer fetches Ensō's own copy.
+Nothing else has to be installed first. If there is no Node.js 18 or newer, the installer fetches Ensō's own copy (Node.js 24.22.2). On Linux, unpacking that copy needs `xz` (the `xz-utils` package on most systems); with Node 18+ already installed it isn't needed.
+
+Zen and Firefox installed as a Flatpak or Snap are untested. They run in a sandbox and may only reach the helper through the browser's native-messaging portal; the regular download or your distribution's package works.
 
 ## 1. Add the extension
 
@@ -29,29 +31,61 @@ The extension is signed by Mozilla, so it installs with signature checks on, and
 
 ## 2. Run one command
 
-Press <kbd>⌘E</kbd>. Ensō sees that its helper isn't there yet and shows the command with a **Copy** button:
+Press <kbd>⌘E</kbd> on macOS or <kbd>Ctrl+E</kbd> on Linux and Windows. Ensō sees that its helper isn't there yet and shows the command for your system with a **Copy** button.
+
+On macOS and Linux:
 
 ```sh
 curl -fsSL https://enso.wicker.life/install.sh | bash
 ```
 
-Open Terminal (<kbd>⌘ Space</kbd>, type *Terminal*, <kbd>Return</kbd>), paste the command and press <kbd>Return</kbd>. Ensō waits and continues by itself once the helper is installed; you don't need to restart Zen.
+On macOS, open Terminal (<kbd>⌘ Space</kbd>, type *Terminal*, <kbd>Return</kbd>). On Linux, open your terminal app (often <kbd>Ctrl+Alt+T</kbd>). Paste the command (<kbd>⌘V</kbd> in Terminal, <kbd>Ctrl+Shift+V</kbd> in most Linux terminals) and press <kbd>Return</kbd>.
 
-**Why a terminal step?** Browsers don't let an extension install or start a program: the helper has to be on disk and registered before the extension can talk to it. An extension can't open Terminal for you either, so this is the one step you do by hand.
+On Windows:
+
+```powershell
+irm https://enso.wicker.life/install.ps1 | iex
+```
+
+Open PowerShell (<kbd>Win</kbd>, type *PowerShell*, <kbd>Enter</kbd>), paste the command and press <kbd>Enter</kbd>. Windows PowerShell 5.1, which comes with Windows, and PowerShell 7 both work.
+
+Ensō waits and continues by itself once the helper is installed; you don't need to restart Zen.
+
+**Why a terminal step?** Browsers don't let an extension install or start a program: the helper has to be on disk and registered before the extension can talk to it. An extension can't open a terminal for you either, so this is the one step you do by hand.
 
 What the command does:
 
-1. checks that you are on macOS and looks for Node.js 18 or newer. If there is none, it downloads Node.js 24 from nodejs.org (about 27 MB, 130 MB unpacked) into `~/Library/Application Support/Enso/runtime`, after checking it against a SHA-256 pinned in the script;
-2. downloads the latest helper from this site (`/api/latest`) and checks its SHA-256; nothing is installed if it doesn't match;
-3. installs it in `~/Library/Application Support/Enso/helper` (your data and `config.local.json` in that folder are left alone);
-4. writes the `enso` command to `~/Library/Application Support/Enso/bin/enso`, and links it as `~/.local/bin/enso` when that folder exists;
-5. registers the helper with Zen and Firefox (a file called `enso.json` in `~/Library/Application Support/zen/NativeMessagingHosts/` and `…/Mozilla/NativeMessagingHosts/`);
+1. checks your system and looks for Node.js 18 or newer. If there is none, it downloads Node.js 24.22.2 from nodejs.org (about 30 MB) into the `runtime` folder of Ensō's data folder (below), after checking it against a SHA-256 pinned in the script;
+2. downloads the latest helper for your system from this site (`/api/latest`) and checks its SHA-256; nothing is installed if it doesn't match;
+3. installs it in the `helper` folder of Ensō's data folder (your data and `config.local.json` in that folder are left alone);
+4. writes the `enso` command and puts it on your PATH;
+5. registers the helper with Zen and Firefox;
 6. writes `install.json` next to it (versions and paths, which Setup shows) and prints a short summary;
 7. opens the extension in Zen if no Zen profile has it yet.
 
-It never asks questions and never asks for your password. Nothing is installed outside your home folder. It is safe to run again; that is also how the helper updates (Setup does it for you).
+Where things go:
 
-> Prefer to read it first? `curl -fsSL https://enso.wicker.life/install.sh -o install.sh`, read it, then `bash install.sh`.
+| | macOS | Linux | Windows |
+|---|---|---|---|
+| Data folder (helper, Node, your data) | `~/Library/Application Support/Enso` | `~/.local/share/enso` (or `$XDG_DATA_HOME/enso`) | `%APPDATA%\Enso` |
+| `enso` command | `Enso/bin/enso`, linked as `~/.local/bin/enso` when that folder exists | `enso/bin/enso`, linked as `~/.local/bin/enso` | `%APPDATA%\Enso\bin\enso.cmd`, added to your user PATH |
+| Registration with Zen and Firefox | `enso.json` in `~/Library/Application Support/zen/NativeMessagingHosts/` and `…/Mozilla/NativeMessagingHosts/` | `enso.json` in `~/.mozilla/native-messaging-hosts/` and `~/.zen/native-messaging-hosts/` | the registry key `HKCU\Software\Mozilla\NativeMessagingHosts\enso`, pointing at `%APPDATA%\Enso\enso.json` |
+| Log | `~/Library/Logs/Enso/helper.log` | `~/.local/state/enso/helper.log` (or `$XDG_STATE_HOME/enso`) | `%LOCALAPPDATA%\Enso\Logs\helper.log` |
+
+It never asks questions and never asks for your password or administrator rights. Nothing is installed outside your home folder (your user profile on Windows). It is safe to run again; that is also how the helper updates (Setup does it for you). On Windows, open a new terminal before you type `enso`, so it sees the new PATH.
+
+> Prefer to read it first? On macOS and Linux: `curl -fsSL https://enso.wicker.life/install.sh -o install.sh`, read it, then `bash install.sh`. On Windows: `irm https://enso.wicker.life/install.ps1 -OutFile install.ps1`, read it, then `powershell -ExecutionPolicy Bypass -File install.ps1`.
+
+Both installers read a few optional environment variables:
+
+| Variable | Effect |
+|---|---|
+| `ENSO_NODE=private` | Always use Ensō's own Node.js. `ENSO_NODE=system` never downloads one. |
+| `ENSO_REGISTER_MCP=1` | Also let Claude Code use Zen straight away (otherwise turn it on in Setup). |
+| `ENSO_NO_OPEN=1` | Don't open the extension in Zen at the end. |
+| `ENSO_NO_PATH=1` | Windows only: don't add the `enso` command to your user PATH. |
+
+On macOS and Linux set them in front of `bash` (`curl -fsSL https://enso.wicker.life/install.sh | ENSO_NODE=private bash`); in PowerShell, run `$env:ENSO_NO_PATH = "1"` first.
 
 If the guide says the helper **didn't start**, run the same command again: it repairs the install (for example after you removed the Node.js it was using).
 
@@ -64,10 +98,10 @@ Then it opens **Settings → Setup**, a checklist the helper keeps up to date. E
 | Item | What the button does |
 |---|---|
 | **Helper** | Shows the installed version. **Update** runs the installer in the background and restarts the helper. |
-| **Claude** | Choose your subscription or an API key. **Install Claude Code** and **Sign in** open Terminal with Anthropic's installer or `claude auth login`; Setup notices when you're done. An API key goes from a password field straight into your Keychain. |
-| **Use Zen from your agents** | A switch each for Claude Code, Codex, Cursor and OpenCode (the ones found on your Mac), a **Read only** switch, and the **Claude Code hook** that delivers screenshots to an idle session. See [other agents](/docs/other-agents). |
+| **Claude** | Choose your subscription or an API key. **Install Claude Code** and **Sign in** open a terminal window (Terminal on macOS, PowerShell on Windows, your terminal app on Linux) with Anthropic's installer or `claude auth login`; Setup notices when you're done. An API key goes from a password field straight into your system's secret store (the Keychain on macOS, Credential Manager on Windows, the keyring on Linux). |
+| **Use Zen from your agents** | A switch each for Claude Code, Codex, Cursor and OpenCode (the ones found on your computer), a **Read only** switch, and the **Claude Code hook** that delivers screenshots to an idle session. See [other agents](/docs/other-agents). |
 | **Send screenshots to T3 Code** | **Connect** or **Disconnect**, when T3 Code is installed. See [screenshots](/docs/screenshots). |
-| **GitHub** | Shows whether the GitHub CLI is signed in. **Sign in with gh** opens `gh auth login` in Terminal, or paste a token. |
+| **GitHub** | Shows whether the GitHub CLI is signed in. **Sign in with gh** opens `gh auth login` in a terminal window, or paste a token. |
 | **Tools** | Opens the [Tools](/docs/tools) page for claude.ai connectors and servers that need a sign-in. |
 | **Agent access token** | **Rotate** replaces the token agents use to reach Zen. |
 
@@ -87,7 +121,7 @@ Only Claude is needed to chat; everything else is optional. The same checks run 
 
 ## Open it
 
-Press <kbd>⌘E</kbd> for the sidebar, or open a new tab. The first answer after starting Zen takes a few seconds longer while Ensō warms up.
+Press <kbd>⌘E</kbd> (<kbd>Ctrl+E</kbd> on Linux and Windows) for the sidebar, or open a new tab. The first answer after starting Zen takes a few seconds longer while Ensō warms up.
 
 ## Updating
 
@@ -99,14 +133,31 @@ Check the versions in **Add-ons and themes** and in **Settings → Setup** (or `
 ## Uninstalling
 
 1. Remove the extension in *Add-ons and themes*.
-2. In Terminal:
+2. If you let other agents use Zen, run `enso mcp uninstall` (or turn them off in Setup first).
+3. Remove the helper and its registration. On macOS, in Terminal:
 
 ```sh
-enso mcp uninstall     # if you let other agents use Zen (or turn them off in Setup first)
-rm -rf ~/Library/Application\ Support/Enso
+rm -rf ~/Library/Application\ Support/Enso ~/Library/Logs/Enso
 rm -f ~/Library/Application\ Support/Mozilla/NativeMessagingHosts/enso.json
 rm -f ~/Library/Application\ Support/zen/NativeMessagingHosts/enso.json
 rm -f ~/.local/bin/enso
 ```
 
-3. Your conversations, memory and settings were in that same `Enso` folder, so they are gone too. If you used them, also remove the API key (`security delete-generic-password -s enso-anthropic`) and a saved GitHub token (`security delete-generic-password -s enso-github`).
+On Linux:
+
+```sh
+rm -rf "${XDG_DATA_HOME:-$HOME/.local/share}/enso" "${XDG_STATE_HOME:-$HOME/.local/state}/enso"
+rm -f ~/.mozilla/native-messaging-hosts/enso.json ~/.zen/native-messaging-hosts/enso.json
+rm -f ~/.local/bin/enso
+```
+
+On Windows, in PowerShell (quit Zen first, so the helper isn't running):
+
+```powershell
+Remove-Item -Recurse -Force "$env:APPDATA\Enso", "$env:LOCALAPPDATA\Enso"
+Remove-Item -Force "HKCU:\Software\Mozilla\NativeMessagingHosts\enso"
+```
+
+Then remove `%APPDATA%\Enso\bin` from your user PATH (Settings → System → About → Advanced system settings → Environment Variables).
+
+4. Your conversations, memory and settings were in that same `Enso` folder, so they are gone too. If you used them, also remove the API key (`enso-anthropic`) and a saved GitHub token (`enso-github`) from your secret store: on macOS `security delete-generic-password -s enso-anthropic`, on Linux `secret-tool clear service enso-anthropic`, on Windows `cmdkey /delete:enso-anthropic` (and the same with `enso-github`).

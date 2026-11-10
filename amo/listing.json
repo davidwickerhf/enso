@@ -3,7 +3,7 @@
   "default_locale": "en-US",
   "slug": "enso",
   "name": "Ensō",
-  "summary": "An assistant in your Zen browser: chat with Claude about the page you're on, a calm new-tab home with your calendar, tasks and mail, and your signed-in browser as a tool for Claude Code, Codex and other agents. Needs a small helper app (macOS).",
+  "summary": "An assistant in your Zen browser: chat with Claude about the page you're on, a calm new-tab home with your calendar, tasks and mail, and your signed-in browser as a tool for Claude Code, Codex and other agents. Needs a small helper app.",
   "categories": { "firefox": ["search-tools", "web-development"] },
   "license": "MIT",
   "homepage": "https://enso.wicker.life",

@@ -7,25 +7,25 @@ group: Your data
 
 # Sync & recovery
 
-Sync keeps conversations, memory, profile, skills, settings and reports the same on every Mac you use. It will be **optional** and **off by default**, and it is **end-to-end encrypted**: your data is encrypted on your Mac before it is uploaded, with a key the server never receives.
+Sync keeps conversations, memory, profile, skills, settings and reports the same on every computer you use. It will be **optional** and **off by default**, and it is **end-to-end encrypted**: your data is encrypted on your computer before it is uploaded, with a key the server never receives.
 
 > **Not available yet.** The sync server described here is live, but the extension and helper can't turn sync on: there is no Settings → Sync yet, and nothing is uploaded. This page describes how it will work.
 
 ## Turning it on (once it's available)
 
-1. In **Settings → Sync**, enter your email address and a name for this Mac.
+1. In **Settings → Sync**, enter your email address and a name for this computer.
 2. Ensō shows a short code, and we email you a sign-in link.
-3. Open the link. The page shows the Mac's name and the same code. If they match, click **Approve**.
-4. On your first Mac, Ensō creates your **account key** and shows your **recovery phrase**: 24 words. Write them down and keep them somewhere safe, offline.
-5. On another Mac, after approving it, enter the 24 words once. Sync starts.
+3. Open the link. The page shows the computer's name and the same code. If they match, click **Approve**.
+4. On your first computer, Ensō creates your **account key** and shows your **recovery phrase**: 24 words. Write them down and keep them somewhere safe, offline.
+5. On another computer, after approving it, enter the 24 words once. Sync starts.
 
 The account page at [enso.wicker.life/account](/account) lists your devices and storage, and lets you remove a device, export everything, or delete the account.
 
 ## Your key and recovery phrase
 
-- When you first turn on sync, Ensō generates a random **256-bit account key** on your Mac and keeps it in the **macOS Keychain**.
+- When you first turn on sync, Ensō generates a random **256-bit account key** on your computer and keeps it in the system's secret store (the macOS Keychain, Windows Credential Manager or your Linux keyring).
 - The **recovery phrase** is that same key written as 24 words (the BIP-39 English word list: 256 bits plus an 8-bit checksum). Anyone with the phrase can decrypt your data; nobody without it can, including us.
-- **If you lose every Mac and the phrase, your synced data cannot be recovered.** We can't reset it, because we never had it. Your data on any remaining Mac is unaffected.
+- **If you lose every computer and the phrase, your synced data cannot be recovered.** We can't reset it, because we never had it. Your data on any remaining computer is unaffected.
 
 ## What gets encrypted, and how
 
@@ -51,7 +51,7 @@ It never receives your account key, your recovery phrase, or any plaintext: no c
 
 ## Conflicts
 
-Each item has a version. A Mac uploads a change only if the item is still at the version it last saw; if another Mac changed it in the meantime, the upload is refused and Ensō fetches the newer version, merges, and tries again. Changes are never silently overwritten.
+Each item has a version. A computer uploads a change only if the item is still at the version it last saw; if another computer changed it in the meantime, the upload is refused and Ensō fetches the newer version, merges, and tries again. Changes are never silently overwritten.
 
 ## Limits
 
@@ -59,8 +59,8 @@ Each item has a version. A Mac uploads a change only if the item is still at the
 - **16 MB** per item.
 - A few hundred requests per minute per device.
 
-## Removing a Mac, or everything
+## Removing a computer, or everything
 
-- **Remove a device** on the account page: its access ends immediately. Its local data stays on that Mac.
-- **Delete your account** on the account page: every item is deleted from storage at once, every device is signed out, and your email address is removed. Ensō keeps working locally on each Mac.
+- **Remove a device** on the account page: its access ends immediately. Its local data stays on that computer.
+- **Delete your account** on the account page: every item is deleted from storage at once, every device is signed out, and your email address is removed. Ensō keeps working locally on each computer.
 - **Export** first if you want a copy: it downloads every item, still encrypted, as one JSON file.

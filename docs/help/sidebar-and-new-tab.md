@@ -5,7 +5,8 @@ the new tab, and a full page. Start in one and continue in another.
 
 ## How do I open it?
 
-- **Sidebar:** <kbd>⌘E</kbd>, or the Ensō button in the toolbar.
+- **Sidebar:** <kbd>⌘E</kbd> (<kbd>Ctrl+E</kbd> on Linux and Windows), or the
+  Ensō button in the toolbar.
 - **New tab:** every new tab opens on Ensō's box, with the cursor already in it.
 - **Full page:** right-click the Ensō toolbar button → **Open Ensō as a page**.
   It has three columns: Home, Activity, Tools, Settings and your conversations
@@ -90,7 +91,9 @@ One box for everything. As you type it offers:
 - **Ask Ensō**, which sends it to the chat.
 
 The button shows what <kbd>Enter</kbd> will do: **Go**, your search engine's
-name, or **Ask**. <kbd>⇧⌘↵</kbd> always searches; <kbd>⌃⌘↵</kbd> always asks.
+name, or **Ask**. <kbd>⇧⌘↵</kbd> always searches; <kbd>⌃⌘↵</kbd> always asks
+(<kbd>Shift+Ctrl+Enter</kbd> and <kbd>Ctrl+Alt+Enter</kbd> on Linux and
+Windows).
 Opening and searching happen in the browser; only questions go to Claude.
 
 Under the box, **Your tools** shows the tools Ensō can use. Click one to see
@@ -103,7 +106,7 @@ Below that are your [widgets](widgets.md).
   messages, tool calls and page actions. History shows this space's
   conversations by default; switch to all spaces at the top.
 - **Full page:** the left column.
-- Rename or delete a conversation from the list. Deleting removes it from your Mac.
+- Rename or delete a conversation from the list. Deleting removes it from your computer.
 
 ## What is the brief?
 
@@ -126,6 +129,9 @@ written. It doesn't learn from conversations otherwise, but it can search them
 when you refer to an earlier one.
 
 ## Keyboard shortcuts
+
+On Linux and Windows, <kbd>Ctrl</kbd> takes the place of <kbd>⌘</kbd>, and the
+new-tab shortcuts are <kbd>Shift+Ctrl+Enter</kbd> and <kbd>Ctrl+Alt+Enter</kbd>.
 
 | Keys | Does |
 |---|---|

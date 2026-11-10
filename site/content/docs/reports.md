@@ -19,4 +19,4 @@ Every report is saved and listed under **Reports** in the full-page app, newest 
 
 ## Where they are stored
 
-Reports are files on your Mac, in `~/Library/Application Support/Enso/reports/`. They are never uploaded.
+Reports are files on your computer, in the `reports` folder of Ensō's [data folder](/docs/privacy-data#stored-on-your-computer). They are never uploaded.

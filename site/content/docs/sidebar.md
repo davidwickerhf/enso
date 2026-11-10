@@ -7,7 +7,7 @@ group: Using Ensō
 
 # The sidebar
 
-Press <kbd>⌘E</kbd>, or click the Ensō button in the toolbar, for a chat next to the page you are on. The same conversations are on the new tab and in the full page.
+Press <kbd>⌘E</kbd> (<kbd>Ctrl+E</kbd> on Linux and Windows), or click the Ensō button in the toolbar, for a chat next to the page you are on. The same conversations are on the new tab and in the full page.
 
 ## What goes with your message
 
@@ -33,7 +33,7 @@ When Claude Code, Codex or another agent works on the tab you are looking at thr
 
 ## Send a screenshot to an agent
 
-The camera button at the top (or <kbd>⌘</kbd><kbd>⇧</kbd><kbd>2</kbd> anywhere) takes a screenshot of the page, a region you drag or the whole page, and sends it with a message to a T3 Code thread, to Claude Code, Codex, OpenCode or Cursor, or to the clipboard. See [Send screenshots to your agents](/docs/screenshots).
+The camera button at the top (or <kbd>⌘</kbd><kbd>⇧</kbd><kbd>2</kbd>, <kbd>Ctrl+Shift+2</kbd> on Linux and Windows, anywhere) takes a screenshot of the page, a region you drag or the whole page, and sends it with a message to a T3 Code thread, to Claude Code, Codex, OpenCode or Cursor, or to the clipboard. See [Send screenshots to your agents](/docs/screenshots).
 
 ## The full page
 
@@ -44,6 +44,8 @@ Right-click the Ensō toolbar button and choose **Open Ensō as a page**. It has
 **Home** in the sidebar and the full page shows a short briefing: a greeting, one line on what matters today, your calendar, mail that needs a reply, deadlines and tasks. Ensō makes it with read-only calls to your tools, about once an hour and on the first start each morning; the refresh button runs it now. Choose how often in **Settings → Home**. The brief also feeds the [widgets](/docs/widgets). It needs Claude Code.
 
 ## Keyboard shortcuts
+
+On Linux and Windows, use <kbd>Ctrl</kbd> where these say <kbd>⌘</kbd>.
 
 | Keys | Does |
 |---|---|

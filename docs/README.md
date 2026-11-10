@@ -14,8 +14,8 @@ purpose:
 
 | Still called zen-chat | Why |
 |---|---|
-| `~/Library/Application Support/zen-chat/` | Read once by the migration on first start ([data-model.md](data-model.md#the-zen-chat-migration)). |
-| Keychain item `zen-chat-anthropic` | Read when `enso-anthropic` is missing. |
+| `~/Library/Application Support/zen-chat/` (macOS) | Read once by the migration on first start ([data-model.md](data-model.md#the-zen-chat-migration)). |
+| Secret store item `zen-chat-anthropic` | Read when `enso-anthropic` is missing. |
 | `ZEN_CHAT_DATA`, `ZEN_CHAT_MCP_PORT` | Still read, after `ENSO_DATA` and `ENSO_MCP_PORT`. |
 | Add-on id `zen-chat@wicker.life` in the site's `EXTENSION_IDS` | Pre-release builds; can be dropped. |
 
@@ -24,9 +24,9 @@ purpose:
 | Page | What it covers |
 |---|---|
 | [Architecture](architecture.md) | The extension's pages, background.js, the page agent, native messaging, the helper's modules, both engines and warm sessions, the tool set, OAuth connections, the MCP server and launcher, dashboard, tasks, GitHub, headless Zen and Marionette, Zen spaces, data flow, ports and environment variables. With Mermaid diagrams. |
-| [Data model](data-model.md) | Every file in `~/Library/Application Support/Enso/`, conversation events, the activity log, settings keys, the `config.local.json` overlay, Keychain items, files outside the data folder (including Claude Code's transcripts), extension `localStorage`, the Zen Chat migration, deleting data. |
+| [Data model](data-model.md) | Every file in the data folder (per OS), conversation events, the activity log, settings keys, the `config.local.json` overlay, secret store items, files outside the data folder (including Claude Code's transcripts), extension `localStorage`, the Zen Chat migration, deleting data. |
 | [Security](security.md) | Threat model, trust boundaries, the permissions model (`requested_by_user`, `irreversible`, approvals per caller), private sites, session access, external control, the MCP server's defences, secrets, OAuth, what is never returned, known limits. |
-| [Privacy](privacy.md) | What is stored, what leaves the Mac and when, and open points against the published privacy policy. |
+| [Privacy](privacy.md) | What is stored, what leaves the computer and when, and open points against the published privacy policy. |
 | [MCP](mcp.md) | Using Zen from Claude Code, Codex, Cursor and others: `enso mcp install/status/rotate/uninstall`, `--read-only`, `--client`, other clients, the 44-tool reference, etiquette, troubleshooting. |
 | [Development](development.md) | Requirements, `scripts/dev.sh`, unsigned installs, the mock UI, tests and CI, debugging the helper, Marionette, conventions, recipes. |
 | [Releasing](releasing.md) | Versions, tags, the release workflow, unlisted AMO signing, the site's `/updates.json` and `/api/latest`, how copies update, the installer copy on the site. |

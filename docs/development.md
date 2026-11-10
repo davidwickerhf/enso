@@ -19,15 +19,22 @@ debug the helper. Architecture first? Read [architecture.md](architecture.md).
 
 ## Requirements
 
-- macOS (the helper uses the Keychain, `sips`, `textutil` and Zen's files).
-- [Zen](https://zen-browser.app) in `/Applications` (the headless Zen expects
-  `/Applications/Zen.app`).
+- macOS or Linux for `scripts/dev.sh`. The helper itself runs on macOS, Linux
+  and Windows (`lib/platform.mjs` holds the per-OS folders, secret store,
+  browser files and terminals); on Windows, install a release with
+  `install.ps1` or point the registry at a checkout by hand. A few things are
+  macOS-only: HEIC/TIFF images and `.doc`/`.rtf` attachments are converted with
+  `sips` and `textutil` (`.docx` and `.odt` work everywhere).
+- [Zen](https://zen-browser.app). The headless Zen looks for it in
+  `/Applications/Zen.app` on macOS, `Program Files\Zen Browser\zen.exe` on
+  Windows, and on `PATH`, in `~/.tarball-installations/zen` and `/opt` on
+  Linux; `ENSO_BROWSER_BIN` overrides.
 - Node.js 18.17 or newer; Node 22.5 or newer for copying sessions into the
   headless Zen (`node:sqlite`). CI uses Node 22. With Volta, `dev.sh` uses
   `volta which node`.
 - [Claude Code](https://docs.anthropic.com/en/docs/claude-code/setup), signed
   in, for the subscription engine and the dashboard. Or an API key in the
-  Keychain (`enso-anthropic`).
+  system's secret store (`enso-anthropic`).
 
 ## Run from a checkout
 
@@ -44,9 +51,10 @@ scripts/dev.sh --mcp      # … and register zen-browser with Claude Code if it 
    skipped: they carry the Agent SDK's bundled ~200 MB Claude Code binary, and
    the helper uses your `claude` instead;
 2. writes `helper/run.sh` (git-ignored) with this machine's `node` path;
-3. writes `~/Library/Application Support/Enso/bin/enso` pointing at this
-   checkout, and links `~/.local/bin/enso` when that folder exists and the name
-   is free or already points there;
+3. writes `<data>/bin/enso` (`~/Library/Application Support/Enso` on macOS,
+   `~/.local/share/enso` on Linux) pointing at this checkout, and links
+   `~/.local/bin/enso` when that folder exists and the name is free or already
+   points there;
 4. writes `enso.json` native-messaging manifests for Zen and Firefox pointing
    at `helper/run.sh` (`ENSO_EXTENSION_ID` overrides the allowed id);
 5. zips `extension/` into `build/enso-dev.xpi`;
@@ -80,7 +88,7 @@ release in Zen.
 | Changed | Do |
 |---|---|
 | `extension/` | Bump `version` in `extension/manifest.json`, then `scripts/dev.sh --open`. Zen only replaces an extension with a higher version. Or load it temporarily from `about:debugging` → This Firefox → Load Temporary Add-on (until Zen restarts). |
-| `helper/` | Quit Zen (<kbd>⌘Q</kbd>) and reopen it. Zen starts the helper again when the extension connects. |
+| `helper/` | Quit Zen (<kbd>⌘Q</kbd> on macOS, close every window elsewhere) and reopen it. Zen starts the helper again when the extension connects. |
 | `helper/config.json` or `config.local.json` | Same: the config is read when the helper starts. |
 | `extension/ui/` only, on the mock | Reload the page. |
 
@@ -129,7 +137,8 @@ Stop the server when you are done.
 ```sh
 cd helper
 npm test                          # all offline
-ENSO_SKIP_KEYCHAIN=1 npm test     # skip the tests that write to the login Keychain
+ENSO_SKIP_KEYCHAIN=1 npm test     # macOS: skip the tests that write to the login Keychain
+ENSO_TEST_REAL_SECRETS=1 npm test # Linux, Windows: also test this machine's keyring / Credential Manager
 ENSO_TEST_SDK=1 npm test          # also one real turn on your Claude plan
 ```
 
@@ -141,19 +150,24 @@ ENSO_TEST_SDK=1 npm test          # also one real turn on your Claude plan
 | `hello.test.mjs` | Starts `host.mjs` with a temporary `HOME` and talks native messaging to it. | Always |
 | `tasks.test.mjs` | `list_tasks` normalisation, completion, the dashboard's read-only rule. | Always |
 | `mcp.test.mjs` | Client labels, the Codex TOML edit, `enso mcp install/status/uninstall` in a temporary `HOME`, the launcher bridge, read scope, rotate, offline answers. | Always |
-| `connections.test.mjs`, `host-connect.test.mjs` | OAuth sign-in against `mock-oauth-mcp.mjs`, Keychain storage. They store and delete test items in the login Keychain. | macOS, unless `ENSO_SKIP_KEYCHAIN=1` |
+| `platform.test.mjs` | `lib/platform.mjs` for all three OSes (folders, manifests, client configs), the secrets file fallback. | Always |
+| `windows.test.mjs` | `run.cmd` starting `host.mjs` through `cmd.exe`, the registry value, `enso.cmd` and the Cursor entry. | Windows |
+| `secrets-store.test.mjs` | The real secret store: libsecret through `secret-tool`, or Credential Manager. | `ENSO_TEST_REAL_SECRETS=1` |
+| `connections.test.mjs`, `host-connect.test.mjs` | OAuth sign-in against `mock-oauth-mcp.mjs`, secret storage. They store and delete test items in the real secret store. | macOS unless `ENSO_SKIP_KEYCHAIN=1`; Linux and Windows with `ENSO_TEST_REAL_SECRETS=1` |
 | `sdk-mcp.test.mjs` | One real Agent SDK turn with an MCP server. | `ENSO_TEST_SDK=1` |
 
 Tests use temporary data folders and random ports; they don't touch your
-`Enso` folder or a running helper.
+`Enso` folder or a running helper. Off macOS they use the file secret store
+(`ENSO_SECRETS=file`) unless real secrets are asked for. `mcp`, `t3`, `setup`
+and `install` use bash fakes and are skipped on Windows.
 
 There are no automated tests for the extension. Check UI changes on the mock
 (headless browser, light and dark, sidebar width and full page) and in Zen.
 
 ## CI
 
-`.github/workflows/ci.yml` runs on pull requests and pushes to `main`, on
-`macos-latest` with Node 22:
+`.github/workflows/ci.yml` runs on pull requests and pushes to `main`, with
+Node 22. The `check` job on `macos-latest`:
 
 1. `node --check` on every `.js` and `.mjs` file, `bash -n` on the scripts;
 2. the manifest's id is `enso@wicker.life` and its version matches
@@ -163,11 +177,20 @@ There are no automated tests for the extension. Check UI changes on the mock
    against the runner's login keychain);
 5. builds the helper tarball and fails if it is 40 MB or larger.
 
+The `helper-tests` job runs `npm test` on Linux and Windows (x64 and arm64)
+against the real secret store: a throwaway GNOME Keyring on Linux, the
+runner's Credential Manager on Windows. On Linux it also runs `install.sh` in
+a throwaway `HOME` and checks `enso doctor`. The `windows-install` job does the
+same for `install.ps1` in a temporary profile.
+
 ## Debugging
 
 - **Helper logs.** The helper writes to stderr with an `[enso]` prefix. Zen
   shows a native host's stderr in the Browser Console
-  (<kbd>⌘⇧J</kbd>, "Multiprocess" or "Parent process" mode). Look for "turn
+  (<kbd>⌘⇧J</kbd>, or <kbd>Ctrl+Shift+J</kbd> on Linux and Windows,
+  "Multiprocess" or "Parent process" mode). It also writes `helper.log`
+  (`~/Library/Logs/Enso` on macOS, `~/.local/state/enso` on Linux,
+  `%LOCALAPPDATA%\Enso\Logs` on Windows); `enso doctor` prints its end. Look for "turn
   failed", "MCP server on …", "could not read ~/.claude.json", config errors.
 - **The extension.** `about:debugging` → This Firefox → Ensō → Inspect opens the
   background page's console and lets you inspect `background.js`. The sidebar
@@ -199,8 +222,10 @@ The headless Zen (`lib/headless.mjs`) is driven over Marionette, Firefox's
 WebDriver protocol, through `lib/marionette.mjs` (length-prefixed JSON over TCP:
 `[0, id, name, params]` commands, `[1, id, error, result]` replies). Notes:
 
-- It starts `/Applications/Zen.app/Contents/MacOS/zen -headless -no-remote
-  -profile <tmp>/profile --marionette` on the first free port from 2829.
+- It starts Zen (`/Applications/Zen.app/Contents/MacOS/zen` on macOS; see
+  [Requirements](#requirements) for the other systems) with `-headless
+  -no-remote -profile <tmp>/profile --marionette` on the first free port from
+  2829.
 - `-no-remote` and a separate profile keep it apart from your running Zen.
 - Elements are found by the `data-enso-ref` attribute the helper adds when it
   reads the page; a `ref` goes stale when the page changes (call
