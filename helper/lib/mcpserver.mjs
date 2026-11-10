@@ -52,7 +52,8 @@ export function buildServer({ browserRequest, onReports, onAction, sessions = ag
   const server = new McpServer({ name: "zen-browser", version: "1.0.0" }, {
     instructions:
       "Controls the user's Zen browser through Ensō. First call session_start with a short task (one line on what you are about to do); the user sees it in Ensō and on the page. " +
-      "The user can steer you from Ensō: tool results may start with 'Message from the user (via Ensō): …'. That is the user speaking to you; follow it. If a result says the user paused or stopped you, respect it (session_status tells you when you may continue). " +
+      "The user can steer you from Ensō: tool results may start with 'Message from the user (via Ensō): …'. That is the user speaking to you; follow it. " +
+      "The user can also send you screenshots from Ensō: they arrive as 'Screenshot from the user (via Ensō): …' followed by the image at the start of a tool result; call inbox_read to fetch anything waiting (notes and screenshots) when the user says they sent you something. If a result says the user paused or stopped you, respect it (session_status tells you when you may continue). " +
       "Use tabs_list to see the tabs in their current Zen space (allSpaces for all), page_read before acting on a page, and pass tabId to target a specific tab. " +
       "Developer tools for his live tabs: devtools_console, devtools_network, page_eval, page_storage. session_fetch makes a request with his signed-in session, only on sites he allowed in Ensō. " +
       "github_* tools read his pull requests, reviews, issues and notifications across all his orgs (github_my_work first); github_comment, github_review, labels, assignees, close/reopen and marking notifications read only when he asked for exactly that. " +
@@ -112,7 +113,8 @@ export function buildServer({ browserRequest, onReports, onAction, sessions = ag
   });
 
   const text = t => ({ type: "text", text: t });
-  const withMessages = (messages, result) => (messages.length ? { ...result, content: [...messages.map(text), ...(result.content ?? [])] } : result);
+  // Messages are note lines (strings) or MCP content (a screenshot's image) waiting for this agent.
+  const withMessages = (messages, result) => (messages.length ? { ...result, content: [...messages.map(m => (typeof m === "string" ? text(m) : m)), ...(result.content ?? [])] } : result);
   const activeTabId = async () => {
     try {
       const r = await browserRequest("browser.request", "active_tab", {}, null, client.label);
@@ -226,6 +228,19 @@ export function buildServer({ browserRequest, onReports, onAction, sessions = ag
   );
 
   sessionTool(
+    "inbox_read",
+    {
+      title: "Read what the user sent",
+      description: "Fetch notes and screenshots the user sent you from Ensō that you haven't received yet (screenshots come back as images, with the page URL and the user's message). Call it when the user says they sent you a screenshot.",
+      inputSchema: { tabId: z.number().int().optional() },
+    },
+    async ({ tabId }) => {
+      const items = sessions.inbox(client, { tabId: tabId ?? null });
+      return { content: items.length ? items.map(m => (typeof m === "string" ? text(m) : m)) : [text("Nothing waiting from the user.")] };
+    },
+  );
+
+  sessionTool(
     "session_end",
     {
       title: "End the session",
@@ -260,12 +275,36 @@ let listening = false;
 export const setOAuthRoute = fn => void (oauthRoute = fn);
 export const mcpListening = () => listening;
 
+/**
+ * POST /inbox (full token): what the Claude Code prompt hook (`enso inbox
+ * --session-env`) injects with the user's next message. Body: { pids: [the
+ * hook's ancestor pids], t3Thread }. → { items: [text lines] }; screenshots are
+ * named by their saved path, since a hook can only add text.
+ */
+async function inboxRoute(req, res, sessions) {
+  if (req.headers.origin) return void res.writeHead(403).end();
+  if (scopeForAuthorization(req.headers.authorization, DATA) !== "full") return void res.writeHead(401).end();
+  if (req.method !== "POST") return void res.writeHead(405, { Allow: "POST" }).end();
+  let body = "";
+  for await (const chunk of req) {
+    body += chunk;
+    if (body.length > 20_000) return void res.writeHead(413).end();
+  }
+  let q = {};
+  try {
+    q = JSON.parse(body || "{}");
+  } catch {}
+  const items = sessions.takeForAgent({ pids: Array.isArray(q.pids) ? q.pids.slice(0, 12) : [], t3Thread: String(q.t3Thread ?? "").replace(/[^A-Za-z0-9_.:-]/g, "").slice(0, 128) });
+  res.writeHead(200, { "Content-Type": "application/json" }).end(JSON.stringify({ items }));
+}
+
 export function startMcpServer({ browserRequest, onReports, onAction, sessions = agentSessions }) {
   mcpToken("full"); // create both tokens on first start
   mcpToken("read");
 
   const httpServer = http.createServer(async (req, res) => {
     if (oauthRoute && req.method === "GET" && req.url?.startsWith("/oauth/callback")) return oauthRoute(req, res);
+    if (req.url === "/inbox") return inboxRoute(req, res, sessions);
     if (!req.url?.startsWith("/mcp")) return void res.writeHead(404).end();
     if (req.headers.origin) return void res.writeHead(403).end("Browser requests are not allowed."); // no web pages
     const scope = scopeForAuthorization(req.headers.authorization, DATA); // read per request: `enso mcp rotate` applies at once
@@ -279,6 +318,7 @@ export function startMcpServer({ browserRequest, onReports, onAction, sessions =
     try {
       const parsed = body ? JSON.parse(body) : undefined;
       const client = identifyClient({ headers: req.headers, body: parsed, scope });
+      sessions.seen?.(client); // a connected agent can be sent screenshots, even while idle
       const server = buildServer({ browserRequest, onReports, onAction, sessions, client });
       const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
       res.on("close", () => {

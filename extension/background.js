@@ -518,6 +518,75 @@ browser.runtime.onMessage.addListener((msg, sender) => {
   }
 });
 
+// ---------- screenshots to agents ("Send screenshot", ⌘⇧2) ----------
+// Captures the visible area, a dragged region (pageagent.js "region_select") or the
+// full page (Firefox's captureTab takes a rect in page coordinates, beyond the
+// viewport), then hands the image to Ensō's UI, which shows the send sheet. The
+// helper sends it on (lib/screenshots.mjs); nothing is captured on private sites.
+
+const MAX_SHOT_SIDE = 16_384; // px of the captured image
+const MAX_SHOT_PIXELS = 36_000_000;
+let pendingCapture = null; // a capture made while no Ensō page was open (the shortcut opens the sidebar)
+
+function consoleErrorsOf(tabId) {
+  const buf = consoleTabs.get(tabId);
+  if (!buf) return null; // console capture never ran on this tab
+  return buf.entries.filter(e => e.level === "error").slice(-20).map(e => ({ t: e.t, text: String(e.text ?? "").slice(0, 600), source: e.source ?? "" }));
+}
+
+async function captureScreenshot(mode = "region") {
+  const tab = await activeTab();
+  if (!tab || !isWeb(tab.url)) throw new Error("Open a web page to take a screenshot of it.");
+  if (isSensitive(tab.url)) throw new Error("This is a private page (banking, health or similar); screenshots are off here.");
+  if (tab.discarded) throw new Error("This tab is unloaded; open it first.");
+  let rect = null;
+  let scale = 1;
+  if (mode === "region") {
+    const sel = await agent(tab.id, "region_select", {});
+    if (sel?.cancelled) return { cancelled: true };
+    mode = sel?.mode ?? "visible";
+    if (mode === "region") rect = sel.rect;
+  }
+  if (mode === "full") {
+    const size = await agent(tab.id, "page_size", {});
+    const w = Math.min(size.width, MAX_SHOT_SIDE);
+    const h = Math.min(size.height, MAX_SHOT_SIDE * 4);
+    rect = { x: 0, y: 0, width: w, height: h };
+    const dpr = size.dpr || 1;
+    scale = Math.min(1, MAX_SHOT_SIDE / (h * dpr), Math.sqrt(MAX_SHOT_PIXELS / (w * h * dpr * dpr))) || 1;
+  }
+  const opts = { format: "png", ...(rect ? { rect } : {}), ...(scale < 1 ? { scale } : {}) };
+  let image = await browser.tabs.captureTab(tab.id, opts);
+  // T3 takes images up to 10 MB: a huge PNG goes as JPEG instead.
+  if (image.length * 0.75 > 9_500_000) image = await browser.tabs.captureTab(tab.id, { ...opts, format: "jpeg", quality: 88 });
+  return { image, mode, tab: tabInfo(tab), consoleErrors: consoleErrorsOf(tab.id), at: Date.now() };
+}
+
+async function screenshotFor(port, mode) {
+  let msg;
+  try {
+    msg = { type: "screenshot.captured", ...(await captureScreenshot(mode)) };
+  } catch (err) {
+    msg = { type: "screenshot.captured", error: String(err.message ?? err) };
+  }
+  if (port) return port.postMessage(msg);
+  // The shortcut: the sidebar shows the send sheet (it may still be opening).
+  const sidebars = [...uis].filter(p => String(p.sender?.url ?? "").includes("/sidebar.html"));
+  if (sidebars.length) for (const p of sidebars) p.postMessage(msg);
+  else pendingCapture = msg; // it gets it when it connects
+}
+
+browser.commands.onCommand.addListener(command => {
+  if (command !== "send-screenshot") return;
+  // open() must run in the user-input handler, before anything is awaited.
+  try {
+    browser.sidebarAction.open().catch(() => {});
+  } catch {}
+  screenshotFor(null, "region");
+});
+
+browser.tabs.onRemoved.addListener(tabId => native?.postMessage({ type: "send.tab_closed", tabId })); // tab → thread links end with the tab
+
 // ---------- the helper connection ----------
 
 function broadcast(msg) {
@@ -606,7 +675,12 @@ browser.runtime.onConnect.addListener(port => {
   connectNative();
   pushCurrentPage(port);
   port.postMessage({ type: "agents", sessions: agentSessions });
+  if (pendingCapture && String(port.sender?.url ?? "").includes("/sidebar.html")) {
+    if (Date.now() - (pendingCapture.at ?? Date.now()) < 60_000) port.postMessage(pendingCapture);
+    pendingCapture = null;
+  }
   port.onMessage.addListener(async msg => {
+    if (msg.type === "screenshot.capture") return screenshotFor(port, msg.mode);
     if (msg.type === "tabs.list") {
       const tabs = (await browser.tabs.query({ windowType: "normal" })).filter(t => isWeb(t.url));
       const win = (await activeTab())?.windowId;

@@ -5,6 +5,44 @@ share one version number. Dates are the tag dates. Releases are published to
 <https://enso.wicker.life> by the release workflow ([docs/releasing.md](docs/releasing.md));
 the extension updates itself, the helper updates when you run the installer again.
 
+## Unreleased
+
+Send screenshots to your agents: capture a page in Zen and send it, with a
+message, to the agent you're working with. Guide:
+[site/content/docs/screenshots.md](site/content/docs/screenshots.md).
+
+- **Capture**: ⌘⇧2 (Ctrl+Shift+2 elsewhere; manifest command `send-screenshot`)
+  or the camera button in the sidebar and full page. Drag a region, Enter for
+  the visible area, F for the full page (Firefox's `captureTab` with a page
+  rect; long pages are scaled, huge PNGs become JPEG). Private sites refused.
+- **Send sheet and picker**: thumbnail, target, message (Enter sends, Esc
+  cancels), page URL and title (on) and console errors (off) as context;
+  "Always send this tab here"; a site → T3 project link; a toast with
+  "Open in T3" (`t3code://threads/<environment>/<thread>`).
+- **Targets are pluggable** (`lib/screenshots.mjs`): T3 Code threads; agents
+  connected through `enso mcp` (Claude Code, Codex, OpenCode, Cursor…), which
+  get the image as MCP content with their next tool call or from the new
+  `inbox_read` tool; and the clipboard ("Copy image", "Save + copy path").
+- **Target order**: an agent on the tab (its T3 thread when it runs in T3
+  Code), a tab link, a site → project link, then the picker (running and
+  waiting threads first, then the matching project, then recent).
+- **T3 Code** (`lib/t3.mjs`): `enso t3 connect | status | disconnect` and
+  Settings → Send screenshots → Connect T3 issue a T3 session with only
+  `orchestration:read` and `orchestration:operate` (30 days), kept in the
+  Keychain (`enso-t3`). Threads come from `/api/orchestration/shell`; images are
+  uploaded with `attachments.createUploadUrl` and sent with
+  `orchestration.dispatchCommand` (`message.dispatch`, queued after a running
+  turn) over T3's RPC WebSocket. Without attachment uploads the PNG is saved
+  and its path sent with `t3 thread send`.
+- **The launcher** sends `X-Enso-T3-Thread` (`$T3CODE_THREAD_ID`) and
+  `X-Enso-Agent-Pid`; agent sessions and the agent card show the T3 thread.
+- **`enso mcp install`**: OpenCode (`~/.config/opencode/opencode.json`), Codex
+  `env_vars = ["T3CODE_THREAD_ID"]`, and `--hooks`, a Claude Code
+  UserPromptSubmit hook (`enso inbox --session-env`, backed by `POST /inbox`)
+  so an idle Claude Code gets screenshots with the next message.
+- **Settings → Send screenshots**: T3 connection, connected agents, and Linked
+  threads (tab links end with the tab; site links stay until removed).
+
 ## 0.5.3 (10 November 2026)
 
 Agent presence and steering: what an external agent does in Zen is visible

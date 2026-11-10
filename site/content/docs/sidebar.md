@@ -29,7 +29,11 @@ You see each step as it happens: which tool it used, with what input, and a shor
 
 ## When another agent is working
 
-When Claude Code, Codex or another agent works on the tab you are looking at through Ensō, a card at the top of the sidebar shows it: its name and task, how long it has been at it, and its last steps, updating as it goes. **Pause**, **Stop** and **Tell the agent…** let you hold it, end it or correct it without going back to its window. Agents in other tabs are listed in the **Agents** row below. Clicking the ✦ pill on the page opens the sidebar on that card. See [Use Zen from other agents](/docs/other-agents#steering-an-agent).
+When Claude Code, Codex or another agent works on the tab you are looking at through Ensō, a card at the top of the sidebar shows it: its name and task, how long it has been at it, and its last steps, updating as it goes. **Pause**, **Stop** and **Tell the agent…** let you hold it, end it or correct it without going back to its window. Agents in other tabs are listed in the **Agents** row below. Clicking the ✦ pill on the page opens the sidebar on that card. See [Use Zen from other agents](/docs/other-agents#steering-an-agent). When the agent runs in a T3 Code thread, the card names the thread, with **Open in T3**.
+
+## Send a screenshot to an agent
+
+The camera button at the top (or <kbd>⌘</kbd><kbd>⇧</kbd><kbd>2</kbd> anywhere) takes a screenshot of the page, a region you drag or the whole page, and sends it with a message to a T3 Code thread, to Claude Code, Codex, OpenCode or Cursor, or to the clipboard. See [Send screenshots to your agents](/docs/screenshots).
 
 ## The full page
 

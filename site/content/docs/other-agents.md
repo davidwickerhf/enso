@@ -17,11 +17,12 @@ The installer offers to set up Claude Code. For all of them:
 enso mcp install
 ```
 
-It registers Ensō as `zen-browser` with Claude Code, Codex and Cursor, whichever you have. Restart them, or start a new session, and ask "what tabs do I have open?".
+It registers Ensō as `zen-browser` with Claude Code, Codex, Cursor and OpenCode, whichever you have. Restart them, or start a new session, and ask "what tabs do I have open?".
 
 | Command | Does |
 |---|---|
-| `enso mcp install --client codex` | Just one client: `claude`, `codex` or `cursor` |
+| `enso mcp install --client codex` | Just one client: `claude`, `codex`, `cursor` or `opencode` |
+| `enso mcp install --hooks` | Also lets an idle Claude Code get your [screenshots](/docs/screenshots) with your next message |
 | `enso mcp install --read-only` | Read-only access (below) |
 | `enso mcp status` | Whether Zen's helper is reachable, and which clients are registered |
 | `enso mcp uninstall` | Removes the registrations |
@@ -59,6 +60,8 @@ From the card in the sidebar:
 - **Tell the agent…** sends it a note, such as "use the work account, not the personal one". The agent gets it with the result of its next step, marked as coming from you. The note says "Waiting for the agent's next step" until then, and **Delivered** after.
 - **Pause** holds the agent on this tab: its next steps there are refused and it is told to wait. **Resume** lets it continue, and tells it to read the page again, since you may have changed it.
 - **Stop** ends the task: everything it tries in Zen is refused, and it is told to stop. It keeps running in its own app; a new session there can use Zen again.
+
+You can also send an agent a screenshot of the page, even while it's idle: press <kbd>⌘</kbd><kbd>⇧</kbd><kbd>2</kbd> and pick it under **Agents**. It gets the image with its next step, or when it calls `inbox_read`. See [Send screenshots to your agents](/docs/screenshots).
 
 Agents are asked to say what they are doing when they start (`session_start`). Those that don't still show up, with their name and their latest step.
 

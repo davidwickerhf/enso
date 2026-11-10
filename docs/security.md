@@ -15,6 +15,7 @@ the limits you set. Privacy (what leaves the Mac) is in [privacy.md](privacy.md)
 - [External control](#external-control)
 - [The MCP server](#the-mcp-server)
 - [Notes to agents, Pause and Stop](#notes-to-agents)
+- [Screenshots to agents and T3 Code](#screenshots-to-agents-and-t3-code)
 - [Secrets](#secrets)
 - [OAuth sign-in](#oauth-sign-in)
 - [What Ensō never returns](#what-ensō-never-returns)
@@ -208,7 +209,7 @@ suggests opening tabs is blocked in Read mode; it isn't.
 Rules the code follows, and that changes must keep:
 
 - Secrets live in the macOS login Keychain (`enso-anthropic`, `enso-github`,
-  `enso-mcp-<name>`, and names you choose for `extraServers`), except the two
+  `enso-mcp-<name>`, `enso-t3`, and names you choose for `extraServers`), except the two
   MCP tokens, which are 0600 files so the launcher can read them without a
   Keychain prompt.
 - Values never appear on a command line, where `ps` could read them. Writes go
@@ -287,6 +288,55 @@ Since 0.5.3 the user can steer an external agent from Ensō's agent card
   extension UUID).
 - **Typed text** is never kept in full in a session: page_type steps show at
   most 40 characters, and nothing typed into a password field ("••••••").
+
+## Screenshots to agents and T3 Code
+
+"Send screenshot" (⌘⇧2) captures what the user sees, so a screenshot can hold
+anything on the page: mail, documents, tokens printed in a console.
+
+- **Only the user starts one.** Capture runs from the `send-screenshot` command
+  or the camera button in Ensō's own pages; agents can't trigger it (they have
+  `page_screenshot` for their own use, under External control). Private sites
+  (banking, health) are refused, like every other tool.
+- **It stays on this Mac.** The image goes to the helper over native messaging,
+  then to one of: the user's T3 Code server, which must be on a loopback
+  address (`127.0.0.1`, `localhost`, `[::1]`; anything else in T3's runtime file
+  is ignored); an agent connected through `enso mcp` (in memory until
+  delivered, at most 5 per agent, then dropped); or the clipboard. Whatever the
+  agent then does with it (its AI provider sees it) is the agent's business, as
+  with anything else the user gives it.
+- **Saved copies.** The T3 fallback, the Claude Code hook and "Save + copy path"
+  write the PNG to `<data>/screenshots` (folder 0700, files 0600). Files older
+  than 14 days are deleted on the next save.
+- **Context is opt-in.** The page URL and title are sent only when ticked
+  (default on); console errors only when ticked (default off), and only from
+  console capture that was already running on that tab.
+- **The T3 token.** `enso t3 connect` (or Settings → Send screenshots →
+  Connect T3) runs `t3 auth session issue --scope orchestration:read --scope
+  orchestration:operate --label Ensō --ttl 30d --json`: a bearer session that can
+  read threads and send messages, and nothing else (no settings, terminal,
+  filesystem, source-control or access scopes). The helper reads the CLI's
+  stdout from a pipe and writes the token, its session id and expiry into the
+  login Keychain (service `enso-t3`) through `security -i` on stdin. It is never
+  printed, logged, written to a file, put on a command line, or sent to the UI;
+  `enso t3 status` and the UI show only whether it works. `enso t3 disconnect`
+  revokes the session in T3 (`t3 auth session revoke <id>`; the id is not a
+  secret) and deletes the item. A revoked or expired token gives "Connect
+  again", never a retry loop. The helper strips `T3CODE_THREAD_ID` from the
+  CLI's environment.
+- **What the token can do in T3.** Orchestration operate lets Ensō send a
+  message to any of the user's threads, queued after a running turn; Ensō only
+  does that when the user presses Send on a target they can see. It uses the API
+  T3's own web and mobile clients use; T3's MCP endpoint isn't used (its client
+  sessions are capped at approval-required and refused by full-access threads).
+- **Hook and inbox route.** `POST /inbox` on the MCP port needs the full token
+  and refuses requests with an `Origin`, like `/mcp`. It hands out only items
+  for agents whose process is an ancestor of the caller (or that run in the
+  caller's T3 thread), and marks them delivered. The hook prints nothing when
+  Ensō isn't running, so it never blocks a prompt.
+- **Thread ids from agents.** `X-Enso-T3-Thread` comes from the agent's own
+  environment and only decides which thread the user's screenshot of that tab
+  is offered to; the user still sees the target and presses Send.
 
 ## Known limits
 
