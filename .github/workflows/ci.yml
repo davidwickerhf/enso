@@ -2,8 +2,10 @@ name: CI
 
 on:
   pull_request:
+    paths-ignore: ['site/**', '.github/workflows/site.yml']
   push:
     branches: [main]
+    paths-ignore: ['site/**', '.github/workflows/site.yml']
 
 permissions:
   contents: read
@@ -25,7 +27,7 @@ jobs:
       - name: Syntax-check every module
         run: |
           status=0
-          for f in $(git ls-files '*.mjs' '*.js'); do
+          for f in $(git ls-files '*.mjs' '*.js' ':!site'); do
             node --input-type=module --check < "$f" || { echo "::error file=$f::syntax error"; status=1; }
           done
           bash -n scripts/install.sh scripts/dev.sh scripts/pack-helper.sh || status=1

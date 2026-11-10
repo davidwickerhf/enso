@@ -2,8 +2,8 @@
 
 What Ensō keeps on your Mac, what it sends where, and when. This page describes
 what the code does, for developers and reviewers. The legal text is the privacy
-policy at <https://enso.wicker.life/privacy> (source: `content/privacy.md` in
-the enso-site repository); the user-facing summary is
+policy at <https://enso.wicker.life/privacy> (source:
+[site/content/privacy.md](../site/content/privacy.md)); the user-facing summary is
 <https://enso.wicker.life/docs/privacy-data>. If this page and the policy
 disagree, the policy needs a decision, not a quiet edit: see
 [Open points](#open-points-against-the-published-policy).

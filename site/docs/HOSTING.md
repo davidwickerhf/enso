@@ -1,4 +1,4 @@
-# Hosting: enso-site (enso.wicker.life)
+# Hosting: enso.wicker.life (`site/`)
 
 Status: **live since 2026-11-09** at https://enso.wicker.life. This describes what was created on wicker-01, following [wicker-infra](https://github.com/davidwickerhf/wicker-infra) (`AGENTS.md`, `docs/apps.md`, `docs/coolify.md`, `docs/databases.md`, `docs/storage.md`, `docs/mail.md`, `docs/auth.md`, `docs/dns-domains.md`, `docs/gotchas.md`). The app is listed in wicker-infra's `docs/apps.md`.
 
@@ -8,7 +8,8 @@ Status: **live since 2026-11-09** at https://enso.wicker.life. This describes wh
 |---|---|
 | Coolify app uuid | `ci9bhbdmovlobdhe2tboo0rv` (name `enso-site`) |
 | Coolify project | Personal (`yzzzxoeygijivcpdwggvphu0`) |
-| Build pack | Dockerfile (repo root: SvelteKit adapter-node on `node:24-slim`) |
+| Repository | `davidwickerhf/enso`, base directory `/site`, Dockerfile `/Dockerfile` (relative to the base), watch paths `site/**` (until 2026-11-10: `davidwickerhf/enso-site`, now archived) |
+| Build pack | Dockerfile (SvelteKit adapter-node on `node:24-slim`) |
 | Port | 3000 |
 | Deploy branch | `main` (auto-deploy through the Coolify GitHub App `huliejufyuharbrgw3jz6lty`) |
 | Services | one container: migrates, then serves (`scripts/start.sh`). Run **one replica**: rate limits are in memory |
@@ -65,7 +66,7 @@ Without S3 vars the app stores bytes in Postgres (`objects` table). That is for 
 
 ### 5. Coolify application
 
-- New resource → Public/Private repo (GitHub App) → `davidwickerhf/enso-site`, branch `main`, build pack **Dockerfile**, port 3000.
+- New resource → Public/Private repo (GitHub App) → `davidwickerhf/enso`, branch `main`, base directory `/site`, watch paths `site/**`, build pack **Dockerfile**, port 3000. (Originally created from `davidwickerhf/enso-site`.)
 - Domains: `https://enso.wicker.life,https://enso.c.wicker.life`.
 - Health check: leave Coolify's health check **disabled** (see Overview); the Dockerfile `HEALTHCHECK` covers `/api/health`. If you enable it, the image needs curl or wget first.
 - Environment variables (names only; values per the sections above):
@@ -98,7 +99,7 @@ Coolify adds a preview-scoped copy of each variable automatically (previews are 
 
 ## Releases (extension + helper)
 
-The extension repo publishes with `docs/ci/extension-release.yml` (copy it to that repo's `.github/workflows/release.yml`). On a `v*` tag it signs the xpi through AMO (unlisted), builds the helper tarball and calls:
+The repo publishes with `.github/workflows/release.yml`. On a `v*` tag it signs the xpi through AMO (unlisted), builds the helper tarball and calls:
 
 ```sh
 curl --fail-with-body -X PUT -H "Authorization: Bearer $ENSO_RELEASE_TOKEN" \
