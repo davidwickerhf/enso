@@ -222,10 +222,12 @@ async function setListing({ previews, replacePreviews, icon, dryRun }) {
 
 function writeMetadata(version, out) {
   const notes = releaseNotes(version);
+  const approval = read(listing.approval_notes_file);
+  if (approval.length > 3000) throw new Error(`${listing.approval_notes_file} is ${approval.length} characters; AMO allows 3000`);
   const meta = {
     version: {
       license: listing.license,
-      approval_notes: read(listing.approval_notes_file),
+      approval_notes: approval,
       ...(notes ? { release_notes: tr(notes) } : {})
     }
   };

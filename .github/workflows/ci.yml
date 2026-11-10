@@ -44,6 +44,11 @@ jobs:
             console.log(`Ensō ${m.version} (${id})`);
           '
 
+      - name: Check the AMO listing and submission metadata
+        run: |
+          node amo/amo.mjs listing --dry-run > /dev/null
+          node amo/amo.mjs metadata "$(node -p 'require("./extension/manifest.json").version')" "$RUNNER_TEMP/amo-metadata.json"
+
       - name: Lint the extension
         run: npx --yes web-ext@8 lint --source-dir extension
 
