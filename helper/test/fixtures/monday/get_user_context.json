@@ -1,0 +1,88 @@
+{
+  "_source": {
+    "commit": "4299b7a5b22dfda17ede8c7dcadc38cbbb47a35c",
+    "files": [
+      "https://github.com/mondaycom/mcp/blob/4299b7a5b22dfda17ede8c7dcadc38cbbb47a35c/packages/agent-toolkit/src/core/tools/platform-api-tools/user-context-tool/user-context-tool.ts",
+      "https://github.com/mondaycom/mcp/blob/4299b7a5b22dfda17ede8c7dcadc38cbbb47a35c/packages/agent-toolkit/src/core/tools/platform-api-tools/user-context-tool/user-context.graphql.dev.ts",
+      "https://github.com/mondaycom/mcp/blob/4299b7a5b22dfda17ede8c7dcadc38cbbb47a35c/packages/agent-toolkit/src/core/tools/platform-api-tools/user-context-tool/user-context-tool.test.ts",
+      "https://github.com/mondaycom/mcp/blob/4299b7a5b22dfda17ede8c7dcadc38cbbb47a35c/packages/agent-toolkit/src/mcp/toolkit.ts (formatToolResult: object content -> structuredContent + content[0].text = JSON.stringify(content), compact, no prefix; string content -> text only)"
+    ],
+    "notes": "No input schema. 'message' is the first key, then user/account/favorites/relevantBoards/relevantDocs/relevantPeople. user has only id,name,title (no email, no account slug). favorites[].type is GraphqlMondayObject ('Board'|'Folder'|'Workspace'|'Dashboard'). Missing user -> plain text 'AUTHENTICATION_ERROR: Unable to fetch current user. Verify API token and user permissions.'",
+    "synthetic_values": "IDs, names, dates are invented; key names, nesting and ordering follow the source."
+  },
+  "_call": {
+    "name": "get_user_context",
+    "arguments": {}
+  },
+  "result": {
+    "structuredContent": {
+      "message": "User context",
+      "user": {
+        "id": "71234567",
+        "name": "Dana Example",
+        "title": "Research Engineer"
+      },
+      "account": {
+        "tier": "pro",
+        "active_members_count": 42,
+        "is_during_trial": false,
+        "products": [
+          {
+            "kind": "core",
+            "tier": "pro"
+          },
+          {
+            "kind": "software",
+            "tier": "pro"
+          }
+        ]
+      },
+      "favorites": [
+        {
+          "id": "1840000001",
+          "name": "Team Tasks",
+          "type": "Board"
+        },
+        {
+          "id": "1840000002",
+          "name": "Q4 Roadmap",
+          "type": "Board"
+        },
+        {
+          "id": "9000123",
+          "name": "Engineering",
+          "type": "Workspace"
+        }
+      ],
+      "relevantBoards": [
+        {
+          "id": "1840000001",
+          "name": "Team Tasks"
+        },
+        {
+          "id": "1840000003",
+          "name": "Bug Tracker"
+        }
+      ],
+      "relevantDocs": [
+        {
+          "id": "5550001",
+          "name": "Sprint Notes",
+          "objectId": "1840009999"
+        }
+      ],
+      "relevantPeople": [
+        {
+          "id": "71230001",
+          "name": "Alex Colleague"
+        }
+      ]
+    },
+    "content": [
+      {
+        "type": "text",
+        "text": "{\"message\":\"User context\",\"user\":{\"id\":\"71234567\",\"name\":\"Dana Example\",\"title\":\"Research Engineer\"},\"account\":{\"tier\":\"pro\",\"active_members_count\":42,\"is_during_trial\":false,\"products\":[{\"kind\":\"core\",\"tier\":\"pro\"},{\"kind\":\"software\",\"tier\":\"pro\"}]},\"favorites\":[{\"id\":\"1840000001\",\"name\":\"Team Tasks\",\"type\":\"Board\"},{\"id\":\"1840000002\",\"name\":\"Q4 Roadmap\",\"type\":\"Board\"},{\"id\":\"9000123\",\"name\":\"Engineering\",\"type\":\"Workspace\"}],\"relevantBoards\":[{\"id\":\"1840000001\",\"name\":\"Team Tasks\"},{\"id\":\"1840000003\",\"name\":\"Bug Tracker\"}],\"relevantDocs\":[{\"id\":\"5550001\",\"name\":\"Sprint Notes\",\"objectId\":\"1840009999\"}],\"relevantPeople\":[{\"id\":\"71230001\",\"name\":\"Alex Colleague\"}]}"
+      }
+    ]
+  }
+}

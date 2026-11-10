@@ -1,5 +1,8 @@
 // New-tab widgets: small, glanceable tiles under the box (Next up, Due soon,
-// Tasks, Mail, Practice, GitHub, Clock, Recent chats, Quick links, Note, Ask).
+// Tasks, monday.com, Mail, Practice, GitHub, Clock, Recent chats, Quick links, Note, Ask).
+// Tasks and monday.com keep themselves fresh: the helper pushes new data right
+// after a chat changes tasks, and pages ask again when they open or become
+// visible (data older than a minute) and every five minutes while visible.
 // Hidden until the user adds them via Customize; layout persists in
 // settings.homeWidgets (localStorage as fallback). Edit mode (top-bar button,
 // "Edit widgets" under the grid, or right-click a widget): drag or arrow keys
@@ -30,6 +33,7 @@ export const TYPES = {
   tasks: { name: "Tasks", desc: "Open tasks from your task apps (e.g. Commonfold); tick them off.", icon: "check", sizes: ["M", "S"] },
   mail: { name: "Mail", desc: "How many emails need you, and the top one.", icon: "mail", sizes: ["S", "M"], data: true },
   language: { name: "Practice", desc: "Today's practice (e.g. a language app) in one line.", icon: "languages", sizes: ["M", "S"], data: true },
+  monday: { name: "monday.com", desc: "Items assigned to you across your boards, with status and due date; recent updates.", icon: "layout", sizes: ["M", "S"] },
   github: { name: "GitHub", desc: "Reviews waiting for you, your PRs that need you, assigned issues.", icon: "pullRequest", sizes: ["M", "S"] },
   clock: { name: "Clock", desc: "The time and date.", icon: "clock", sizes: ["S", "M"] },
   chats: { name: "Recent chats", desc: "Your last three conversations in this space.", icon: "chat", sizes: ["M", "S"] },
@@ -70,27 +74,64 @@ const normTitle = t => String(t ?? "").toLowerCase().replace(/[^\p{L}\p{N}]+/gu,
 const NOT_A_TASK_APP = /mail|outlook|calendar|meet|study|course|canvas|github/i;
 const fromTaskApp = t => (t.kind ? t.kind === "app" : !NOT_A_TASK_APP.test(t.source ?? ""));
 
+const dayStart = d => new Date(d).setHours(0, 0, 0, 0);
+/** Whole days from today to the due day (negative: overdue), or null without a date. */
+export function dueDays(due, now = new Date()) {
+  const d = parseDue(due);
+  return d ? Math.round((dayStart(d) - dayStart(now)) / 86_400_000) : null;
+}
+/** A due value's sort time: a bare date counts as the end of that day, so timed tasks that day come first. */
+const dueSortTime = due => {
+  const d = parseDue(due);
+  if (!d) return 0;
+  return /T/.test(due) ? d.getTime() : new Date(d).setHours(23, 59, 59, 0);
+};
+
+/** Overdue first, then due today, then the rest by date, then undated (ties: reminder, then title). Same order as the helper's sortTasks. */
+export function orderTasks(rows, now = new Date()) {
+  const bucket = r => { const n = dueDays(r.due, now); return n == null ? 3 : n < 0 ? 0 : n === 0 ? 1 : 2; };
+  return [...rows].sort((a, b) => bucket(a) - bucket(b) || dueSortTime(a.due) - dueSortTime(b.due) || (parseDue(a.remindAt)?.getTime() ?? 9e15) - (parseDue(b.remindAt)?.getTime() ?? 9e15) || String(a.title).localeCompare(String(b.title)));
+}
+
 /**
- * Rows for the Tasks widget: tasks fetched directly from task apps (tasks.widget)
- * first, then the dashboard's tasks that came from a task app (kind "app", or a
- * source that isn't mail/calendar/study/GitHub), minus duplicates and apps the
- * direct path already covered. `local` rows can only be hidden locally.
+ * Rows for the Tasks widget: tasks fetched directly from task apps (tasks.widget),
+ * monday.com items with a due date (monday.widget), then the dashboard's tasks that
+ * came from a task app (kind "app", or a source that isn't mail/calendar/study/GitHub),
+ * minus duplicates and apps the direct path already covered. `local` rows can only be
+ * hidden locally. late: overdue; soon: due today or tomorrow.
  */
-export function taskRows(direct, dashTasks, { done = new Set(), completing = new Set() } = {}) {
+export function taskRows(direct, dashTasks, { done = new Set(), completing = new Set(), monday = null, now = new Date() } = {}) {
   const tasks = direct?.tasks ?? [];
+  const mondayItems = monday?.state === "ok" ? monday.items.filter(i => i.due) : [];
   const covered = new Set((direct?.servers ?? []).filter(x => x.ok).map(x => String(x.label).toLowerCase()));
+  if (monday?.state === "ok") covered.add("monday.com").add("monday");
   const titles = new Set(tasks.map(t => normTitle(t.title)));
   const rows = [
     ...tasks.map(t => ({ ...t, key: `${t.server}|${t.id}`, local: !t.completable })),
-    ...(dashTasks ?? [])
-      .filter(t => fromTaskApp(t) && !covered.has(String(t.source ?? "").toLowerCase()) && !titles.has(normTitle(t.title)))
-      .map(t => ({ title: t.title, due: t.due, url: t.url, source: t.source, key: itemKey({ source: t.source, title: t.title }), local: true })),
+    ...mondayItems.filter(i => !titles.has(normTitle(i.title))).map(i => ({ id: i.id, title: i.title, due: i.due, url: i.url, source: "monday.com", key: `monday:${i.id}`, local: true })),
   ];
-  const now = Date.now();
-  return rows
-    .filter(r => !done.has(r.key) && !completing.has(r.key))
-    .map(r => ({ ...r, late: (parseDue(r.due)?.getTime() ?? Infinity) < new Date(now).setHours(0, 0, 0, 0) }))
-    .sort((a, b) => (b.late - a.late) || ((parseDue(a.due)?.getTime() ?? 9e15) - (parseDue(b.due)?.getTime() ?? 9e15)));
+  for (const r of rows) titles.add(normTitle(r.title));
+  rows.push(...(dashTasks ?? [])
+    .filter(t => fromTaskApp(t) && !covered.has(String(t.source ?? "").toLowerCase()) && !titles.has(normTitle(t.title)))
+    .map(t => ({ title: t.title, due: t.due, url: t.url, source: t.source, key: itemKey({ source: t.source, title: t.title }), local: true })));
+  return orderTasks(rows.filter(r => !done.has(r.key) && !completing.has(r.key)), now)
+    .map(r => { const n = dueDays(r.due, now); return { ...r, late: n != null && n < 0, soon: n === 0 || n === 1 }; });
+}
+
+/** Up to n rows in order, making room for `keep` rows (just created in a chat) so they are always visible. */
+export function pickShown(rows, n, keep = new Set()) {
+  const must = rows.filter(r => keep.has(r.key)).slice(0, n);
+  const rest = rows.filter(r => !keep.has(r.key)).slice(0, n - must.length);
+  const chosen = new Set([...must, ...rest]);
+  return rows.filter(r => chosen.has(r));
+}
+
+/** The reminder as a short time ("17:00", or "Wed 17:00" on another day than the due date). */
+function reminderLabel(r) {
+  const d = parseDue(r.remindAt);
+  if (!d || !/T/.test(r.remindAt)) return "";
+  const due = parseDue(r.due);
+  return due && dayStart(due) === dayStart(d) ? hm(d) : `${d.toLocaleDateString(undefined, { weekday: "short" })} ${hm(d)}`;
 }
 
 export function createWidgets(store, ctx, { onEdit } = {}) {
@@ -178,13 +219,25 @@ export function createWidgets(store, ctx, { onEdit } = {}) {
       items.length > shown.length ? h("span", { class: "w-more" }, `+${items.length - shown.length} more`) : null);
   }
 
+  // Rows a chat just created stay marked "new" for a minute; the flash plays once (the
+  // animation continues across redraws via a negative delay). Reduced motion: no flash, the tag stays.
+  const NEW_MS = 60_000;
+  const FLASH_MS = 2400;
+  const newSince = new Map(); // row key -> first seen
+  function noteAdded(keys) { const t = Date.now(); for (const k of keys ?? []) if (!newSince.has(k)) newSince.set(k, t); }
+  const newKeys = () => { const t = Date.now(); for (const [k, at] of newSince) if (t - at > NEW_MS) newSince.delete(k); return new Set(newSince.keys()); };
+  const flashing = key => newSince.has(key) && Date.now() - newSince.get(key) < FLASH_MS;
+  const newAttrs = key => (flashing(key) ? { style: `--new-delay:-${Date.now() - newSince.get(key)}ms` } : {});
+  const newTag = () => h("span", { class: "w-new-tag" }, "New");
+
   function tasksBody(w) {
     const t = s.tasks;
-    if (!t.data && !dash() && (t.loading || !s.ready || !t.at)) return loadingSkel();
-    const rows = taskRows(t.data, dash()?.tasks, { done: new Set(load(DONE_KEY, [])), completing: t.completing });
+    if (!t.data && !dash() && !s.monday.data && (t.loading || !s.ready || !t.at)) return loadingSkel();
+    const rows = taskRows(t.data, dash()?.tasks, { done: new Set(load(DONE_KEY, [])), completing: t.completing, monday: s.monday.data });
+    const fresh = newKeys();
     const err = t.lastError ? h("span", { class: "w-task-err", role: "status" }, `Couldn't complete: ${t.lastError}`) : null;
     if (!rows.length) {
-      const anyApp = (t.data?.servers ?? []).length > 0 || (dash()?.tasks ?? []).some(x => x.kind === "app");
+      const anyApp = (t.data?.servers ?? []).length > 0 || (dash()?.tasks ?? []).some(x => x.kind === "app") || s.monday.data?.state === "ok";
       return h("div", { class: "w-col" }, empty(anyApp ? "No open tasks. Nice." : "No task app connected"),
         anyApp ? err : h("button", { type: "button", class: "b-link w-action", onclick: () => actions.go("tools") }, "Connect one ›"));
     }
@@ -194,22 +247,74 @@ export function createWidgets(store, ctx, { onEdit } = {}) {
       else actions.completeTask(r.server, r.id);
       live.textContent = `Marked ${r.title} done`;
     } });
-    const meta = r => [r.source, r.due ? dueLabel(r.due) : ""].filter(Boolean).join(" · ");
+    const when = r => [r.due ? dueLabel(r.due) : "", reminderLabel(r)].filter(Boolean);
+    const meta = r => [r.source, ...when(r)].filter(Boolean).join(" · ");
+    const whenEl = r => (r.due ? h("span", { class: "w-due-when" }, dueLabel(r.due), reminderLabel(r) ? h("span", { class: "w-remind", title: `Reminder ${reminderLabel(r)}` }, icon("bell"), reminderLabel(r)) : null) : null);
     const openRow = r => open(r.url, `Help me with my task “${r.title}”${r.source ? ` (${r.source})` : ""}`);
+    const rowClass = r => ["w-due-row", r.late && "late", r.soon && "soon", fresh.has(r.key) && "is-new", flashing(r.key) && "flash"];
     if (w.size === "S") {
-      const top = rows[0];
+      const top = pickShown(rows, 1, fresh)[0];
       return h("div", { class: "w-col" },
         h("span", { class: "w-big" }, String(rows.length), h("small", null, " open")),
-        h("div", { class: ["w-due-row", "w-task-top", top.late && "late"] }, tick(top),
+        h("div", { class: [...rowClass(top), "w-task-top"], ...newAttrs(top.key) }, tick(top),
           h("button", { type: "button", class: "w-due-text", title: [top.title, meta(top)].join(" · "), onclick: () => openRow(top) },
-            h("span", { class: "w-title one" }, top.title), h("span", { class: "w-sub" }, meta(top)))), err);
+            h("span", { class: "w-title one" }, fresh.has(top.key) ? newTag() : null, top.title), h("span", { class: "w-sub" }, meta(top)))), err);
     }
-    const shown = rows.slice(0, rows.length > 4 ? 3 : 4); // four rows fill the tile; with more, three and "+N more"
+    const shown = pickShown(rows, rows.length > 4 ? 3 : 4, fresh); // four rows fill the tile; with more, three and "+N more"
     return h("div", { class: "w-list tight w-tasks" },
-      shown.map(r => h("div", { class: ["w-due-row", r.late && "late"] }, tick(r),
-        h("button", { type: "button", class: "w-due-text", title: [r.title, meta(r)].join(" · "), onclick: () => openRow(r) }, h("span", { class: "w-title one" }, r.title)),
-        h("span", { class: "w-task-meta" }, r.source ? h("span", { class: "w-task-src" }, r.source) : null, r.due ? h("span", { class: "w-due-when" }, dueLabel(r.due)) : null))),
+      shown.map(r => h("div", { class: rowClass(r), ...newAttrs(r.key) }, tick(r),
+        h("button", { type: "button", class: "w-due-text", title: [r.title, meta(r)].join(" · "), onclick: () => openRow(r) }, h("span", { class: "w-title one" }, fresh.has(r.key) ? newTag() : null, r.title)),
+        h("span", { class: "w-task-meta" }, r.source ? h("span", { class: "w-task-src" }, r.source) : null, whenEl(r)))),
       err ?? (rows.length > shown.length ? h("span", { class: "w-more" }, `+${rows.length - shown.length} more`) : null));
+  }
+
+  // monday.com rows come from the helper (monday.widget, cached ~5 min).
+  const STATUS_TONE = [[/done|complete/i, "done"], [/stuck|blocked/i, "stuck"], [/working|progress|doing|review/i, "working"], [/wait|hold|pending/i, "wait"]];
+  const toneOf = status => STATUS_TONE.find(([re]) => re.test(status ?? ""))?.[1] ?? "other";
+  function mondayBody(w) {
+    const m = s.monday;
+    const d = m.data;
+    if (!d) return loadingSkel();
+    if (d.state === "not-connected") {
+      const text = { off: "monday.com is off in Tools", expired: "monday.com wants you to sign in again", "claude.ai": "monday.com is only connected on claude.ai" }[d.reason] ?? "monday.com isn't connected";
+      return h("div", { class: "w-col" }, empty(text), h("button", { type: "button", class: "b-link w-action", onclick: () => actions.go("tools") }, d.reason === "off" ? "Open Tools ›" : "Connect monday.com ›"));
+    }
+    if (d.state === "error") {
+      return h("div", { class: "w-col" }, h("p", { class: "w-empty", role: "status" }, d.error || "monday.com isn't responding."),
+        h("span", { class: "w-mon-actions" },
+          h("button", { type: "button", class: "b-link w-action", disabled: m.loading, onclick: () => actions.loadMonday(true) }, m.loading ? "Retrying…" : "Retry"),
+          d.kind === "auth" || d.kind === "tools" ? h("button", { type: "button", class: "b-link w-action", onclick: () => actions.go("tools") }, "Tools ›") : null));
+    }
+    const fresh = newKeys();
+    const items = d.items ?? [];
+    const due = items.filter(i => { const n = dueDays(i.due); return n != null && n <= 7; }).length;
+    const late = items.filter(i => (dueDays(i.due) ?? 0) < 0).length;
+    const rowEl = i => {
+      const n = dueDays(i.due);
+      return h("button", { type: "button", class: ["w-mon-row", n != null && n < 0 && "late", (n === 0 || n === 1) && "soon", fresh.has(`monday:${i.id}`) && "is-new", flashing(`monday:${i.id}`) && "flash"], ...newAttrs(`monday:${i.id}`), title: [i.title, i.board, i.status, i.due ? `due ${dueLabel(i.due)}` : ""].filter(Boolean).join(" · "), onclick: () => open(i.url, `Tell me about “${i.title}” on monday.com`) },
+        h("span", { class: "w-title one" }, fresh.has(`monday:${i.id}`) ? newTag() : null, i.title),
+        i.status ? h("span", { class: ["w-mon-status", `t-${toneOf(i.status)}`] }, i.status) : h("span"),
+        h("span", { class: "w-due-when" }, i.due ? dueLabel(i.due) : ""));
+    };
+    if (w.size === "S") {
+      const top = pickShown(items.map(i => ({ ...i, key: `monday:${i.id}` })), 1, fresh)[0];
+      return h("div", { class: "w-col" },
+        h("span", { class: "w-big" }, String(items.length), h("small", null, " assigned")),
+        top ? h("button", { type: "button", class: "w-gh-text", title: top.title, onclick: () => open(top.url) }, h("span", { class: "w-title one" }, top.title), h("span", { class: "w-sub" }, [top.status, top.due ? dueLabel(top.due) : top.board].filter(Boolean).join(" · "))) : empty("Nothing assigned to you"));
+    }
+    const counts = h("div", { class: "w-gh-counts" },
+      h("span", { class: ["w-gh-count", !items.length && "zero"] }, h("strong", null, String(items.length)), " assigned"),
+      h("span", { class: ["w-gh-count", "c-mine", !due && "zero"] }, h("strong", null, String(due)), " due this week"),
+      late ? h("span", { class: "w-gh-count c-late" }, h("strong", null, String(late)), " overdue") : null);
+    if (!items.length) return h("div", { class: "w-col" }, counts, empty("Nothing assigned to you"));
+    const upd = (d.updates ?? [])[0];
+    const maxRows = upd ? 2 : 3; // the counts line, then rows; the latest update takes the last line
+    const shown = pickShown(items.map(i => ({ ...i, key: `monday:${i.id}` })), maxRows, fresh);
+    return h("div", { class: "w-col w-mon" }, counts,
+      h("div", { class: "w-list tight" }, shown.map(rowEl)),
+      upd ? h("button", { type: "button", class: ["w-mon-update", upd.mention && "mention"], title: `${upd.author} on “${upd.item ?? "an item"}”: ${upd.text}`, onclick: () => open(upd.url) },
+        h("span", { class: "w-mon-who" }, upd.mention ? icon("at") : icon("chat"), upd.author),
+        h("span", { class: "one" }, upd.text)) : items.length > shown.length ? h("span", { class: "w-more" }, `+${items.length - shown.length} more`) : null);
   }
 
   function mail(w) {
@@ -323,7 +428,7 @@ export function createWidgets(store, ctx, { onEdit } = {}) {
     return h("div", { class: "w-list" }, list.map(t => h("button", { type: "button", class: "w-ask", onclick: () => ctx.ask(stripAsk(t)) }, icon("sparkle"), h("span", { class: "one" }, stripAsk(t)))));
   }
 
-  const BODY = { next: nextUp, due: dueSoon, tasks: tasksBody, mail, language, github, clock, chats, links, note, ask };
+  const BODY = { next: nextUp, due: dueSoon, tasks: tasksBody, monday: mondayBody, mail, language, github, clock, chats, links, note, ask };
 
   // ---- rendering --------------------------------------------------------
 
@@ -331,7 +436,7 @@ export function createWidgets(store, ctx, { onEdit } = {}) {
     const type = TYPES[w.type];
     const needsData = type.data && !dash();
     const body = needsData ? (s.dashboard.loading || !s.ready ? loadingSkel() : empty("Not available yet")) : BODY[w.type](w);
-    const fetched = { github: s.github.data?.fetchedAt, tasks: s.tasks.data?.fetchedAt ?? dash()?.generatedAt }[w.type];
+    const fetched = { github: s.github.data?.fetchedAt, tasks: s.tasks.data?.fetchedAt ?? dash()?.generatedAt, monday: s.monday.data?.fetchedAt }[w.type];
     const updated = type.data && dash()?.generatedAt ? `updated ${relTime(dash().generatedAt)}` : fetched ? `updated ${relTime(fetched)}` : "";
     const node = h("div", { class: ["widget", `wt-${w.type}`, `size-${w.size}`], role: "listitem", dataset: { id: w.id }, aria: { label: type.name } },
       h("div", { class: "w-head" }, h("span", { class: "w-label" }, type.name), updated ? h("span", { class: "w-updated" }, updated) : null),
@@ -365,9 +470,26 @@ export function createWidgets(store, ctx, { onEdit } = {}) {
     return node;
   }
 
+  // ---- keeping Tasks and monday fresh ----------------------------------
+  // Open or visible page: ask for data at most a minute old; while visible, every
+  // five minutes. The helper shares one cache between pages and refetches only
+  // what's older than asked, so several open tabs don't multiply the load.
+  const VISIBLE_MAX_AGE = 60_000;
+  const PERIOD = 5 * 60_000;
+  const ageOf = d => (d?.fetchedAt ? Date.now() - Date.parse(d.fetchedAt) : Infinity);
+  function refreshFeeds(maxAge) {
+    if (!s.ready || document.visibilityState === "hidden") return;
+    const has = type => layout.some(w => w.type === type);
+    // monday also feeds Tasks (items with a due date), so it loads for either widget; without a sign-in that costs no request.
+    if (has("tasks") && !s.tasks.loading && ageOf(s.tasks.data) > maxAge && Date.now() - s.tasks.at > 10_000) actions.loadTasks(false, maxAge);
+    if ((has("monday") || has("tasks")) && !s.monday.loading && ageOf(s.monday.data) > maxAge && Date.now() - s.monday.at > 10_000) actions.loadMonday(false, maxAge);
+    if (has("github") && !s.github.loading && Date.now() - s.github.at > PERIOD) actions.loadGithub();
+  }
+  document.addEventListener("visibilitychange", () => refreshFeeds(VISIBLE_MAX_AGE));
+  setInterval(() => refreshFeeds(PERIOD), 60_000);
+
   function render() {
-    if (layout.some(w => w.type === "github") && s.ready && !s.github.loading && Date.now() - s.github.at > 5 * 60_000) actions.loadGithub();
-    if (layout.some(w => w.type === "tasks") && s.ready && !s.tasks.loading && Date.now() - s.tasks.at > 5 * 60_000) actions.loadTasks();
+    if (s.ready && (!s.tasks.at || !s.monday.at || !s.github.at)) refreshFeeds(VISIBLE_MAX_AGE); // first draw after the helper answered
     const nodes = layout.map((w, i) => tile(w, i));
     if (editing) nodes.push(h("button", { type: "button", class: "widget add-tile size-S", aria: { haspopup: "dialog", expanded: String(pickerOpen) }, onclick: () => togglePicker() }, icon("plus"), h("span", null, "Add widget")));
     clear(grid, nodes);
@@ -471,7 +593,10 @@ export function createWidgets(store, ctx, { onEdit } = {}) {
         if (JSON.stringify(next) !== JSON.stringify(layout) && Array.isArray(s.settings?.homeWidgets)) layout = next;
         addTasksOnce();
       }
-      if (["dashboard", "settings", "state", "conversations", "space", "tabs", "github", "tasks"].some(t => topics.has(t))) {
+      if (topics.has("tasks")) noteAdded(s.tasks.added);
+      if (topics.has("monday")) noteAdded(s.monday.added);
+      if ((topics.has("tasks") && s.tasks.added?.length) || (topics.has("monday") && s.monday.added?.length)) setTimeout(() => { if (!typingInside() && !dragging) render(); }, FLASH_MS + 50); // drop the flash style once it has played
+      if (["dashboard", "settings", "state", "conversations", "space", "tabs", "github", "tasks", "monday"].some(t => topics.has(t))) {
         if (!typingInside() && !dragging) render();
       }
     },

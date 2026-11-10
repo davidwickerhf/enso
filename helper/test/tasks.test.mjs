@@ -18,7 +18,7 @@ import { z } from "zod";
 const root = mkdtempSync(path.join(tmpdir(), "enso-tasks-"));
 process.env.ENSO_DATA = path.join(root, "data");
 
-const { normaliseTasks, listCalls, completeCall, mergeTasks, parseSpaces, toolPayload, createTaskSources } = await import("../lib/tasks.mjs");
+const { normaliseTasks, listCalls, completeCall, mergeTasks, sortTasks, dueBucket, parseSpaces, toolPayload, createTaskSources, isTaskWrite, splitToolName, refreshTargets } = await import("../lib/tasks.mjs");
 
 // Commonfold's list_tasks and update_task, as its server describes them (sample data).
 const LIST_SCHEMA = {
@@ -48,7 +48,7 @@ try {
     { server: "commonfold", source: "Commonfold" },
   );
   assert.equal(cf.length, 3);
-  assert.deepEqual(cf[0], { id: "11111111-1111-4111-8111-111111111111", title: "Submit the assignment", source: "Commonfold", server: "commonfold", completable: true, due: "2026-09-22", url: "https://app.commonfold.space/notes/11111111-1111-4111-8111-111111111111", space: "personal" });
+  assert.deepEqual(cf[0], { id: "11111111-1111-4111-8111-111111111111", title: "Submit the assignment", source: "Commonfold", server: "commonfold", completable: true, due: "2026-09-22", remindAt: "2026-09-22T10:00:00.000Z", url: "https://app.commonfold.space/notes/11111111-1111-4111-8111-111111111111", space: "personal" });
   assert.equal(cf[1].done, true);
   assert.equal(cf[2].due, undefined);
   console.log("ok - Commonfold's list_tasks JSON normalises to { id, title, due, url, source, server, space }");
@@ -65,9 +65,46 @@ try {
   assert.deepEqual(normaliseTasks({ content: [] }, { server: "t", source: "T" }), []);
   console.log("ok - free-text output falls back to bullet lines (shown, not completable); errors give nothing");
 
-  const merged = mergeTasks([cf, [{ ...cf[2] }], [{ id: "x", title: "Later", due: "2026-12-01", server: "other", source: "Other", completable: true }]]);
+  const merged = mergeTasks([cf, [{ ...cf[2] }], [{ id: "x", title: "Later", due: "2026-12-01", server: "other", source: "Other", completable: true }]], new Date(2026, 8, 1));
   assert.deepEqual(merged.map(t => t.title), ["Submit the assignment", "Later", "No date"], "open only, deduplicated per server, dated first");
   console.log("ok - merge drops done tasks and duplicates and sorts dated tasks first");
+
+  // ---- ordering: overdue, due today, later by date, undated ----
+  const now = new Date(2026, 10, 10, 9, 0); // Tue 10 Nov 2026, 09:00 local
+  const T = (title, due, extra = {}) => ({ id: title, title, ...(due ? { due } : {}), server: "s", source: "S", completable: true, ...extra });
+  const order = sortTasks([
+    T("Undated B"),
+    T("Next week", "2026-11-17"),
+    T("Thursday evening", "2026-11-12", { remindAt: "2026-11-12T17:00:00" }),
+    T("Thursday morning", "2026-11-12", { remindAt: "2026-11-12T09:00:00" }),
+    T("Today, any time", "2026-11-10"),
+    T("Today at 14:00", "2026-11-10T14:00:00"),
+    T("Undated A"),
+    T("Cancel subscription", "2026-10-04"),
+    T("Yesterday", "2026-11-09"),
+  ], now);
+  assert.deepEqual(order.map(t => t.title), ["Cancel subscription", "Yesterday", "Today at 14:00", "Today, any time", "Thursday morning", "Thursday evening", "Next week", "Undated A", "Undated B"]);
+  assert.deepEqual([T("a", "2026-11-09"), T("b", "2026-11-10"), T("c", "2026-11-10T23:30:00"), T("d", "2026-11-11"), T("e")].map(t => dueBucket(t, now)), [0, 1, 1, 2, 3]);
+  console.log("ok - order: overdue, due today (timed first), later by date then reminder, undated by title");
+
+  // ---- which tool calls are task writes, and what they refresh ----
+  for (const t of ["create_task", "update_task", "complete_task", "complete_tasks", "close_task", "delete_task", "add_todo", "create_item", "change_item_column_values", "update_items", "move_item_to_group", "delete_item"]) assert.ok(isTaskWrite(t), t);
+  for (const t of ["list_tasks", "get_task", "search_tasks", "tasks", "create_note", "update_note", "get_board_items_page", "taskmaster"]) assert.ok(!isTaskWrite(t), t);
+  const names = ["commonfold", "monday", "claude.ai Notion", "my notes"];
+  assert.deepEqual(splitToolName("mcp__commonfold__create_task", names), { server: "commonfold", tool: "create_task" });
+  assert.deepEqual(splitToolName("mcp__claude_ai_Notion__notion-create-pages", names), { server: "claude.ai Notion", tool: "notion-create-pages" });
+  assert.deepEqual(splitToolName("mcp__my_notes__add_todo", names), { server: "my notes", tool: "add_todo" });
+  assert.equal(splitToolName("mcp__browser__page_read", names), null);
+  assert.equal(splitToolName("WebSearch", names), null);
+  const targets = tool => refreshTargets(tool, { serverNames: names, taskServers: ["commonfold"], mondayServer: "monday" });
+  assert.deepEqual(targets("mcp__commonfold__create_task"), { tasks: "commonfold" });
+  assert.deepEqual(targets("mcp__commonfold__list_tasks"), {});
+  assert.deepEqual(targets("mcp__commonfold__create_note"), {});
+  assert.deepEqual(targets("mcp__monday__create_item"), { monday: true });
+  assert.deepEqual(targets("mcp__monday__create_update"), { monday: true });
+  assert.deepEqual(targets("mcp__monday__get_board_items_page"), {});
+  assert.deepEqual(targets("mcp__my_notes__add_todo"), {}, "no list_tasks there: nothing to refresh");
+  console.log("ok - task writes (create/update/complete/delete…) are recognised in both engines' tool names");
 
   // ---- calls ----
   assert.deepEqual(listCalls(LIST_SCHEMA, { today: "2026-11-10" }), ["today", "upcoming", "inbox", "anytime"].map(view => ({ today: "2026-11-10", view })));
@@ -125,6 +162,45 @@ try {
   assert.equal(sources.cached.tasks.length, 0, "the completed task leaves the cache at once");
   assert.equal((await sources.widget({ fresh: true })).tasks.length, 0);
   console.log("ok - sources cache ~5 min, report a failing server without hiding the others, and complete only listed tasks");
+
+  // ---- a chat writes a task: the cache is dropped, refetched, and the new task is marked ----
+  {
+    let listCount = 0;
+    const app = { tasks: [cfTask("77777777-7777-4777-8777-777777777777", "Cancel subscription", { dueDate: "2026-10-04" })] };
+    const client = () => ({
+      listTools: async () => ({ tools: [{ name: "list_tasks", inputSchema: { type: "object", properties: {} } }, { name: "create_task", inputSchema: {} }] }),
+      callTool: async ({ name }) => (name === "list_tasks" ? (listCount++, cfResult(app.tasks)) : { content: [] }),
+      close: async () => {},
+    });
+    const src = createTaskSources({ candidates: async () => [{ name: "commonfold", label: "Commonfold", def: { url: "https://cf.example" } }], connect: async () => client() });
+    assert.deepEqual((await src.widget()).tasks.map(t => t.title), ["Cancel subscription"]);
+    // Claude calls create_task in the chat (the app now has the task; Ensō's cache doesn't).
+    app.tasks.push(cfTask("88888888-8888-4888-8888-888888888888", "Buy souvenirs", { dueDate: "2026-11-12", remindAt: "2026-11-12T17:00:00.000Z" }));
+    assert.deepEqual((await src.widget()).tasks.map(t => t.title), ["Cancel subscription"], "without a refresh the 5-minute cache would hide it");
+    const before = listCount;
+    const { data, added } = await src.refreshAfterWrite("commonfold");
+    assert.equal(listCount, before + 1, "one refetch");
+    assert.deepEqual(data.tasks.map(t => t.title), ["Cancel subscription", "Buy souvenirs"]);
+    assert.equal(data.tasks[1].remindAt, "2026-11-12T17:00:00.000Z");
+    assert.deepEqual(added, ["commonfold|88888888-8888-4888-8888-888888888888"]);
+    assert.equal(src.cached, data, "the fresh list is the new cache");
+    src.invalidate();
+    assert.equal(src.cached, null);
+    console.log("ok - after a task write the cache is invalidated, refetched once, and the new task is reported as added");
+
+    // maxAge: a page that becomes visible asks for data at most a minute old.
+    const c0 = listCount;
+    await src.widget({ maxAge: 60_000 });
+    await src.widget({ maxAge: 60_000 });
+    assert.equal(listCount, c0 + 1, "within maxAge: cached");
+    const t0 = Date.parse(src.cached.fetchedAt);
+    src.cached.fetchedAt = new Date(t0 - 90_000).toISOString();
+    await src.widget({ maxAge: 60_000 });
+    assert.equal(listCount, c0 + 2, "older than maxAge: refetched");
+    await src.widget({ maxAge: 1 });
+    assert.equal(listCount, c0 + 2, "maxAge is clamped to 15 s, so pages can't hammer the app");
+    console.log("ok - maxAge refetches only data older than asked (at least 15 s)");
+  }
 
   // ---- round trip over real MCP against a local mock task app ----
   const store = { tasks: [cfTask("55555555-5555-4555-8555-555555555555", "Water the plants", { dueDate: "2026-11-10" }), cfTask("66666666-6666-4666-8666-666666666666", "Someday task")] };

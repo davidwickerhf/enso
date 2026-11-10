@@ -5,6 +5,34 @@ share one version number. Dates are the tag dates. Releases are published to
 <https://enso.wicker.life> by the release workflow ([docs/releasing.md](docs/releasing.md));
 the extension updates itself, the helper updates when you run the installer again.
 
+## Unreleased
+
+A Tasks widget that keeps up, and monday.com on the new tab.
+
+- **Tasks refresh after a chat changes them.** When Claude adds, updates,
+  completes or deletes a task in a task app (either engine), the helper drops
+  its cache, fetches the list again and pushes it; the new task shows with a
+  "New" tag and a short highlight (none with reduced motion), and is kept
+  visible even when other tasks come first.
+- **Background refresh.** Pages ask for tasks at most a minute old when they
+  open or become visible, and every five minutes while visible; the helper
+  shares one cache between pages (`maxAge` on `tasks.widget`).
+- **Ordering.** Overdue, then due today, then later by date, then undated.
+  Reminder times (Commonfold's `remindAt`) show with a bell; tasks due today
+  or tomorrow stand out.
+- **The brief** gets what task apps and monday.com say is due in the next
+  week as data, so it always mentions it.
+- **monday.com widget**: items assigned to you across your boards, with status
+  and due date, and the latest update by someone else (mentions marked). Plain
+  states for "not connected" and "server error · Retry". Items with a due date
+  also appear in Tasks.
+- **Tools page: signed in but the server fails** (e.g. monday.com answering
+  HTTP 500) now reads "Signed in · server error" with **Retry**, which
+  re-checks the server (`connections.probe`) instead of starting a new sign-in.
+  Errors are one short line; whole HTML error pages no longer come through.
+- A token refresh that finished after **Disconnect** could write the token back
+  to the Keychain; it no longer does.
+
 ## 0.5.2 (10 November 2026)
 
 Using Zen from other agents, without a token in their configs.

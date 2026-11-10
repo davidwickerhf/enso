@@ -41,8 +41,12 @@ export function sortTools(list) {
   return [...list].sort((a, b) => (lookOf(a)?.order ?? 50) - (lookOf(b)?.order ?? 50) || labelOf(a).localeCompare(labelOf(b)));
 }
 
+/** Signed in through Ensō, but the server itself failed (e.g. it answered with HTTP 500). */
+export const signedInButFailing = sv => sv.auth?.state === "connected" && sv.status === "failed";
+
 export function statusOf(sv) {
   if (sv.enabled === false) return { key: "off", text: "Off" };
+  if (signedInButFailing(sv)) return { key: "failed", text: "Signed in · server error" };
   const auth = { connecting: { key: "pending", text: "Waiting for sign-in…" }, expired: { key: "auth", text: "Sign-in expired" }, error: { key: "failed", text: "Sign-in failed" }, disconnected: { key: "auth", text: "Not connected" } }[sv.auth?.state];
   if (auth) return auth;
   return { connected: { key: "ok", text: "Connected" }, "needs-auth": { key: "auth", text: "Needs sign-in" }, pending: { key: "pending", text: "Connecting…" }, failed: { key: "failed", text: "Failed" } }[sv.status] ?? { key: "pending", text: sv.status ?? "" };
@@ -61,8 +65,15 @@ function connectBlock(store, sv) {
   const connect = (text, cls = "primary") => h("button", { type: "button", class: `btn small ${cls}`, onclick: () => store.actions.connectServer(sv.name) }, text);
   const block = (p, ...buttons) => h("div", { class: "tp-connect" }, p, h("div", { class: "tp-connect-actions" }, buttons));
   switch (a.state) {
-    case "connected":
-      return null;
+    case "connected": {
+      if (sv.status !== "failed") return null;
+      const probing = store.state.probing?.has(sv.name);
+      // "The server returned a server error (HTTP 500)." says the same thing again: keep just the code then.
+      const code = /HTTP (\d{3})/.exec(sv.error ?? "")?.[1];
+      const detail = code && /^The server returned/.test(sv.error) ? null : sv.error;
+      return block(h("p", { class: "tp-auth bad" }, `Signed in · the server returned an error${code ? ` (HTTP ${code})` : ""}.`, detail ? h("span", { class: "tp-err-detail" }, ` ${detail}`) : null),
+        h("button", { type: "button", class: "btn small primary", disabled: probing, onclick: () => store.actions.probeServer(sv.name) }, probing ? "Retrying…" : "Retry"));
+    }
     case "connecting":
       return block(h("p", { class: "tp-auth" }, `Finish signing in to ${label} in the tab that just opened.`),
         a.authUrl ? h("a", { class: "btn small", href: a.authUrl, target: "_blank", rel: "noreferrer noopener" }, "Open sign-in again", icon("arrowUpRight")) : null,
@@ -101,7 +112,7 @@ export function serverDetails(store, sv, ctx, { onDone } = {}) {
     sv.about ? h("p", { class: "tp-about" }, sv.about) : null,
     oauth ? connectBlock(store, sv) : null,
     sv.detail ? builtInStatus(store, sv) : needsAuth && !oauth ? h("p", { class: "tp-auth" }, "Sign in to use it. ", sv.connectUrl ? h("a", { href: sv.connectUrl, target: "_blank", rel: "noreferrer noopener" }, "Sign in ↗") : "See chat/host/config.json.") : null,
-    sv.examples?.length && !needsAuth && sv.enabled !== false ? h("div", { class: "tp-examples" }, h("span", { class: "tp-sub" }, "Try"),
+    sv.examples?.length && !needsAuth && sv.enabled !== false && !signedInButFailing(sv) ? h("div", { class: "tp-examples" }, h("span", { class: "tp-sub" }, "Try"),
       sv.examples.slice(0, 3).map(ex => h("button", { type: "button", class: "tp-example", onclick: () => { onDone?.(); ctx.ask(`Using ${label}: ${ex}`); } }, icon("sparkle"), h("span", null, ex)))) : null,
     h("details", { class: "tp-can" }, h("summary", null, "What it can do", names.length ? h("span", { class: "muted" }, ` · ${names.length}`) : null), listEl),
     h("div", { class: "tp-foot" },
@@ -280,6 +291,9 @@ export function createToolsPage(store, ctx) {
         h("p", { class: "cat-adds" }, c.adds),
         c.note ? h("p", { class: "cat-note" }, c.note) : null,
         connected ? h("span", { class: "cat-state" }, icon("check"), "Connected")
+          // Signed in, but the server returned an error: say so and re-probe, don't start a new sign-in.
+          : have && signedInButFailing(have) ? h("span", { class: "cat-failing" }, h("span", { class: "cat-state bad", title: have.error ?? "" }, icon("alert"), "Signed in · server error"),
+            h("button", { type: "button", class: "btn small", disabled: s.probing?.has(have.name), onclick: () => store.actions.probeServer(have.name) }, s.probing?.has(have.name) ? "Retrying…" : "Retry"))
           : have?.status === "needs-auth" && !have.auth ? h("a", { class: "btn small", href: have.connectUrl || CONNECTORS_URL, target: "_blank", rel: "noreferrer noopener" }, "Sign in", icon("arrowUpRight"))
           // Already added through Ensō but not signed in (e.g. an abandoned sign-in): start the sign-in again instead of adding it twice.
           : have?.auth ? h("button", { type: "button", class: "btn small primary", onclick: () => store.actions.connectServer(have.name) }, have.auth.state === "connecting" ? "Start sign-in again" : "Sign in")

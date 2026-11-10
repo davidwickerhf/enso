@@ -1,0 +1,78 @@
+{
+  "_source": {
+    "commit": "4299b7a5b22dfda17ede8c7dcadc38cbbb47a35c",
+    "files": [
+      "https://github.com/mondaycom/mcp/blob/4299b7a5b22dfda17ede8c7dcadc38cbbb47a35c/packages/agent-toolkit/src/core/tools/platform-api-tools/get-board-schema-tool.ts",
+      "https://github.com/mondaycom/mcp/blob/4299b7a5b22dfda17ede8c7dcadc38cbbb47a35c/packages/agent-toolkit/src/monday-graphql/queries.graphql.ts (getBoardSchema: boards { groups { id title } columns { id type title revision } })",
+      "https://github.com/mondaycom/mcp/blob/4299b7a5b22dfda17ede8c7dcadc38cbbb47a35c/packages/agent-toolkit/src/mcp/toolkit.ts (formatToolResult)"
+    ],
+    "notes": "content = { message: 'Board schema retrieved', board_id (number, from input), columns: [{id,title,type,revision}], groups: [{id,title}] }. Column types are monday ColumnType values (people, status, date, timeline, name\u2026).",
+    "synthetic_values": "IDs, titles and revisions are invented; key names, nesting and ordering follow the source."
+  },
+  "_call": {
+    "name": "get_board_schema",
+    "arguments": {
+      "boardId": 1840000001
+    }
+  },
+  "result": {
+    "structuredContent": {
+      "message": "Board schema retrieved",
+      "board_id": 1840000001,
+      "columns": [
+        {
+          "id": "name",
+          "title": "Name",
+          "type": "name",
+          "revision": "a1"
+        },
+        {
+          "id": "person",
+          "title": "Owner",
+          "type": "people",
+          "revision": "a2"
+        },
+        {
+          "id": "status",
+          "title": "Status",
+          "type": "status",
+          "revision": "a3"
+        },
+        {
+          "id": "date4",
+          "title": "Due date",
+          "type": "date",
+          "revision": "a4"
+        },
+        {
+          "id": "date_created",
+          "title": "Kick-off",
+          "type": "date",
+          "revision": "a5"
+        },
+        {
+          "id": "timeline",
+          "title": "Timeline",
+          "type": "timeline",
+          "revision": "a6"
+        }
+      ],
+      "groups": [
+        {
+          "id": "topics",
+          "title": "This week"
+        },
+        {
+          "id": "group_mkx1abcd",
+          "title": "Backlog"
+        }
+      ]
+    },
+    "content": [
+      {
+        "type": "text",
+        "text": "{\"message\":\"Board schema retrieved\",\"board_id\":1840000001,\"columns\":[{\"id\":\"name\",\"title\":\"Name\",\"type\":\"name\",\"revision\":\"a1\"},{\"id\":\"person\",\"title\":\"Owner\",\"type\":\"people\",\"revision\":\"a2\"},{\"id\":\"status\",\"title\":\"Status\",\"type\":\"status\",\"revision\":\"a3\"},{\"id\":\"date4\",\"title\":\"Due date\",\"type\":\"date\",\"revision\":\"a4\"},{\"id\":\"date_created\",\"title\":\"Kick-off\",\"type\":\"date\",\"revision\":\"a5\"},{\"id\":\"timeline\",\"title\":\"Timeline\",\"type\":\"timeline\",\"revision\":\"a6\"}],\"groups\":[{\"id\":\"topics\",\"title\":\"This week\"},{\"id\":\"group_mkx1abcd\",\"title\":\"Backlog\"}]}"
+      }
+    ]
+  }
+}

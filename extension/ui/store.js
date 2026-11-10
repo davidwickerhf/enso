@@ -28,7 +28,9 @@ export function createStore() {
     paths: null,             // { data, localConfig } on this Mac
     dashboard: { data: null, loading: false, error: null },
     github: { data: null, loading: false, error: null, at: 0, saving: false, saved: null }, // new-tab widget + token entry
-    tasks: { data: null, loading: false, error: null, at: 0, completing: new Set(), lastError: null }, // Tasks widget (task apps, tasks.widget)
+    tasks: { data: null, loading: false, error: null, at: 0, completing: new Set(), lastError: null, added: [] }, // Tasks widget (task apps, tasks.widget); added: keys a chat just created
+    monday: { data: null, loading: false, at: 0, added: [] }, // monday.com widget (monday.widget): data.state ok | not-connected | error
+    probing: new Set(),      // servers being re-probed from Retry (connections.probe)
     convs: new Map(),        // id → { events, ids, loaded, loading, running }
     running: new Set(),      // conversation ids with a turn in progress
     approvals: new Map(),    // toolUseId → { conversationId, event, sent? }
@@ -303,9 +305,21 @@ export function createStore() {
         emit("github");
         return;
       case "tasks":
-        s.tasks = { ...s.tasks, data: msg.data ?? s.tasks.data, loading: false, error: msg.error ?? null, at: Date.now() };
+        s.tasks = { ...s.tasks, data: msg.data ?? s.tasks.data, loading: false, error: msg.error ?? null, at: Date.now(), added: msg.added ?? [] };
         emit("tasks");
         return;
+      case "monday":
+        s.monday = { ...s.monday, data: msg.data ?? s.monday.data, loading: false, at: Date.now(), added: msg.added ?? [] };
+        emit("monday");
+        emit("tasks"); // monday items with a due date also show in Tasks
+        return;
+      case "connections.probed": {
+        const probing = new Set(s.probing);
+        probing.delete(msg.server);
+        s.probing = probing;
+        emit("servers");
+        return;
+      }
       case "tasks.completed": {
         const completing = new Set(s.tasks.completing);
         completing.delete(`${msg.server}|${msg.id}`);
@@ -549,12 +563,19 @@ export function createStore() {
       send({ type: "github.widget", force });
       emit("github");
     },
-    /** Tasks widget rows from task apps; the helper caches ~5 minutes. */
-    loadTasks(force = false) {
+    /** Tasks widget rows from task apps; the helper caches ~5 minutes (maxAge: accept data at most this old, in ms). */
+    loadTasks(force = false, maxAge) {
       if (s.tasks.loading) return;
       s.tasks = { ...s.tasks, loading: true };
-      send({ type: "tasks.widget", force });
+      send({ type: "tasks.widget", force, ...(maxAge ? { maxAge } : {}) });
       emit("tasks");
+    },
+    /** monday.com widget: items assigned to me and recent updates; the helper caches ~5 minutes. */
+    loadMonday(force = false, maxAge) {
+      if (s.monday.loading) return;
+      s.monday = { ...s.monday, loading: true };
+      send({ type: "monday.widget", force, ...(maxAge ? { maxAge } : {}) });
+      emit("monday");
     },
     /** Tick in the Tasks widget: the helper marks it done at the app (update_task) and sends a fresh list. */
     completeTask(server, id) {
@@ -597,6 +618,8 @@ export function createStore() {
     },
     connectServer(name) { s.connectionResult = null; send({ type: "connections.start", server: name }); emit("servers"); },
     disconnectServer(name) { send({ type: "connections.disconnect", server: name }); },
+    /** Retry for a server that is signed in but failed: re-probe it with the stored token (no new sign-in). */
+    probeServer(name) { s.probing = new Set(s.probing).add(name); send({ type: "connections.probe", server: name }); emit("servers"); },
     addServer({ name, url, label }) { s.connectionResult = null; send({ type: "connections.add", name, url, ...(label && { label }) }); emit("servers"); },
     removeServer(name) { send({ type: "connections.remove", server: name }); },
     setScope(scope) {

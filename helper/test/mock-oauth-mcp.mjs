@@ -9,7 +9,8 @@
 //   POST /revoke      RFC 7009
 //   POST /mcp         MCP (one tool: echo), needs a valid Bearer token
 //
-// Usage: startMockServer({ tokenLifetime: 3600, deny: false }) → { url, port, stats, close }
+// Usage: startMockServer({ tokenLifetime: 3600, deny: false }) → { url, port, stats, close, failMcp(on) }
+// failMcp(true): /mcp answers valid tokens with an HTML 500 page (like monday's outage).
 // Or run directly: node test/mock-oauth-mcp.mjs [port]
 
 import { createHash, randomBytes } from "node:crypto";
@@ -25,6 +26,7 @@ export async function startMockServer({ port = 0, tokenLifetime = 3600, deny = f
   const refresh = new Map(); // token -> clientId
   const stats = { registered: 0, authorized: 0, exchanged: 0, refreshed: 0, revoked: 0, mcpCalls: 0, unauthorized: 0, lastScope: null, lastResource: null };
   let origin = "";
+  let mcpDown = false;
 
   const json = (res, status, body, headers = {}) => res.writeHead(status, { "Content-Type": "application/json", ...headers }).end(JSON.stringify(body));
   const readBody = async req => {
@@ -119,6 +121,7 @@ export async function startMockServer({ port = 0, tokenLifetime = 3600, deny = f
       }
       if (req.method !== "POST") return res.writeHead(405).end();
       stats.mcpCalls++;
+      if (mcpDown) return res.writeHead(500, { "Content-Type": "text/html" }).end(`<!DOCTYPE html><html><head><title>500 Internal Server Error</title></head><body><h1>Internal Server Error</h1>${"<p>Sorry.</p>".repeat(200)}</body></html>`);
       const body = await readBody(req);
       const mcp = new McpServer({ name: "mock-notes", version: "1.0.0" });
       mcp.registerTool("echo", { description: "Echo text back", inputSchema: { text: z.string() } }, async ({ text }) => ({ content: [{ type: "text", text: `echo: ${text}` }] }));
@@ -137,6 +140,7 @@ export async function startMockServer({ port = 0, tokenLifetime = 3600, deny = f
     stats,
     expireAll: () => access.forEach(v => (v.exp = 0)),
     revokeAll: () => (access.clear(), refresh.clear()),
+    failMcp: on => void (mcpDown = !!on),
     close: () => new Promise(r => (server.closeAllConnections?.(), server.close(r))),
   };
 }

@@ -1,0 +1,74 @@
+{
+  "_source": {
+    "commit": "4299b7a5b22dfda17ede8c7dcadc38cbbb47a35c",
+    "files": [
+      "https://github.com/mondaycom/mcp/blob/4299b7a5b22dfda17ede8c7dcadc38cbbb47a35c/packages/agent-toolkit/src/core/tools/platform-api-tools/get-updates-tool/get-updates-tool.ts",
+      "https://github.com/mondaycom/mcp/blob/4299b7a5b22dfda17ede8c7dcadc38cbbb47a35c/packages/agent-toolkit/src/core/tools/platform-api-tools/get-updates-tool/get-updates.graphql.ts",
+      "https://github.com/mondaycom/mcp/blob/4299b7a5b22dfda17ede8c7dcadc38cbbb47a35c/packages/agent-toolkit/src/mcp/toolkit.ts (formatToolResult: object content -> structuredContent + content[0].text = JSON.stringify(content), compact, no prefix; string content -> text only)"
+    ],
+    "notes": "Item mode: limit defaults to 10 per item when >1 id (25 for a single id). 'not_found': [ids] is added only when some ids were not returned. text_body >2000 chars is cut and gets 'text_body_truncated': true. Mentions appear only as plain text in text_body (no structured mention field). Board mode returns {message:'Updates retrieved', board_id, url, updates:[...], pagination:{page,limit,count}}, or plain text 'No updates found for board with id <id>' when empty.",
+    "synthetic_values": "IDs, names, dates are invented; key names, nesting and ordering follow the source."
+  },
+  "_call": {
+    "name": "get_updates",
+    "arguments": {
+      "objectIds": [
+        "1840100027",
+        "1840100011"
+      ],
+      "objectType": "Item"
+    }
+  },
+  "result": {
+    "structuredContent": {
+      "message": "Updates retrieved",
+      "items": [
+        {
+          "item_id": "1840100027",
+          "url": "https://example-account.monday.com/boards/1840000001/pulses/1840100027",
+          "updates": [
+            {
+              "id": "4021000123",
+              "text_body": "@Dana Example can you take another look? The CSV export still drops the last row.",
+              "created_at": "2026-11-10T08:21:55Z",
+              "updated_at": "2026-11-10T08:21:55Z",
+              "creator": {
+                "id": "71230001",
+                "name": "Alex Colleague"
+              },
+              "item_id": "1840100027"
+            },
+            {
+              "id": "4020998001",
+              "text_body": "Pushed a fix, ready for review.",
+              "created_at": "2026-11-08T17:02:11Z",
+              "updated_at": "2026-11-08T17:05:40Z",
+              "creator": {
+                "id": "71234567",
+                "name": "Dana Example"
+              },
+              "item_id": "1840100027"
+            }
+          ],
+          "count": 2
+        },
+        {
+          "item_id": "1840100011",
+          "url": "https://example-account.monday.com/boards/1840000001/pulses/1840100011",
+          "updates": [],
+          "count": 0
+        }
+      ],
+      "pagination": {
+        "page": 1,
+        "limit": 10
+      }
+    },
+    "content": [
+      {
+        "type": "text",
+        "text": "{\"message\":\"Updates retrieved\",\"items\":[{\"item_id\":\"1840100027\",\"url\":\"https://example-account.monday.com/boards/1840000001/pulses/1840100027\",\"updates\":[{\"id\":\"4021000123\",\"text_body\":\"@Dana Example can you take another look? The CSV export still drops the last row.\",\"created_at\":\"2026-11-10T08:21:55Z\",\"updated_at\":\"2026-11-10T08:21:55Z\",\"creator\":{\"id\":\"71230001\",\"name\":\"Alex Colleague\"},\"item_id\":\"1840100027\"},{\"id\":\"4020998001\",\"text_body\":\"Pushed a fix, ready for review.\",\"created_at\":\"2026-11-08T17:02:11Z\",\"updated_at\":\"2026-11-08T17:05:40Z\",\"creator\":{\"id\":\"71234567\",\"name\":\"Dana Example\"},\"item_id\":\"1840100027\"}],\"count\":2},{\"item_id\":\"1840100011\",\"url\":\"https://example-account.monday.com/boards/1840000001/pulses/1840100011\",\"updates\":[],\"count\":0}],\"pagination\":{\"page\":1,\"limit\":10}}"
+      }
+    ]
+  }
+}

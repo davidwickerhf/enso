@@ -23,6 +23,7 @@ import { findClaude } from "./claude-cli.mjs";
 import { config } from "./config.mjs";
 import { createSdkMcpServer, query, tool } from "@anthropic-ai/claude-agent-sdk";
 import { z } from "zod";
+import { friendly } from "./connections.mjs";
 import { log } from "./native.mjs";
 import { ALL_BROWSER_TOOLS } from "./toolset.mjs";
 import { systemPrompt } from "./prompt.mjs";
@@ -94,6 +95,7 @@ class Session {
     this.wake = null;
     this.sessionId = resume ?? null;
     this.startedAt = new Map();
+    this.toolNames = new Map(); // toolUseId -> full tool name, for ctx.onToolResult
     this.messageId = null;
 
     const self = this;
@@ -173,7 +175,7 @@ class Session {
           if (t.startsWith("mcp__")) toolNames.set(srv, [...(toolNames.get(srv) ?? []), rest.join("__")]);
         }
         const key = n => n.replace(/[^a-zA-Z0-9_-]/g, "_");
-        ctx.servers((m.mcp_servers ?? []).filter(s => !["browser", "zen"].includes(s.name)).map(s => ({ ...s, toolNames: toolNames.get(key(s.name)) ?? [] })));
+        ctx.servers((m.mcp_servers ?? []).filter(s => !["browser", "zen"].includes(s.name)).map(s => ({ ...s, toolNames: toolNames.get(key(s.name)) ?? [], ...(s.error ? { error: friendly(s.error) } : {}) })));
       }
       return;
     }
@@ -195,6 +197,7 @@ class Session {
         if (block.type === "thinking" && block.thinking?.trim()) ctx.emit({ kind: "thinking", messageId, text: block.thinking });
         if (block.type === "tool_use") {
           this.startedAt.set(block.id, Date.now());
+          this.toolNames.set(block.id, block.name);
           const d = describeTool(block.name);
           ctx.emit({ kind: "tool.call", toolUseId: block.id, category: d.category, server: d.server, tool: d.tool, title: d.title, input: block.input });
         }
@@ -211,6 +214,9 @@ class Session {
         const parts = Array.isArray(block.content) ? block.content : [{ type: "text", text: String(block.content ?? "") }];
         const preview = parts.map(p => (p.type === "text" ? p.text : `[${p.type}]`)).join("\n").slice(0, 600);
         ctx.emit({ kind: "tool.result", toolUseId: block.tool_use_id, ok: !block.is_error, preview, durationMs: Date.now() - (this.startedAt.get(block.tool_use_id) ?? Date.now()) });
+        const name = this.toolNames.get(block.tool_use_id);
+        this.toolNames.delete(block.tool_use_id);
+        if (name) ctx.onToolResult?.({ tool: name, ok: !block.is_error });
       }
       return;
     }

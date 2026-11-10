@@ -225,6 +225,7 @@ export async function runApiTurn(ctx, { prompt, events }) {
           try {
             const content = await runTool(ctx, b);
             ctx.emit({ kind: "tool.result", toolUseId: b.id, ok: true, preview: content.map(c => c.text ?? `[${c.type}]`).join("\n").slice(0, 600), durationMs: Date.now() - t0 });
+            ctx.onToolResult?.({ tool: b.name, ok: true });
             return { type: "tool_result", tool_use_id: b.id, content };
           } catch (err) {
             ctx.emit({ kind: "tool.result", toolUseId: b.id, ok: false, preview: String(err.message ?? err).slice(0, 600), durationMs: Date.now() - t0 });

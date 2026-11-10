@@ -7,7 +7,11 @@
 // connectors (Notion, Todoist…) only reach the dashboard run; their tasks come
 // in through dashboard.tasks instead.
 //
-// Normalised task: { id, title, due?, url?, source, server, done?, space?, completable }
+// Normalised task: { id, title, due?, remindAt?, url?, source, server, done?, space?, completable }
+//
+// The cache is dropped as soon as a chat (either engine) writes to a task app
+// (create_task, update_task, complete…: isTaskWrite), so the widget shows the
+// change right away; see refreshAfterWrite and host.mjs onToolResult.
 
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
@@ -52,6 +56,13 @@ function dueOf(x) {
   return str(d);
 }
 
+const ISO_LIKE = /^\d{4}-\d{2}-\d{2}/;
+function remindOf(x) {
+  const r = x.remindAt ?? x.remind_at ?? x.reminderAt ?? x.reminder_at ?? x.reminder;
+  const v = r && typeof r === "object" ? str(r.datetime ?? r.date ?? r.at) : str(r);
+  return v && ISO_LIKE.test(v) ? v : undefined;
+}
+
 function isDone(x) {
   const state = String(x.state ?? x.status ?? "").toLowerCase();
   return /^(done|completed?|closed|cancel+ed|resolved)$/.test(state) || x.completed === true || x.checked === true || x.is_completed === true || x.done === true || !!x.completedAt || !!x.completed_at;
@@ -85,7 +96,7 @@ export function normaliseTasks(result, { server, source }) {
   const rows = list
     ? list
         .filter(x => x && typeof x === "object")
-        .map(x => ({ id: str(x.id ?? x.uuid ?? x.gid ?? x.key), title: str(x.title ?? x.name ?? x.content ?? x.summary ?? x.text), due: dueOf(x), url: httpUrl(x.url ?? x.webUrl ?? x.web_url ?? x.html_url ?? x.permalink ?? x.link), done: isDone(x) }))
+        .map(x => ({ id: str(x.id ?? x.uuid ?? x.gid ?? x.key), title: str(x.title ?? x.name ?? x.content ?? x.summary ?? x.text), due: dueOf(x), remindAt: remindOf(x), url: httpUrl(x.url ?? x.webUrl ?? x.web_url ?? x.html_url ?? x.permalink ?? x.link), done: isDone(x) }))
     : typeof data === "string"
       ? fromText(data)
       : [];
@@ -94,6 +105,7 @@ export function normaliseTasks(result, { server, source }) {
     .map(r => {
       const t = { id: r.id ?? `text:${r.title.toLowerCase()}`, title: r.title.slice(0, 240), source, server, completable: !!r.id };
       if (r.due) t.due = r.due;
+      if (r.remindAt) t.remindAt = r.remindAt;
       if (r.url) t.url = r.url;
       if (r.done) t.done = true;
       if (space) t.space = space;
@@ -142,10 +154,37 @@ export function completeCall(tools, task) {
   return null;
 }
 
-const dueTime = t => (t.due && /^\d{4}-\d{2}-\d{2}/.test(t.due) ? Date.parse(t.due) || 9e15 : 9e15);
+const localDay = d => d.toLocaleDateString("en-CA"); // YYYY-MM-DD in the Mac's time zone
 
-/** Open tasks, deduplicated per server, dated first. */
-export function mergeTasks(lists) {
+/** A due value as a Date: a bare date is the end of that local day (timed tasks that day sort first). */
+export function dueDate(due) {
+  if (typeof due !== "string" || !ISO_LIKE.test(due)) return null;
+  const day = /^(\d{4})-(\d{2})-(\d{2})$/.exec(due.trim());
+  const d = day ? new Date(+day[1], day[2] - 1, +day[3], 23, 59, 59) : new Date(due);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
+/** 0 overdue, 1 due today, 2 due later, 3 no date. */
+export function dueBucket(t, now = new Date()) {
+  const d = dueDate(t.due);
+  if (!d) return 3;
+  const day = /^\d{4}-\d{2}-\d{2}$/.test(t.due.trim()) ? t.due.trim() : localDay(d);
+  const today = localDay(now);
+  return day < today ? 0 : day === today ? 1 : 2;
+}
+
+/** Overdue first, then due today, then the rest by date, then undated; ties by reminder, then title. */
+export function sortTasks(list, now = new Date()) {
+  const key = t => [dueBucket(t, now), dueDate(t.due)?.getTime() ?? 0, dueDate(t.remindAt)?.getTime() ?? 9e15];
+  return [...list].sort((a, b) => {
+    const ka = key(a);
+    const kb = key(b);
+    return ka[0] - kb[0] || ka[1] - kb[1] || ka[2] - kb[2] || a.title.localeCompare(b.title);
+  });
+}
+
+/** Open tasks, deduplicated per server, in widget order. */
+export function mergeTasks(lists, now = new Date()) {
   const seen = new Set();
   const out = [];
   for (const t of lists.flat()) {
@@ -154,7 +193,42 @@ export function mergeTasks(lists) {
     seen.add(key);
     out.push(t);
   }
-  return out.sort((a, b) => dueTime(a) - dueTime(b) || a.title.localeCompare(b.title)).slice(0, MAX);
+  return sortTasks(out, now).slice(0, MAX);
+}
+
+// Tools that change tasks (or monday items): a write verb, then task/todo/item somewhere in the name.
+const WRITE_VERB = /^(create|add|new|insert|update|edit|change|set|complete|uncomplete|close|reopen|finish|done|check|uncheck|delete|remove|archive|move|reschedule|snooze|assign|duplicate)(?=[_-]|$)/i;
+const TASK_NOUN = /(^|[_-])(tasks?|todos?|to_dos?|items?|subitems?|subtasks?|reminders?)([_-]|$)/i;
+
+/** "create_task", "update_task", "complete_tasks", "change_item_column_values" → true; "list_tasks", "get_task" → false. */
+export const isTaskWrite = tool => WRITE_VERB.test(String(tool)) && TASK_NOUN.test(String(tool));
+
+/**
+ * Split a Claude tool name ("mcp__<server>__<tool>", the server name sanitised
+ * the way both engines do it) into { server, tool }, matching against the real
+ * server names. Null for browser/zen tools or unknown servers.
+ */
+export function splitToolName(full, serverNames) {
+  const m = /^mcp__(.+?)__(.+)$/.exec(String(full));
+  if (!m) return null;
+  const clean = n => n.replace(/[^a-zA-Z0-9_-]/g, "_");
+  const server = [...serverNames].sort((a, b) => b.length - a.length).find(n => String(full).startsWith(`mcp__${clean(n)}__`));
+  return server ? { server, tool: String(full).slice(`mcp__${clean(server)}__`.length) } : null;
+}
+
+/**
+ * Which widgets a finished tool call should refresh: { tasks?: server, monday?: true }.
+ * taskServers: servers with list_tasks; mondayServer: the monday OAuth server's name
+ * (any of its item, update or board writes counts: create_item, change_item_column_values,
+ * create_update, delete_item, move_item_to_group…).
+ */
+export function refreshTargets(tool, { serverNames, taskServers = [], mondayServer = null }) {
+  const hit = splitToolName(tool, serverNames);
+  if (!hit) return {};
+  const out = {};
+  if (mondayServer && hit.server === mondayServer && (isTaskWrite(hit.tool) || /^(create|update|delete|change|move|undo)_/i.test(hit.tool))) out.monday = true;
+  if (isTaskWrite(hit.tool) && taskServers.includes(hit.server)) out.tasks = hit.server;
+  return out;
 }
 
 async function httpConnect(def) {
@@ -163,7 +237,7 @@ async function httpConnect(def) {
   return client;
 }
 
-const localDate = () => new Date().toLocaleDateString("en-CA"); // YYYY-MM-DD in the Mac's time zone
+const localDate = () => localDay(new Date());
 
 /**
  * candidates() → [{ name, label, def: { url, headers } }]: enabled, connected
@@ -204,13 +278,36 @@ export function createTaskSources({ candidates, connect = httpConnect, log = () 
     return { tasks: mergeTasks(settled.filter(r => r.status === "fulfilled").flatMap(r => r.value)), servers, fetchedAt: new Date().toISOString() };
   }
 
-  /** { tasks, servers: [{ name, label, ok, error? }], fetchedAt }, cached for ttl. */
-  function widget({ fresh = false } = {}) {
-    if (!fresh && cache && Date.now() - Date.parse(cache.fetchedAt) < ttl) return Promise.resolve(cache);
+  /**
+   * { tasks, servers: [{ name, label, ok, error? }], fetchedAt }, cached for ttl.
+   * maxAge (ms): refetch when the cache is older than that (a page that just
+   * became visible asks for data at most a minute old); fresh: always refetch.
+   */
+  function widget({ fresh = false, maxAge = ttl } = {}) {
+    const age = cache ? Date.now() - Date.parse(cache.fetchedAt) : Infinity;
+    if (!fresh && age < Math.min(ttl, Math.max(15_000, maxAge))) return Promise.resolve(cache);
     inflight ??= load()
       .then(data => (cache = data))
       .finally(() => (inflight = null));
     return inflight;
+  }
+
+  /** Forget the cached list (a chat or agent just changed tasks). */
+  function invalidate() {
+    cache = null;
+  }
+
+  /**
+   * After a write to `server`: refetch at once and report which of its tasks are
+   * new since the last list, so the widget can flash them. { data, added: ["server|id"] }
+   */
+  async function refreshAfterWrite(server) {
+    const before = cache ? new Set(cache.tasks.filter(t => t.server === server).map(t => t.id)) : null;
+    await inflight?.catch(() => {}); // a fetch that started before the write may miss it
+    invalidate();
+    const data = await widget({ fresh: true });
+    const added = before ? data.tasks.filter(t => t.server === server && !before.has(t.id)).map(t => `${t.server}|${t.id}`) : [];
+    return { data, added };
   }
 
   /** Mark a task the widget showed as done at its app. Returns the task. */
@@ -231,5 +328,5 @@ export function createTaskSources({ candidates, connect = httpConnect, log = () 
     return task;
   }
 
-  return { widget, complete, get cached() { return cache; } };
+  return { widget, complete, invalidate, refreshAfterWrite, get cached() { return cache; } };
 }
