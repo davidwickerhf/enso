@@ -8,7 +8,7 @@ tools you connect (mail, calendar, GitHub, any MCP server), and keeps what it
 remembers in files on your Mac. Other agents on the same Mac (Claude Code,
 Codex, Cursor) can use Zen through it too.
 
-Website and user docs: <https://enso.wicker.life>. Licence: MIT, see [LICENSE](LICENSE).
+Website and user docs: <https://enso.wicker.life>. Licence: the extension, helper and scripts are MIT ([LICENSE](LICENSE)); the website and sync server in `site/` are all rights reserved ([site/LICENSE](site/LICENSE)).
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="https://enso.wicker.life/screenshots/act-dark-1600.webp">

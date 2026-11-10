@@ -2,6 +2,7 @@
   "name": "enso-site",
   "version": "0.1.0",
   "private": true,
+  "license": "UNLICENSED",
   "type": "module",
   "description": "Ensō website, docs, extension update feed and end-to-end-encrypted sync server",
   "engines": {

@@ -1,0 +1,13 @@
+Copyright (c) 2026 David Wicker. All rights reserved.
+
+This directory (`site/`: the enso.wicker.life website, help centre, release
+feed and sync server, including its text, design and branding) is published so
+it can be read and audited. It is not licensed for reuse: you may not copy,
+modify, distribute or host it, in whole or in part, without written
+permission.
+
+The rest of this repository (the Ensō extension, helper and scripts) is MIT
+licensed; see ../LICENSE.
+
+Contributions to `site/` are welcome as pull requests; by opening one you agree
+that it may be used under these terms.

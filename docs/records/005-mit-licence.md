@@ -23,9 +23,11 @@ The extension, helper and scripts are released under the MIT licence
   commercial products, with the copyright notice kept.
 - No warranty; the licence says so.
 - Contributions come in under the same licence.
-- The licence covers the code as distributed. At the time of writing the GitHub
-  repository itself is private; making it public is a separate decision.
-- The website and sync server live in `site/` since the repositories were
-  merged (10 November 2026). They were never released under MIT and the licence
-  file doesn't cover them: `site/` stays all rights reserved unless that is
-  decided separately.
+- The repository is public since 10 November 2026.
+- The website and sync server (`site/`, merged into this repository on
+  10 November 2026) are **all rights reserved** ([site/LICENSE](../../site/LICENSE)):
+  readable and auditable, not licensed for reuse. They hold the branding,
+  policies and the hosted service, which is the part a copy could compete with;
+  the parts people install (extension, helper, scripts) stay MIT so anyone can
+  check what runs on their Mac. Decided 10 November 2026; AGPL for `site/` was
+  the considered alternative.
