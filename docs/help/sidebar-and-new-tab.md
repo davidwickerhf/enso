@@ -20,7 +20,7 @@ The composer shows what will be sent:
 
 - **The page chip** (on by default): the text of the tab you are looking at.
   Click it to leave the page out of this message. Turn the default off in
-  **Settings → Behaviour → Include the current page by default**. On banking,
+  **Settings → General → Include the current page**. On banking,
   payment, password-manager and health sites the chip shows a lock and the page
   is never sent.
 - **`@`** mentions another open tab; **All open tabs** (in the **+** menu)
@@ -65,9 +65,9 @@ Put `{input}` where the words you type after the command should go.
 
 An approval card shows the tool, what it will send and why. Choose **Allow**
 (this once), **Always allow** (this tool from now on) or **Deny**. Remove
-always-allowed tools in **Settings → Always allowed**. Reading tools (search
+always-allowed tools in **Settings → Privacy & safety → Always allowed**. Reading tools (search
 mail, list events) run without asking; turn that off with **Settings →
-Behaviour → Auto-approve read-only tools**.
+Privacy & safety → Run reading tools without asking**.
 
 While Ensō works on a page, the element it touches is outlined and a ribbon at
 the top says "✦ Claude is working on this page". It never types passwords,
@@ -111,12 +111,12 @@ Below that are your [widgets](widgets.md).
 one line on what matters today, your calendar, mail that needs a reply, study
 deadlines and tasks. Ensō makes it with read-only calls to your tools about once
 an hour and on the first start each morning; the refresh button runs it now.
-Choose how often in **Settings → Home**. It needs Claude Code.
+Choose how often in **Settings → General → Refresh the brief**. It needs Claude Code.
 
 ## What does Ensō remember?
 
-- **Profile** (**Settings → Profile**): what you wrote about yourself.
-- **Memory** (**Settings → Memory**): facts Ensō saved when you told it
+- **Profile** (**Settings → You & memory**): what you wrote about yourself.
+- **Memory** (**Settings → You & memory → Memory**): facts Ensō saved when you told it
   something lasting ("I'm vegetarian", "my thesis is due on 12 June"), one per
   line with the date. Choose **Everywhere** or a Zen space at the top. Edit or
   delete any line.

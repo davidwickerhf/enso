@@ -13,14 +13,14 @@ import { createChatView } from "./views/chat.js";
 import { createDashboard } from "./views/dashboard.js";
 import { createNewtabHome } from "./views/newtab.js";
 import { createHistory, createActivity } from "./views/history.js";
-import { createSettings } from "./views/settings.js";
+import { createSettings, sectionLabel, needsAttention, settingsAttention } from "./views/settings.js";
 import { createNav, createContext } from "./views/panels.js";
 import { createReport } from "./views/report.js";
 import { createToolsPage } from "./views/tools.js";
 import { createOnboarding } from "./views/onboarding.js";
 import { createAgentsPanel } from "./views/agents.js";
 import { createSendSheet, SCREENSHOT_SHORTCUT } from "./views/send.js";
-import { createHelperGuide, createSetupPage } from "./views/setup.js";
+import { createHelperGuide } from "./views/setup.js";
 import { helperDownCard } from "./views/helperstate.js";
 
 const root = document.documentElement;
@@ -69,7 +69,7 @@ function bootApp() {
     focusComposer,
     newChat,
     historySearch(q) { actions.search(q); },
-    editMemory() { actions.go("settings"); requestAnimationFrame(() => view("settings").focusMemory()); },
+    editMemory() { actions.go("settings", { section: "memory" }); requestAnimationFrame(() => view("settings").focusMemory()); },
     tryTip(id) {
       const text = { mention: "@", act: "Fill this form for me", tools: "What's new in my mail today?", skills: "/" }[id];
       if (text) { composer.setText(text); composer.textarea.dispatchEvent(new Event("input")); }
@@ -86,7 +86,6 @@ function bootApp() {
         activity: () => createActivity(store),
         settings: () => createSettings(store, ctx),
         tools: () => createToolsPage(store, ctx),
-        setup: () => createSetupPage(store, ctx),
       }[name]();
     }
     return views[name];
@@ -201,8 +200,11 @@ function bootApp() {
   function renderTopbar() {
     const v = s.ui.view;
     const sum = v === "chat" && s.ui.currentId ? store.summary(s.ui.currentId) : null;
-    const title = { history: "History", activity: "Activity", settings: "Settings", tools: "Tools", setup: "Setup" }[v] ?? (v === "chat" ? sum?.title || "New conversation" : null);
-    const back = (mode !== "full" && v !== "home") ? (v === "setup" ? iconButton("arrowLeft", "Back to Settings", () => actions.go("settings"), { class: "back" }) : iconButton("arrowLeft", "Back to home", () => actions.go("home"), { class: "back" })) : null;
+    // Sidebar Settings drills into one section: the title is the section, and back goes up one level.
+    const section = v === "settings" && mode === "sidebar" ? s.ui.settingsSection : null;
+    const title = section ? sectionLabel(section) : { history: "History", activity: "Activity", settings: "Settings", tools: "Tools" }[v] ?? (v === "chat" ? sum?.title || "New conversation" : null);
+    const up = backTarget();
+    const back = (mode !== "full" && v !== "home") ? iconButton("arrowLeft", up.label, up.go, { class: "back" }) : null;
     const attn = pendingApprovals();
     const pill = attn.length ? h("button", { type: "button", class: "attn-pill", onclick: () => jumpToApproval(attn[0]) },
       h("span", { class: "attn-pulse", aria: { hidden: "true" } }), icon("shield"),
@@ -222,7 +224,7 @@ function bootApp() {
         shotBtn,
         iconButton("plus", `New chat (${MOD}N)`, newChat),
         iconButton("history", "History", () => actions.go("history"), { aria: { pressed: String(v === "history") } }),
-        iconButton("sliders", "Settings", () => actions.go("settings"), { aria: { pressed: String(v === "settings") } }),
+        settingsButton(v),
         // (Element.append would print a null as the text "null".)
         inExtension || s.transportKind === "mock" ? iconButton("expand", "Open as full page", () => openFullPage(v === "chat" && s.ui.currentId ? `#conversation=${encodeURIComponent(s.ui.currentId)}` : "")) : "");
     } else if (mode === "newtab") {
@@ -233,7 +235,7 @@ function bootApp() {
       }
       right.append(
         iconButton("history", "History", () => actions.go("history")),
-        iconButton("sliders", "Settings", () => actions.go("settings")));
+        settingsButton(v));
     } else {
       right.append(shotBtn);
       if (v === "chat" && sum) right.append(iconButton("pencil", "Rename", () => renameInline(sum)));
@@ -246,6 +248,23 @@ function bootApp() {
     clear(topbar, left, right);
     topbar.classList.toggle("bare", mode === "newtab" && v === "home");
     document.title = mode === "newtab" ? (v === "home" ? "New Tab" : `${title} · Ensō`) : title ? `${title} · Ensō` : "Ensō";
+  }
+
+  /** Where the top bar's back button (and Escape) go from the current view. */
+  function backTarget() {
+    const v = s.ui.view;
+    if (v === "settings" && mode === "sidebar" && s.ui.settingsSection) return { label: "Back to Settings", go: () => actions.go("settings") };
+    if (v === "tools") return { label: "Back to Settings", go: () => actions.go("settings", { section: mode === "sidebar" ? "connections" : null }) };
+    return { label: "Back to home", go: () => actions.go("home") };
+  }
+
+  /** The Settings button, with a dot when something there needs the user. */
+  function settingsButton(v) {
+    const attn = needsAttention(s);
+    const first = attn ? Object.values(settingsAttention(s)).find(Boolean) : null;
+    const btn = iconButton("sliders", attn ? `Settings: ${first}` : "Settings", () => actions.go("settings"), { aria: { pressed: String(v === "settings") }, class: attn && "has-attn" });
+    if (attn) btn.append(h("span", { class: "attn-badge", aria: { hidden: "true" } }));
+    return btn;
   }
 
   function renameInline(sum) {
@@ -293,11 +312,12 @@ function bootApp() {
     const inField = e.target.closest?.("input, textarea, select, [contenteditable]");
     if (mod && !e.shiftKey && !e.altKey && e.key.toLowerCase() === "k") { e.preventDefault(); focusComposer(); return; }
     if (mod && !e.shiftKey && !e.altKey && e.key.toLowerCase() === "n") { e.preventDefault(); newChat(); return; }
-    if (e.key === "Escape" && !inField && ["history", "activity", "settings", "tools", "setup"].includes(s.ui.view) && mode !== "full") { actions.go(s.ui.view === "tools" || s.ui.view === "setup" ? "settings" : "home"); return; }
+    if (e.key === "Escape" && !inField && ["history", "activity", "settings", "tools"].includes(s.ui.view) && mode !== "full") { backTarget().go(); return; }
     // New tab: ↓ in the empty box opens the day's brief.
     if (e.key === "Escape" && !inField && s.ui.view === "chat" && s.ui.currentId && s.running.has(s.ui.currentId)) { actions.stop(); return; }
     // Type anywhere on Home to start writing.
     if (!inField && !mod && !e.altKey && e.key.length === 1 && ["home", "chat"].includes(s.ui.view) && !e.target.closest?.("button, a")) composer.focus();
+    if (!inField && !mod && e.key === "/" && s.ui.view === "settings") { e.preventDefault(); view("settings").focusSearch(); return; }
     if (!inField && !mod && e.key === "/" && !["home", "chat"].includes(s.ui.view)) { e.preventDefault(); focusComposer(); }
   });
 
@@ -341,7 +361,7 @@ function bootApp() {
     context?.update(topics);
     agents?.update(topics);
     sendSheet?.update(topics);
-    if (["ui", "approvals", "conversations", "settings", "state", "space", "tab"].some(t => topics.has(t)) || [...topics].some(t => t.startsWith("conv:"))) renderTopbar();
+    if (["ui", "approvals", "conversations", "settings", "state", "space", "tab", "setup", "servers", "t3"].some(t => topics.has(t)) || [...topics].some(t => t.startsWith("conv:"))) renderTopbar();
     if (topics.has("ui") || [...topics].some(t => t.startsWith("conv:"))) placeComposer();
     if (topics.has("banner") || topics.has("connection") || topics.has("helper")) renderBanner();
     if (topics.has("helper")) renderGuide();

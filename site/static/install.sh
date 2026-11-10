@@ -281,14 +281,14 @@ EOF
 	done
 
 	# 7. Letting Claude Code, Codex, Cursor or OpenCode use Zen is a switch per
-	#    client in Ensō → Settings → Setup (or `enso mcp install`).
+	#    client in Ensō → Settings → Agents & screenshots (or `enso mcp install`).
 	#    ENSO_REGISTER_MCP=1 registers Claude Code here, for scripted installs.
 	if [ "${ENSO_REGISTER_MCP:-}" = "1" ] && [ -n "$claude_bin" ]; then
 		step "Claude Code and Zen"
 		if "$ENSO_BIN" mcp install --client claude >/dev/null 2>&1; then
 			info "Added zen-browser to Claude Code."
 		else
-			warn "Claude Code did not accept the server; turn it on later in Ensō → Settings → Setup."
+			warn "Claude Code did not accept the server; turn it on later in Ensō → Settings → Agents & screenshots."
 		fi
 	fi
 

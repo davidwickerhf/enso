@@ -42,7 +42,7 @@ Then a greeting (time of day, my first name if you know it), a one-line headline
 
 let running = null;
 
-/** Whether the brief should refresh by itself. Settings → Home → "Off" (0) means never: only the refresh button makes one. */
+/** Whether the brief should refresh by itself. Settings → General → Refresh the brief → "Off" (0) means never: only the refresh button makes one. */
 export function dashboardStale(settings) {
   if ((settings.dashboard?.autoRefreshMinutes ?? 60) === 0) return false;
   const d = getDashboard();

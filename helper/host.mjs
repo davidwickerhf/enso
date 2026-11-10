@@ -205,7 +205,7 @@ const running = new Map(); // conversationId -> { abortController }
 const approvals = new Map(); // toolUseId -> resolve(decision)
 const PERSISTED = new Set(["user", "assistant", "thinking", "tool.call", "tool.result", "approval.request", "approval.resolved", "page.action", "notice", "error", "turn.start", "turn.end"]);
 
-/** What the user wrote about a space (Settings → Profile), else config.spaceHints (config.local.json). */
+/** What the user wrote about a space (Settings → You & memory), else config.spaceHints (config.local.json). */
 function spaceHint(sp) {
   const own = store.getSettings().spaceHints ?? {};
   return own[sp.id] ?? own[sp.name] ?? config.spaceHints?.[sp.name] ?? "";
@@ -697,7 +697,7 @@ async function handle(msg) {
       break;
     }
     case "profile.save": {
-      // Onboarding and Settings → Profile. skip: true just marks onboarding as done.
+      // Onboarding and Settings → You & memory. skip: true just marks onboarding as done.
       const patch = {};
       if (!msg.skip) store.saveProfile({ name: msg.name, about: msg.about });
       if (msg.skip || !store.getSettings().onboardingDone) patch.onboardingDone = true;

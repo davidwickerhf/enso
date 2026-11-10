@@ -38,11 +38,11 @@ The subscription engine needs the `claude` command.
 - Run `claude` once and sign in; quit with `/exit`.
 - Zen starts the helper with a minimal `PATH`. Ensō looks in your `PATH`,
   `~/.local/bin`, `~/.claude/local`, `/opt/homebrew/bin` and `/usr/local/bin`.
-  If `claude` is elsewhere, set its location in **Settings → Engine → Claude
+  If `claude` is elsewhere, set its location in **Settings → Advanced → Claude
   Code location**.
 - Quit and reopen Zen.
 
-Or switch to the API key engine in **Settings → Engine**.
+Or switch to the API key engine in **Settings → General → Engine**.
 
 ## "No Anthropic API key"
 
