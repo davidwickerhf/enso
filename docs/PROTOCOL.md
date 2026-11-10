@@ -48,12 +48,14 @@ All messages are objects with a `type`. Times are ISO strings. Ids are strings.
 | `connections.add` | `name` (letters, digits, `-`, `_`), `url` (MCP URL, https or loopback http), `label?` | adds a custom OAuth server, then as `connections.start`; a bad name/URL answers `connections` with `done: { ok: false, add: true, error }` |
 | `connections.disconnect` | `server` | revokes the token at the server when it supports it, deletes the Keychain item; `connections` + `servers` |
 | `connections.remove` | `server` (custom only) | disconnects and forgets it; `connections` + `servers` |
+| `connections.probe` | `server` (an OAuth server) | Retry for a server that is signed in but failed: lists its tools again with the stored token (no new sign-in); `servers` + `connections.probed` |
 | `skills.save` | `skill: { name, description, prompt }` (name without `/`; `prompt` may contain `{input}` for the text typed after the command) | `skills` |
 | `skills.delete` | `name` | `skills` |
 | `report.get` | `id` | `report` |
 | `reports.list` | | `reports` |
 | `github.widget` | `force?` (skip the helper's 5-minute cache) | `github` |
-| `tasks.widget` | `force?` (skip the helper's 5-minute cache) | `tasks` |
+| `tasks.widget` | `force?` (skip the helper's 5-minute cache), `maxAge?` (ms: refetch only if the cache is older; at least 15 s) | `tasks` |
+| `monday.widget` | `force?`, `maxAge?` (as `tasks.widget`) | `monday` |
 | `tasks.complete` | `server`, `id` (a task from the last `tasks` list; the user ticked it, so no approval) | `tasks.completed` + `tasks` (marks it done with the app's `update_task` / `complete_task`; logged in actions.jsonl as `complete_task`) |
 | `github.token` | `token` (pasted in Tools → GitHub; checked against GitHub, then saved to the Keychain service `enso-github` through `security -i` on stdin) | `github.saved` + `servers` |
 | `github.forget` | | `servers` (deletes the Keychain token) |
@@ -262,7 +264,11 @@ auth: { type: "oauth", state: "connected" | "disconnected" | "connecting" | "exp
         custom: false, url: "https://…/mcp", error?: "…", authUrl?: "…" /* while connecting */, expiresAt?: ISO }
 ```
 and their `status` is `"needs-auth"` (or `"pending"` while connecting) until
-signed in. Show Connect / Reconnect (expired) / Try again (error) from `auth`,
+signed in. Signed in (`auth.state: "connected"`) but `status: "failed"` means the
+server itself failed (e.g. monday answering HTTP 500); the entry then carries
+`error` (one short line, never an HTML page: `connections.mjs` `friendly()`), and
+the UI says "Signed in · server error" with Retry (`connections.probe`) instead
+of a sign-in button. A server error doesn't trigger a token refresh. Show Connect / Reconnect (expired) / Try again (error) from `auth`,
 Disconnect when connected, Remove when `custom`.
 
 ### Connections (OAuth sign-in for MCP servers)
@@ -363,7 +369,43 @@ Streaming-only kinds (not persisted, folded into `assistant` / `thinking` at the
 - `github`: `{ type, data?: { login, review: [GitHubRow], mine: [GitHubRow], assigned: [GitHubRow], counts: { review, mine, authored, assigned }, fetchedAt }, error?: string }` — `GitHubRow` = `{ kind: "pr" | "issue", repo, number, title, url, updatedAt, ci, review, conflict, draft }`; `mine` = the user's open PRs with failing CI, changes requested or a merge conflict
 - `github.saved`: `{ type, ok, login?, error? }`
 - `tasks`: `{ type, data?: { tasks: [Task], servers: [{ name, label, ok, error? }], fetchedAt }, error?: string }` — open tasks from enabled, connected http MCP servers with a `list_tasks` tool that the helper can call itself (e.g. Commonfold through Ensō's own sign-in; `lib/tasks.mjs`). `Task` = `{ id, title, due?, url?, source, server, space?, done?, completable }`; `completable: false` for tasks parsed from free text (no id). claude.ai connectors (Notion, Todoist…) can't be called directly; their tasks come through the dashboard's `tasks` with `kind: "app"`.
+  `Task.remindAt?` is the app's reminder time (Commonfold's `remindAt`). Tasks are
+  ordered overdue first, then due today, then later by date (ties by reminder),
+  then undated. The host also pushes `tasks` unasked, with `added: ["server|id"]`,
+  about a second after a chat on either engine makes a successful task write to
+  a server with `list_tasks` (a tool whose name starts with a write verb and
+  names a task, todo or item: `create_task`, `update_task`, `complete_task`,
+  `delete_task`…): the cache is dropped and refetched, and `added` lists the
+  tasks that weren't in the previous list (the UI marks them "New"). Agents using
+  the `zen-browser` MCP server call task apps directly, not through Ensō, so their
+  writes show at the next background refresh (pages ask with `maxAge` 60 s when
+  opened or shown, and every 5 minutes while visible).
 - `tasks.completed`: `{ type, server, id, ok, error? }`
+- `monday`: `{ type, data, added? }` — the monday.com widget (`lib/monday.mjs`), from
+  the OAuth server named `monday` (or any at `mcp.monday.com`), cached 5 minutes
+  (errors 1 minute). `data` is one of
+  ```js
+  { state: "ok", user: { id, name }, fetchedAt,
+    items:   [{ id, title, url?, board, boardId, status?, due?, group?, updatedAt? }],  // assigned to me, open, ordered like tasks
+    updates: [{ id, itemId, item?, url?, author, text, at, mention }],               // latest updates on those items by others
+    boards:  [{ id, name }] }
+  { state: "not-connected", reason: "missing" | "off" | "disconnected" | "expired" | "connecting" | "error" | "claude.ai", fetchedAt }
+  { state: "error", kind: "server" | "auth" | "network" | "tools", error: "monday.com isn't responding (server error).", fetchedAt }
+  ```
+  monday's MCP has no "my work" tool, so the host calls, per refresh:
+  `get_user_context` (me, favourite and relevant boards), `get_board_schema` per
+  board (up to 6, cached an hour) to find the people, status and due-date
+  columns, `get_board_items_page` with
+  `filters: [{ columnId: <people column>, compareValue: ["assigned_to_me"], operator: "any_of" }]`,
+  and `get_updates` (`objectType: "Item"`) for those items. Items whose status
+  reads like done are left out. Shapes follow github.com/mondaycom/mcp
+  (`packages/agent-toolkit`, commit 4299b7a); fixtures in
+  `helper/test/fixtures/monday`. Any successful monday write in a chat
+  (`create_item`, `change_item_column_values`, `create_update`, …) pushes a fresh
+  `monday` with `added: ["monday:<itemId>"]`. The UI also shows monday items
+  with a due date in the Tasks widget (source "monday.com"; ticking hides them
+  locally).
+- `connections.probed`: `{ type, server, ok, status, error? }` — the answer to `connections.probe`.
 
 ### `Dashboard`
 ```js

@@ -14,6 +14,8 @@
 // Send screenshot: ?shot=sheet | picker | agent | fallback opens the send sheet with a
 // fake capture; ?t3=off | down | revoked | fallback sets the T3 Code connection;
 // ?links=1 adds linked threads (Settings → Send screenshots).
+// ?monday=ok | down | off: monday.com signed in and working (default), signed in
+// but its server failing (HTTP 500), or not connected.
 
 const MIN = 60_000;
 const HOUR = 60 * MIN;
@@ -187,12 +189,35 @@ function makeTasks() {
   const t = (id, title, due, extra = {}) => ({ id, title, ...(due ? { due } : {}), url: `https://fieldnotes.example.com/notes/${id}`, source: "Fieldnotes", server: "fieldnotes", space: "personal", completable: true, ...extra });
   return [
     t("6f1c2a10-0000-4000-8000-000000000001", "Pay the studio rent", dayIn(-1)),
+    t("6f1c2a10-0000-4000-8000-000000000006", "Return the library books", dayIn(0), { remindAt: today(18, 0) }),
     t("6f1c2a10-0000-4000-8000-000000000002", "Send the Q4 survey results to Priya", dayIn(1)),
     t("6f1c2a10-0000-4000-8000-000000000003", "Draft the onboarding copy for Atlas 2.0", dayIn(3)),
     t("6f1c2a10-0000-4000-8000-000000000004", "Order seeds for the spring beds", null),
     t("6f1c2a10-0000-4000-8000-000000000005", "Read Jonas's beta checklist", null),
   ];
 }
+
+// monday.com items assigned to Maya (monday.widget), in the helper's normalised shape.
+function makeMonday() {
+  const item = (id, title, board, status, due, group, mins) => ({ id, title, board: board.name, boardId: board.id, url: `https://northwind.monday.com/boards/${board.id}/pulses/${id}`, ...(status ? { status } : {}), ...(due ? { due } : {}), group, updatedAt: iso(now() - mins * MIN) });
+  const atlas = { id: "4810000001", name: "Atlas 2.0 launch" };
+  const design = { id: "4810000002", name: "Design team" };
+  const items = [
+    item("4811000101", "Onboarding flow: final copy review", atlas, "Stuck", dayIn(-1), "This sprint", 25),
+    item("4811000102", "Hand off empty states to engineering", atlas, "Working on it", dayIn(0), "This sprint", 90),
+    item("4811000103", "Keyboard shortcuts panel QA", atlas, "Waiting for review", dayIn(2), "This sprint", 300),
+    item("4811000104", "Icon set refresh", design, "Working on it", dayIn(6), "Q4", 1440),
+    item("4811000105", "Research synthesis: beta interviews", design, null, null, "Backlog", 4000),
+  ];
+  return {
+    state: "ok",
+    user: { id: "71000001", name: "Maya Lindqvist" },
+    items,
+    updates: [{ id: "u1", itemId: "4811000101", item: items[0].title, url: items[0].url, author: "Jonas Berg", text: "@Maya Lindqvist legal signed off on the consent wording, can you update the last screen today?", at: iso(now() - 25 * MIN), mention: true }],
+    boards: [atlas, design],
+  };
+}
+const MONDAY_TOOLS = ["get_user_context", "get_board_schema", "get_board_info", "get_board_items_page", "get_updates", "get_board_activity", "search", "list_users_and_teams", "create_item", "change_item_column_values", "create_update", "move_item_to_group", "delete_item"];
 
 // ---- seed conversations ---------------------------------------------------
 
@@ -424,6 +449,19 @@ export function createMockHost() {
       examples: ["What's in my Fieldnotes inbox?", "Which tasks are due this week?"],
       auth: { type: "oauth", state: "disconnected", custom: false, url: "https://fieldnotes.example.com/mcp" } },
   ];
+  const mondayMode = new URLSearchParams(globalThis.location?.search ?? "").get("monday") ?? "ok";
+  servers.push({ name: "monday", label: "monday.com", status: mondayMode === "ok" ? "connected" : mondayMode === "down" ? "failed" : "needs-auth", enabled: true,
+    tools: mondayMode === "ok" ? MONDAY_TOOLS.length : 0, toolNames: mondayMode === "ok" ? MONDAY_TOOLS : [], source: "MCP server", connectUrl: null,
+    about: "Your monday.com boards, items, updates and docs (monday's own MCP server; you sign in with your monday account).", examples: ["What's assigned to me on monday.com this week?"],
+    ...(mondayMode === "down" ? { error: "The server returned a server error (HTTP 500)." } : {}),
+    auth: { type: "oauth", state: mondayMode === "off" ? "disconnected" : "connected", custom: true, url: "https://mcp.monday.com/mcp" } });
+  const mondayData = () => {
+    const sv = servers.find(x => x.name === "monday");
+    if (!sv || sv.auth.state !== "connected") return { state: "not-connected", reason: sv ? sv.auth.state : "missing", fetchedAt: iso(now()) };
+    if (sv.status === "failed") return { state: "error", kind: "server", error: "monday.com isn't responding (server error).", fetchedAt: iso(now()) };
+    return { ...mondayItems, fetchedAt: iso(now()) };
+  };
+  let mondayItems = makeMonday();
   // Servers Ensō signs in to itself (connections.*): a pretend sign-in that "finishes" after a moment.
   // ?connect=connected | expired | error | connecting in the page URL starts Fieldnotes in that state.
   const MOCK_TOOLS = ["search_notes", "get_note", "create_note", "update_note", "list_tasks", "create_task", "update_task", "save_to_inbox"];
@@ -1029,6 +1067,19 @@ Want me to draft the reply to Jonas, or open the [Vercel deployment](https://ver
       case "tasks.widget":
         setTimeout(() => out({ type: "tasks", data: tasksData() }), 300);
         return;
+      case "monday.widget":
+        setTimeout(() => out({ type: "monday", data: mondayData() }), 400);
+        return;
+      case "connections.probe": {
+        // Retry: monday stays down in ?monday=down (the error state), anything else comes back.
+        const sv = servers.find(x => x.name === msg.server && x.auth);
+        setTimeout(() => {
+          if (sv && mondayMode !== "down") { Object.assign(sv, { status: "connected", tools: MONDAY_TOOLS.length, toolNames: MONDAY_TOOLS }); delete sv.error; }
+          out({ type: "servers", servers });
+          out({ type: "connections.probed", server: msg.server, ok: sv?.status === "connected", status: sv?.status ?? "failed", ...(sv?.error ? { error: sv.error } : {}) });
+        }, 900);
+        return;
+      }
       case "tasks.complete": {
         // Like the helper: only tasks it listed; "fail" in the title shows the error state.
         const task = openTasks.find(t => t.server === msg.server && t.id === msg.id);
@@ -1063,19 +1114,28 @@ Want me to draft the reply to Jonas, or open the [Vercel deployment](https://ver
   //   __ensoMock.disconnect()       global host_disconnected banner
   globalThis.__ensoMock = {
     tabs: TABS,
-    // Preset widget layouts for the new tab: "four", "all", "tasks", "tasksSmall", "github", or [] to clear.
+    // Preset widget layouts for the new tab: "four", "all", "tasks", "tasksSmall", "monday", "github", or [] to clear.
     presetWidgets(name) {
       const presets = {
         four: [{ id: "w-next", type: "next", size: "M" }, { id: "w-due", type: "due", size: "M" }, { id: "w-clock", type: "clock", size: "S" }, { id: "w-mail", type: "mail", size: "S" }],
-        all: ["next", "due", "tasks", "mail", "language", "github", "clock", "chats", "links", "note", "ask"].map(t => ({ id: `w-${t}`, type: t, size: ["clock", "mail", "note"].includes(t) ? "S" : "M" })),
+        all: ["next", "due", "tasks", "monday", "mail", "language", "github", "clock", "chats", "links", "note", "ask"].map(t => ({ id: `w-${t}`, type: t, size: ["clock", "mail", "note"].includes(t) ? "S" : "M" })),
         tasks: [{ id: "w-next", type: "next", size: "M" }, { id: "w-due", type: "due", size: "M" }, { id: "w-tasks", type: "tasks", size: "M" }, { id: "w-clock", type: "clock", size: "S" }, { id: "w-mail", type: "mail", size: "S" }],
         tasksSmall: [{ id: "w-tasks", type: "tasks", size: "S" }, { id: "w-next", type: "next", size: "M" }, { id: "w-clock", type: "clock", size: "S" }, { id: "w-due", type: "due", size: "M" }, { id: "w-mail", type: "mail", size: "S" }],
+        monday: [{ id: "w-tasks", type: "tasks", size: "M" }, { id: "w-monday", type: "monday", size: "M" }, { id: "w-clock", type: "clock", size: "S" }, { id: "w-monday-s", type: "monday", size: "S" }],
         github: [{ id: "w-github", type: "github", size: "M" }, { id: "w-next", type: "next", size: "M" }, { id: "w-clock", type: "clock", size: "S" }, { id: "w-github-s", type: "github", size: "S" }],
       };
       settings.homeWidgets = Array.isArray(name) ? name : presets[name] ?? [];
       out({ type: "settings", settings });
     },
     prefill(text) { out({ type: "composer.prefill", text }); },
+    // What the helper sends after Claude calls create_task in a chat: the fresh list, with the new task marked.
+    //   __ensoMock.addTask("Buy souvenirs", 2, 17)  → due in 2 days, reminder 17:00
+    addTask(title = "Buy souvenirs for the team", inDaysN = 2, remindHour = 17) {
+      const id = `6f1c2a10-0000-4000-8000-${String(Date.now()).slice(-12)}`;
+      const d = new Date(); d.setDate(d.getDate() + inDaysN); d.setHours(remindHour, 0, 0, 0);
+      openTasks = [...openTasks, { id, title, due: dayIn(inDaysN), remindAt: d.toISOString(), url: `https://fieldnotes.example.com/notes/${id}`, source: "Fieldnotes", server: "fieldnotes", space: "personal", completable: true }];
+      out({ type: "tasks", data: tasksData(), added: [`fieldnotes|${id}`] });
+    },
     // GitHub's tools-panel state: githubConnected(false) shows the token box.
     githubConnected(on) { servers.splice(servers.findIndex(x => x.name === "github"), 1, githubEntry(!!on)); out({ type: "servers", servers }); },
     disconnect() { out({ type: "event", conversationId: null, event: { kind: "error", code: "host_disconnected", text: "Lost Ensō's helper: the native host exited. Run the installer again if this persists.", at: iso(now()) } }); },

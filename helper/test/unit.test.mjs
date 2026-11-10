@@ -88,6 +88,19 @@ try {
   const miss = findClaude([path.join(root, "nope", "claude")]);
   if (!miss.found) assert.match(miss.reason, /not found at/);
   console.log(`ok - Claude Code CLI lookup (${miss.found ? "a real claude is installed here too" : "missing path reported"})`);
+
+  // ---- friendly(): short, readable errors for the Tools page (never a whole HTML page or a token) ----
+  const { friendly } = await import("../lib/connections.mjs");
+  const page = `<!DOCTYPE html><html><head><title>Internal Server Error</title><style>body{}</style></head><body><h1>500</h1>${"<p>Something broke</p>".repeat(400)}</body></html>`;
+  assert.equal(friendly(Object.assign(new Error(`Streamable HTTP error: Error POSTing to endpoint: ${page}`), { code: 500 })), "The server returned a server error (HTTP 500).");
+  assert.equal(friendly(new Error(`Error POSTing to endpoint (HTTP 502): ${page}`)), "The server returned a server error (HTTP 502).");
+  assert.equal(friendly(new Error(`<html><body>nope</body></html>`)), "The server returned an error page.");
+  assert.equal(friendly(Object.assign(new Error("Streamable HTTP error: Error POSTing to endpoint: Unauthorized"), { code: 401 })), "Error POSTing to endpoint: Unauthorized");
+  assert.equal(friendly(new Error("fetch failed")), "Couldn't reach the server.");
+  assert.equal(friendly(new Error('request failed: Authorization: Bearer abc.DEF-123_xyz rejected')), "request failed: Authorization: Bearer … rejected");
+  const long = friendly(new Error("x".repeat(1000)));
+  assert.ok(long.length <= 200 && long.endsWith("…"));
+  console.log("ok - friendly() turns HTML error pages into one short line, hides tokens, caps the length");
 } finally {
   rmSync(root, { recursive: true, force: true });
 }

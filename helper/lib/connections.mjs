@@ -299,6 +299,7 @@ export function createConnections({ dataDir, builtIn = {}, keychainPrefix = "ens
         const resource = d.resourceMetadata?.resource;
         const tokens = await refreshAuthorization(d.authorizationServerUrl, { metadata: d.authorizationServerMetadata, clientInformation: rec.client, refreshToken: rec.tokens.refresh_token, resource, fetchFn });
         const next = { ...rec, tokens: { ...tokens, issuer: rec.tokens.issuer }, obtainedAt: Date.now() };
+        if (!file.servers[name]?.connected) return false; // disconnected while the refresh was under way: don't store it again
         await store(name, next);
         Object.assign(meta(name), { connected: true, expired: false, expiresAt: expiresAt(next) });
         save();
@@ -379,6 +380,7 @@ export function createConnections({ dataDir, builtIn = {}, keychainPrefix = "ens
   /** Revoke at the server when it supports it, then forget everything local. */
   async function disconnect(name) {
     def(name);
+    await refreshing.get(name)?.catch(() => {}); // let a refresh in flight finish first, so it can't write the token back
     const rec = await load(name);
     if (rec?.tokens && rec.client) {
       try {
@@ -430,8 +432,20 @@ export function createConnections({ dataDir, builtIn = {}, keychainPrefix = "ens
   return { list, has, start, handleCallback, route, headersFor, sessionServers, recover, refresh, probe, disconnect, addCustom, removeCustom, defs, close };
 }
 
-function friendly(err) {
-  const msg = String(err?.message ?? err ?? "Something went wrong.");
+/**
+ * An error as a short line for the UI and the log: no tokens, no HTML pages
+ * (some servers answer a failed MCP request with a whole error page), at most
+ * ~200 characters.
+ */
+export function friendly(err) {
+  const msg = String(err?.message ?? err ?? "Something went wrong.").replace(/Bearer\s+[^\s"'<]+/gi, "Bearer …");
   if (/fetch failed|ENOTFOUND|ECONNREFUSED|ETIMEDOUT/i.test(msg)) return "Couldn't reach the server.";
-  return msg.replace(/Bearer\s+\S+/gi, "Bearer …").slice(0, 300);
+  const status = Number.isInteger(err?.code) && err.code >= 400 && err.code < 600 ? String(err.code) : null; // the SDK's StreamableHTTPError
+  const code = status ?? /\bHTTP\s*(\d{3})\b/i.exec(msg)?.[1] ?? /\b(?:status(?: code)?|error)\s*:?\s*(\d{3})\b/i.exec(msg)?.[1] ?? /^\s*(\d{3})\b/.exec(msg)?.[1];
+  if (/<(!doctype|html|head|body|title|div|h1|p)\b/i.test(msg)) {
+    const what = code && /^5/.test(code) ? "a server error" : "an error page";
+    return `The server returned ${what}${code ? ` (HTTP ${code})` : ""}.`;
+  }
+  const flat = msg.replace(/^Streamable HTTP error: /, "").replace(/\s+/g, " ").trim() || (code ? `HTTP ${code}` : "Something went wrong.");
+  return flat.length > 200 ? `${flat.slice(0, 197)}…` : flat;
 }

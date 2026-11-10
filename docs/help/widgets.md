@@ -11,6 +11,7 @@ soon, Tasks and Clock.
 | Next up | Your next event, and the one after. | The brief (your calendar) |
 | Due soon | Deadlines and tasks by date; tick tasks off. | The brief |
 | Tasks | Open tasks from your task apps, such as Commonfold; tick them off. | Your task apps, directly, plus the brief |
+| monday.com | Items assigned to you across your boards, with status and due date, and the latest update. | monday.com, directly |
 | Mail | How many emails need you, and the top one. | The brief (your mail) |
 | Practice | Today's practice (for example a language app) in one line. | The brief |
 | GitHub | Reviews waiting for you, your PRs that need you, assigned issues. | GitHub, directly |
@@ -61,6 +62,22 @@ small size shows the count and the top task. When Due soon and Tasks are both on
 the page, task-app tasks show in Tasks only.
 
 See [connecting tools](connecting-tools.md) to connect a task app.
+
+## Does the Tasks list keep up?
+
+Yes. When you ask Ensō in a chat to add, change or finish a task, the list is
+fetched again a moment later and the new task shows with a **New** tag. A new tab,
+or a tab you come back to, fetches again when the list is more than a minute old,
+and every five minutes while it is open. Overdue tasks come first, then today's,
+then the rest by date; reminder times show with a bell.
+
+## How does the monday.com widget work?
+
+Connect monday.com on the Tools page. The widget shows items assigned to you on
+your favourite and most-used boards, with status and due date, and the latest
+update someone else wrote on them. Items with a due date also show in Tasks. If
+monday.com's server fails, the widget says "monday.com isn't responding (server
+error)" with Retry, and the Tools page shows "Signed in · server error".
 
 ## How does the GitHub widget work?
 

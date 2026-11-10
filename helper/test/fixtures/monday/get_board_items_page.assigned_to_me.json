@@ -1,0 +1,112 @@
+{
+  "_source": {
+    "commit": "4299b7a5b22dfda17ede8c7dcadc38cbbb47a35c",
+    "files": [
+      "https://github.com/mondaycom/mcp/blob/4299b7a5b22dfda17ede8c7dcadc38cbbb47a35c/packages/agent-toolkit/src/core/tools/platform-api-tools/get-board-items-page-tool/get-board-items-page-tool.ts",
+      "https://github.com/mondaycom/mcp/blob/4299b7a5b22dfda17ede8c7dcadc38cbbb47a35c/packages/agent-toolkit/src/core/tools/platform-api-tools/get-board-items-page-tool/get-board-items-page-tool.graphql.ts",
+      "https://github.com/mondaycom/mcp/blob/4299b7a5b22dfda17ede8c7dcadc38cbbb47a35c/packages/agent-toolkit/src/core/tools/platform-api-tools/get-board-items-page-tool/items-filter-schema.ts",
+      "https://github.com/mondaycom/mcp/blob/4299b7a5b22dfda17ede8c7dcadc38cbbb47a35c/packages/agent-toolkit/src/core/tools/platform-api-tools/utils/column-filter-aggregation-guidelines.ts",
+      "https://github.com/mondaycom/mcp/blob/4299b7a5b22dfda17ede8c7dcadc38cbbb47a35c/packages/agent-toolkit/src/mcp/toolkit.ts (formatToolResult: object content -> structuredContent + content[0].text = JSON.stringify(content), compact, no prefix; string content -> text only)"
+    ],
+    "notes": "column_values is a flat {columnId: value} map (mapItem/getColumnValueData): status -> cv.text or null; board_relation -> linked_items[]; formula -> display_value; mirror -> 'Column value type is not supported'; MLS battery -> battery_value; everything else -> cv.text if truthy, else JSON.parse(cv.value), else value||null. So empty date/status come back null. No column type info is returned: call get_board_info to learn which column id is people/status/date. 'group' included by default (includeGroup=true). parent_item_id only appears for subitems. url is the GraphQL Item.url ('The item's link'). No items for a searchTerm -> plain text 'No items found matching the specified searchTerm'. Column ids here (person/status/date4) are typical defaults but board-specific.",
+    "synthetic_values": "IDs, names, dates are invented; key names, nesting and ordering follow the source."
+  },
+  "_call": {
+    "name": "get_board_items_page",
+    "arguments": {
+      "boardId": 1840000001,
+      "includeColumns": true,
+      "columnIds": [
+        "person",
+        "status",
+        "date4"
+      ],
+      "filters": [
+        {
+          "columnId": "person",
+          "compareValue": [
+            "assigned_to_me"
+          ],
+          "operator": "any_of"
+        }
+      ],
+      "orderBy": [
+        {
+          "columnId": "date4",
+          "direction": "asc"
+        }
+      ],
+      "limit": 50
+    }
+  },
+  "result": {
+    "structuredContent": {
+      "board": {
+        "id": "1840000001",
+        "name": "Team Tasks",
+        "hierarchy_type": "classic"
+      },
+      "items": [
+        {
+          "id": "1840100011",
+          "name": "Write onboarding guide",
+          "url": "https://example-account.monday.com/boards/1840000001/pulses/1840100011",
+          "created_at": "2026-10-28T09:12:44Z",
+          "updated_at": "2026-11-09T16:03:10Z",
+          "column_values": {
+            "person": "Dana Example",
+            "status": "Working on it",
+            "date4": "2026-11-12"
+          },
+          "group": {
+            "id": "topics",
+            "title": "This week"
+          }
+        },
+        {
+          "id": "1840100027",
+          "name": "Review PR for export bug",
+          "url": "https://example-account.monday.com/boards/1840000001/pulses/1840100027",
+          "created_at": "2026-11-03T11:40:02Z",
+          "updated_at": "2026-11-10T08:21:55Z",
+          "column_values": {
+            "person": "Dana Example, Alex Colleague",
+            "status": "Stuck",
+            "date4": "2026-11-07"
+          },
+          "group": {
+            "id": "topics",
+            "title": "This week"
+          }
+        },
+        {
+          "id": "1840100031",
+          "name": "Plan Q1 offsite",
+          "url": "https://example-account.monday.com/boards/1840000001/pulses/1840100031",
+          "created_at": "2026-11-05T14:00:00Z",
+          "updated_at": "2026-11-05T14:00:00Z",
+          "column_values": {
+            "person": "Dana Example",
+            "status": null,
+            "date4": null
+          },
+          "group": {
+            "id": "group_mkx1abcd",
+            "title": "Backlog"
+          }
+        }
+      ],
+      "pagination": {
+        "has_more": false,
+        "nextCursor": null,
+        "count": 3
+      }
+    },
+    "content": [
+      {
+        "type": "text",
+        "text": "{\"board\":{\"id\":\"1840000001\",\"name\":\"Team Tasks\",\"hierarchy_type\":\"classic\"},\"items\":[{\"id\":\"1840100011\",\"name\":\"Write onboarding guide\",\"url\":\"https://example-account.monday.com/boards/1840000001/pulses/1840100011\",\"created_at\":\"2026-10-28T09:12:44Z\",\"updated_at\":\"2026-11-09T16:03:10Z\",\"column_values\":{\"person\":\"Dana Example\",\"status\":\"Working on it\",\"date4\":\"2026-11-12\"},\"group\":{\"id\":\"topics\",\"title\":\"This week\"}},{\"id\":\"1840100027\",\"name\":\"Review PR for export bug\",\"url\":\"https://example-account.monday.com/boards/1840000001/pulses/1840100027\",\"created_at\":\"2026-11-03T11:40:02Z\",\"updated_at\":\"2026-11-10T08:21:55Z\",\"column_values\":{\"person\":\"Dana Example, Alex Colleague\",\"status\":\"Stuck\",\"date4\":\"2026-11-07\"},\"group\":{\"id\":\"topics\",\"title\":\"This week\"}},{\"id\":\"1840100031\",\"name\":\"Plan Q1 offsite\",\"url\":\"https://example-account.monday.com/boards/1840000001/pulses/1840100031\",\"created_at\":\"2026-11-05T14:00:00Z\",\"updated_at\":\"2026-11-05T14:00:00Z\",\"column_values\":{\"person\":\"Dana Example\",\"status\":null,\"date4\":null},\"group\":{\"id\":\"group_mkx1abcd\",\"title\":\"Backlog\"}}],\"pagination\":{\"has_more\":false,\"nextCursor\":null,\"count\":3}}"
+      }
+    ]
+  }
+}

@@ -15,13 +15,14 @@ import { turnContext } from "./lib/prompt.mjs";
 import { deleteSkill, expandSkill, listSkills, saveSkill } from "./lib/skills.mjs";
 import { convertAttachment } from "./lib/attachments.mjs";
 import { cleanupStale } from "./lib/headless.mjs";
-import { createConnections } from "./lib/connections.mjs";
+import { createConnections, friendly } from "./lib/connections.mjs";
 import { forgetGithubToken, githubServerEntry, githubWidgetData, saveGithubToken } from "./lib/github.mjs";
 import { agentSessions, MCP_PORT, mcpListening, setOAuthRoute, startMcpServer } from "./lib/mcpserver.mjs";
 import * as store from "./lib/store.mjs";
 import { config, configError, LOCAL_CONFIG } from "./lib/config.mjs";
 import { listSpaces } from "./lib/zenspaces.mjs";
-import { createTaskSources } from "./lib/tasks.mjs";
+import { createTaskSources, refreshTargets } from "./lib/tasks.mjs";
+import { createMondaySource } from "./lib/monday.mjs";
 import { appBundle, createT3 } from "./lib/t3.mjs";
 import { addLink, createSender, normalizeLinks, removeLink } from "./lib/screenshots.mjs";
 import { spawn } from "node:child_process";
@@ -80,10 +81,16 @@ function sendConnections(done) {
   send({ type: "connections", connections: connections.list(), ...(done ? { done } : {}) });
 }
 
-/** After signing in: list the server's tools so the Tools page can show them before the first chat. */
+/**
+ * After signing in, and on Retry (connections.probe): list the server's tools
+ * with the stored token so the Tools page can show them before the first chat,
+ * or say that the server itself failed (signed in, but it returned an error).
+ */
 async function probeConnection(name) {
-  const r = await connections.probe(name).catch(err => ({ status: "failed", error: err.message }));
-  setServers([{ name, status: r.status, ...(r.toolNames ? { toolNames: r.toolNames } : {}) }]);
+  const r = await connections.probe(name).catch(err => ({ status: "failed", error: friendly(err) }));
+  setServers([{ name, status: r.status, ...(r.toolNames ? { toolNames: r.toolNames } : {}), ...(r.status === "failed" ? { error: r.error ?? "The server returned an error." } : {}) }]);
+  if (name === mondayServer()) sendMonday({ fresh: true });
+  return r;
 }
 
 async function externalServers() {
@@ -127,11 +134,16 @@ let serverStatus = (() => {
 })();
 function setServers(list) {
   const known = new Map(serverStatus.map(s => [s.name, s]));
-  for (const s of list) known.set(s.name, { ...known.get(s.name), ...s });
+  for (const s of list) {
+    const next = { ...known.get(s.name), ...s };
+    if (s.status && s.status !== "failed" && !s.error) delete next.error; // an old failure no longer applies
+    known.set(s.name, next);
+  }
   const auth = new Map(connections.list().map(c => [c.server, c]));
   for (const name of auth.keys()) if (!known.has(name)) known.set(name, { name, status: "needs-auth" });
   for (const s of serverStatus) if (s.auth?.custom && !auth.has(s.name)) known.delete(s.name); // removed custom server
-  for (const s of list) if (auth.get(s.name)?.state === "connected" && /failed|needs-auth/.test(s.status ?? "")) connections.recover(s.name); // token may have expired mid-session
+  // The token may have expired mid-session; a server error (HTTP 5xx) isn't about the token, so no refresh for that.
+  for (const s of list) if (auth.get(s.name)?.state === "connected" && /failed|needs-auth/.test(s.status ?? "") && !/server error|HTTP 5\d\d/i.test(s.error ?? "")) connections.recover(s.name);
   serverStatus = [...known.values()].map(s => {
     const meta = CATALOG[s.name] ?? {};
     const a = auth.get(s.name);
@@ -148,6 +160,7 @@ function setServers(list) {
       source: s.source ?? (s.name.startsWith("claude.ai ") ? "claude.ai connector" : "MCP server"),
       ...(a ? { auth: { type: "oauth", state: a.state, custom: a.custom, url: a.url, ...(a.error ? { error: a.error } : {}), ...(a.authUrl ? { authUrl: a.authUrl } : {}), ...(a.expiresAt ? { expiresAt: a.expiresAt } : {}) } } : {}),
       ...(s.detail ? { detail: s.detail, tokenEntry: !!s.tokenEntry } : {}),
+      ...(s.status === "failed" && s.error ? { error: String(s.error).slice(0, 200) } : {}),
     };
   });
   writeFileSync(SERVERS_FILE, JSON.stringify(serverStatus));
@@ -279,6 +292,7 @@ function makeContext(conversationId, settings, tabId, space) {
       return (await ctx.approve({ server: "Browser", tool, title, input, reason: "Claude suggested this step itself." })) !== "deny";
     },
     reportsChanged: () => send({ type: "reports", reports: store.listReports() }),
+    onToolResult,
   };
   return ctx;
 }
@@ -377,9 +391,9 @@ const tasks = createTaskSources({
   },
 });
 
-async function sendTasks(fresh) {
+async function sendTasks({ fresh = false, maxAge } = {}) {
   try {
-    send({ type: "tasks", data: await tasks.widget({ fresh }) });
+    send({ type: "tasks", data: await tasks.widget({ fresh, maxAge }) });
   } catch (err) {
     send({ type: "tasks", error: String(err.message ?? err).slice(0, 300) });
   }
@@ -403,7 +417,84 @@ async function completeTask({ server, id }) {
   } catch {}
   store.logAction({ id: store.newId(), at: store.now(), conversationId: null, source: "Tasks widget", url: task?.url ?? "", title: task?.source ?? server, host, action: "complete_task", target: task?.title ?? id, ok });
   send({ type: "tasks.completed", server, id, ok, ...(error ? { error } : {}) });
-  await sendTasks(true);
+  await sendTasks({ fresh: true });
+}
+
+// ---------- monday.com (new-tab widget: lib/monday.mjs) ----------
+
+/** The OAuth server for monday's hosted MCP (named "monday" from the Tools page, or any server at mcp.monday.com). */
+function mondayServer() {
+  const defs = connections.defs();
+  if (defs.monday) return "monday";
+  return Object.keys(defs).find(n => /(^|\.)monday\.com$/i.test((() => { try { return new URL(defs[n].url).hostname; } catch { return ""; } })())) ?? null;
+}
+
+const monday = createMondaySource({
+  log,
+  target: async () => {
+    const name = mondayServer();
+    if (!name) return { state: "not-connected", reason: serverStatus.some(s => /^claude\.ai .*monday/i.test(s.name)) ? "claude.ai" : "missing" };
+    if (!serverEnabled(name)) return { state: "not-connected", reason: "off" };
+    const c = connections.list().find(x => x.server === name);
+    if (c?.state !== "connected") return { state: "not-connected", reason: c?.state ?? "disconnected" };
+    const headers = await connections.headersFor(name).catch(() => null);
+    if (!headers) return { state: "not-connected", reason: "expired" };
+    return { state: "connected", name, def: { url: connections.defs()[name].url, headers } };
+  },
+});
+
+async function sendMonday({ fresh = false, maxAge } = {}) {
+  send({ type: "monday", data: await monday.widget({ fresh, maxAge }) });
+}
+
+// ---------- refresh widgets after a write (both engines call ctx.onToolResult) ----------
+
+const pendingRefresh = new Map(); // "tasks|<server>" | "monday" -> timer
+
+/** Debounced: several writes in one turn give one refetch, a moment after the last. */
+function scheduleRefresh(key, run) {
+  clearTimeout(pendingRefresh.get(key));
+  pendingRefresh.set(key, setTimeout(() => {
+    pendingRefresh.delete(key);
+    run().catch(err => log(`refresh after write (${key}):`, err.message));
+  }, 1200));
+}
+
+/**
+ * A chat tool call finished. A successful write to a task app (create_task,
+ * update_task, complete…) refetches that app's tasks and pushes them, with the
+ * new ones marked; any write to monday refetches the monday widget.
+ */
+function onToolResult({ tool, ok }) {
+  if (!ok) return;
+  const target = refreshTargets(tool, {
+    serverNames: new Set([...serverStatus.map(s => s.name), ...Object.keys(connections.defs()), ...Object.keys(config.extraServers ?? {})]),
+    taskServers: serverStatus.filter(s => s.toolNames?.includes("list_tasks")).map(s => s.name),
+    mondayServer: mondayServer(),
+  });
+  if (target.monday) {
+    scheduleRefresh("monday", async () => {
+      const { data, added } = await monday.refreshAfterWrite();
+      send({ type: "monday", data, ...(added.length ? { added } : {}) });
+    });
+  }
+  if (target.tasks) {
+    scheduleRefresh(`tasks|${target.tasks}`, async () => {
+      const { data, added } = await tasks.refreshAfterWrite(target.tasks);
+      send({ type: "tasks", data, ...(added.length ? { added } : {}) });
+    });
+  }
+}
+
+/** What task apps and monday say is due soon, for the dashboard brief (already-fetched data, no extra calls). */
+async function dueSoonBrief() {
+  const lines = [];
+  const t = await tasks.widget().catch(() => null);
+  const m = await monday.widget().catch(() => null);
+  const soon = d => d && Date.parse(d.length === 10 ? `${d}T23:59:59` : d) < Date.now() + 7 * 86_400_000;
+  for (const x of t?.tasks ?? []) if (soon(x.due)) lines.push(`- ${x.title} · ${x.source} · due ${x.due}${x.remindAt ? ` (reminder ${x.remindAt})` : ""}${x.url ? ` · ${x.url}` : ""}`);
+  if (m?.state === "ok") for (const x of m.items) if (soon(x.due)) lines.push(`- ${x.title} · monday.com (${x.board}${x.status ? `, ${x.status}` : ""}) · due ${x.due}${x.url ? ` · ${x.url}` : ""}`);
+  return { text: lines.slice(0, 20).join("\n"), servers: [...(t?.servers ?? []).filter(s => s.ok).map(s => s.name), ...(m?.state === "ok" ? [mondayServer()] : [])] };
 }
 
 // ---------- dashboard ----------
@@ -414,7 +505,7 @@ async function dashboard(force) {
   if (!(await subscriptionAvailable())) return send({ type: "dashboard", error: (await subscriptionStatus()).reason || "The dashboard needs Claude Code, installed and signed in." });
   send({ type: "dashboard", loading: true });
   try {
-    send({ type: "dashboard", data: await refreshDashboard({ servers: await externalServers(), disallowed: disallowedTools(), settings }) });
+    send({ type: "dashboard", data: await refreshDashboard({ servers: await externalServers(), disallowed: disallowedTools(), settings, dueSoon: await dueSoonBrief().catch(() => null) }) });
   } catch (err) {
     log("dashboard:", err.message);
     send({ type: "dashboard", error: String(err.message ?? err).slice(0, 300), data: store.getDashboard() });
@@ -600,6 +691,14 @@ async function handle(msg) {
         send({ type: "connections", connections: connections.list(), done: { server: String(msg.name ?? ""), ok: false, error: err.message, add: true } });
       }
       break;
+    case "connections.probe": {
+      // Retry for a server that is signed in but failed: list its tools again (no new sign-in).
+      const name = String(msg.server ?? "");
+      if (!connections.has(name)) break;
+      const r = await probeConnection(name);
+      send({ type: "connections.probed", server: name, ok: !!r.ok, status: r.status, ...(r.error ? { error: r.error } : {}) });
+      break;
+    }
     case "connections.disconnect":
       await connections.disconnect(String(msg.server)).catch(err => log("disconnect failed:", err.message));
       setServers([{ name: String(msg.server), status: "needs-auth", toolNames: [] }]);
@@ -634,7 +733,10 @@ async function handle(msg) {
       }
       break;
     case "tasks.widget":
-      await sendTasks(!!msg.force);
+      await sendTasks({ fresh: !!msg.force, maxAge: Number(msg.maxAge) || undefined });
+      break;
+    case "monday.widget":
+      await sendMonday({ fresh: !!msg.force, maxAge: Number(msg.maxAge) || undefined });
       break;
     case "tasks.complete":
       await completeTask({ server: String(msg.server ?? ""), id: String(msg.id ?? "") });

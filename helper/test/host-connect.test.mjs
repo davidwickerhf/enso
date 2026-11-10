@@ -113,6 +113,31 @@ try {
   assert.deepEqual(closedTabs, [42]);
   console.log("ok - token in the Keychain; sign-in tab closed");
 
+  // Signed in, but the server answers with an HTML 500 page: Retry (connections.probe) re-probes
+  // with the stored token (no new sign-in) and the error stays one short line.
+  mock.failMcp(true);
+  const authorizedBefore = mock.stats.authorized;
+  inbox.length = 0;
+  post({ type: "connections.probe", server: NAME });
+  const probed = await waitFor(m => m.type === "connections.probed" && m.server === NAME);
+  assert.equal(probed.ok, false);
+  assert.equal(probed.status, "failed");
+  assert.equal(probed.error, "The server returned a server error (HTTP 500).");
+  const failedList = inbox.find(m => m.type === "servers" && server(m)?.status === "failed");
+  assert.ok(failedList, "servers list shows it failed");
+  assert.equal(server(failedList).auth.state, "connected", "still signed in");
+  assert.equal(server(failedList).error, "The server returned a server error (HTTP 500).");
+  assert.equal(mock.stats.authorized, authorizedBefore, "no new sign-in");
+  mock.failMcp(false);
+  inbox.length = 0;
+  post({ type: "connections.probe", server: NAME });
+  const back = await waitFor(m => m.type === "connections.probed" && m.server === NAME);
+  assert.equal(back.ok, true);
+  const okList = inbox.find(m => m.type === "servers" && server(m)?.status === "connected");
+  assert.ok(okList && !("error" in server(okList)), "the old error is cleared");
+  post({ type: "connections.probe", server: "not-a-server" }); // ignored, no crash
+  console.log("ok - connections.probe re-probes a signed-in server: short error on a 500 page, cleared when it works again");
+
   inbox.length = 0;
   post({ type: "connections.disconnect", server: NAME });
   await waitFor(m => m.type === "servers" && server(m)?.auth?.state === "disconnected" && server(m).status === "needs-auth");
