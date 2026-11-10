@@ -12,8 +12,8 @@ permissions:
 
 jobs:
   check:
-    # macOS: the helper reads the macOS Keychain and Zen's session files, and
-    # its Keychain tests use the runner's login keychain.
+    # macOS: the full set (lint, AMO metadata, tarball), and the Keychain tests
+    # use the runner's login keychain. Linux and Windows: the helper-tests job.
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
@@ -66,3 +66,45 @@ jobs:
           size=$(stat -f %z dist/enso-helper-*-darwin.tar.gz)
           echo "Helper tarball: $((size / 1024 / 1024)) MB"
           [ "$size" -lt $((40 * 1024 * 1024)) ] || { echo "::error::helper tarball is over 40 MB"; exit 1; }
+
+  helper-tests:
+    # The helper on Linux and Windows (x64 and arm64). Secrets go to the real
+    # store: a throwaway GNOME Keyring on Linux (libsecret through secret-tool),
+    # the runner's Credential Manager on Windows; test items are removed again.
+    name: helper tests (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, ubuntu-24.04-arm, windows-latest, windows-11-arm]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: helper/package-lock.json
+
+      - name: Install helper dependencies
+        working-directory: helper
+        run: npm ci --omit=optional --no-audit --no-fund
+
+      - name: Keyring for libsecret (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq libsecret-tools gnome-keyring dbus
+
+      - name: Helper tests (Linux, with a throwaway keyring)
+        if: runner.os == 'Linux'
+        working-directory: helper
+        env:
+          ENSO_TEST_REAL_SECRETS: '1'
+        run: |
+          dbus-run-session -- bash -c 'echo -n ci | gnome-keyring-daemon --unlock --components=secrets >/dev/null; sleep 1; npm test'
+
+      - name: Helper tests (Windows, Credential Manager)
+        if: runner.os == 'Windows'
+        working-directory: helper
+        env:
+          ENSO_TEST_REAL_SECRETS: '1'
+        run: npm test

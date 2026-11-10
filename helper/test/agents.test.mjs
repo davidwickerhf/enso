@@ -17,6 +17,7 @@ import { mkdtempSync, readFileSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { dataDirFor, isolatedEnv } from "./env.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const { createAgentSessions, maskTyped, clientKey, IDLE_MS, PAUSED_TTL_MS, STOP_TTL_MS, NOTE_PREFIX, PAUSED_TEXT, STOPPED_TEXT, HAND_BACK_TEXT } = await import("../lib/agentsessions.mjs");
@@ -129,7 +130,7 @@ const tick = () => new Promise(r => setTimeout(r, 0));
 // ---------- end to end: host.mjs + its MCP endpoint ----------
 const home = realpathSync(mkdtempSync(path.join(tmpdir(), "enso-agents-")));
 const port = 47100 + Math.floor(Math.random() * 800);
-const env = { HOME: home, PATH: "/usr/bin:/bin", ENSO_MCP_PORT: String(port), TMPDIR: tmpdir() };
+const env = isolatedEnv(home, { ENSO_MCP_PORT: String(port) });
 const host = spawn(process.execPath, [path.join(here, "../host.mjs")], { env, cwd: home, stdio: ["pipe", "pipe", "pipe"] });
 let stderr = "";
 host.stderr.on("data", d => (stderr += d));
@@ -184,7 +185,7 @@ const nextFrom = (since, test, ms) => waitFor((m, i) => inbox.indexOf(m) >= sinc
 
 let rpc = 0;
 async function call(name, args = {}, { session = "launcher-1", client = "claude-code/2.1.3" } = {}) {
-  const token = readFileSync(path.join(home, "Library/Application Support/Enso/mcp-token"), "utf8").trim();
+  const token = readFileSync(path.join(dataDirFor(home), "mcp-token"), "utf8").trim();
   const headers = { "Content-Type": "application/json", Accept: "application/json, text/event-stream", Authorization: `Bearer ${token}`, "MCP-Protocol-Version": "2025-06-18" };
   if (client) headers["X-Enso-Client"] = client;
   if (session) headers["X-Enso-Session"] = session;
@@ -202,7 +203,7 @@ try {
   assert.deepEqual(state.agents, [], "state carries the (empty) agent sessions");
   for (let i = 0; i < 100; i++) {
     try {
-      readFileSync(path.join(home, "Library/Application Support/Enso/mcp-token"));
+      readFileSync(path.join(dataDirFor(home), "mcp-token"));
       if ((await fetch(`http://127.0.0.1:${port}/mcp`, { method: "POST" })).status === 401) break;
     } catch {}
     await new Promise(r => setTimeout(r, 100));
@@ -318,7 +319,7 @@ try {
   assert.equal(sres.ok, true, sres.error);
   assert.equal(sres.route, "inbox");
   const raw = async (name, args, session) => {
-    const tk = readFileSync(path.join(home, "Library/Application Support/Enso/mcp-token"), "utf8").trim();
+    const tk = readFileSync(path.join(dataDirFor(home), "mcp-token"), "utf8").trim();
     const res = await fetch(`http://127.0.0.1:${port}/mcp`, { method: "POST", headers: { "Content-Type": "application/json", Accept: "application/json, text/event-stream", Authorization: `Bearer ${tk}`, "MCP-Protocol-Version": "2025-06-18", "X-Enso-Client": "claude-code/2.1.3", "X-Enso-Session": session, "X-Enso-Agent-Pid": String(process.pid) }, body: JSON.stringify({ jsonrpc: "2.0", id: ++rpc, method: "tools/call", params: { name, arguments: args } }) });
     const body = await res.text();
     const msg = (res.headers.get("content-type") ?? "").includes("event-stream") ? JSON.parse(body.split("\n").find(l => l.startsWith("data:")).slice(5)) : JSON.parse(body);
@@ -334,10 +335,10 @@ try {
   content = await raw("inbox_read", {}, "launcher-9");
   assert.equal(content[1]?.type, "image", `inbox_read returns waiting screenshots: ${JSON.stringify(content).slice(0, 300)}`);
   await shot("s3", "For the hook");
-  const tk = readFileSync(path.join(home, "Library/Application Support/Enso/mcp-token"), "utf8").trim();
+  const tk = readFileSync(path.join(dataDirFor(home), "mcp-token"), "utf8").trim();
   const hook = await (await fetch(`http://127.0.0.1:${port}/inbox`, { method: "POST", headers: { Authorization: `Bearer ${tk}`, "Content-Type": "application/json" }, body: JSON.stringify({ pids: [1, process.pid] }) })).json();
   assert.equal(hook.items.length, 1);
-  assert.match(hook.items[0], /For the hook.*Saved at .*Enso\/screenshots\/.*\.png/);
+  assert.match(hook.items[0], /For the hook.*Saved at .*[Ee]nso[\\/]screenshots[\\/].*\.png/);
   assert.equal((await fetch(`http://127.0.0.1:${port}/inbox`, { method: "POST", body: "{}" })).status, 401, "the hook route needs the full token");
   console.log("ok - a screenshot sent to a connected agent arrives as image content, via inbox_read, or via the prompt hook");
 } finally {

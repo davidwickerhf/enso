@@ -34,6 +34,7 @@ import { dataDir as defaultDataDir, rotateTokens } from "./mcpauth.mjs";
 import * as mcpinstall from "./mcpinstall.mjs";
 import * as platformLib from "./platform.mjs";
 import { deleteItem, hasItem, secretsInfo, setItem } from "./secrets.mjs";
+import { logDir } from "./logfile.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 export const DEFAULT_SITE = "https://enso.wicker.life";
@@ -316,7 +317,7 @@ export function createSetup({
       mcp: { port: mcpPort, listening: mcpListening() },
       platform: { os: platformLib.currentPlatform(env), arch: process.arch, installCommand: platformLib.installCommand(site, { env }) },
       secrets: secretsInfo(),
-      paths: { data: dataDir, logs: platformLib.logDir({ env }) },
+      paths: { data: dataDir, logs: logDir(env) },
     };
   }
 

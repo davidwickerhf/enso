@@ -50,8 +50,8 @@ function run(cmd, args, { input, env } = {}) {
     if (input != null) child.stdin.end(input);
   });
 }
-function runSync(cmd, args, { input } = {}) {
-  const r = spawnSync(cmd, args, { input, encoding: "utf8", stdio: [input == null ? "ignore" : "pipe", "pipe", "pipe"], timeout: 20_000, windowsHide: true });
+function runSync(cmd, args, { input, env } = {}) {
+  const r = spawnSync(cmd, args, { input, encoding: "utf8", ...(env ? { env } : {}), stdio: [input == null ? "ignore" : "pipe", "pipe", "pipe"], timeout: 20_000, windowsHide: true });
   return { code: r.error ? 127 : r.status ?? 1, out: r.stdout ?? "", err: r.stderr ?? "" };
 }
 
@@ -87,16 +87,19 @@ const keychain = {
 // ---------- Linux: libsecret ----------
 
 const attrs = (service, account) => ["service", service, ...(account ? ["account", account] : [])];
+// secret-tool converts text with the locale's charset; under a plain C locale (Zen started from a
+// minimal session, containers) non-ASCII fails with "Invalid byte sequence". Use UTF-8 then.
+const utf8Env = () => (/utf-?8/i.test(`${process.env.LC_ALL ?? ""}${process.env.LC_CTYPE ?? ""}${process.env.LANG ?? ""}`) ? undefined : { ...process.env, LC_ALL: "C.UTF-8" });
 const libsecret = {
   name: "libsecret",
-  chunk: Infinity,
+  chunk: 6000, // secret-tool refuses secrets of 8 KB and more on stdin
   location: () => "your desktop keyring (libsecret)",
   async get(service, account) {
-    const r = await run("secret-tool", ["lookup", ...attrs(service, account)]);
+    const r = await run("secret-tool", ["lookup", ...attrs(service, account)], { env: utf8Env() });
     return r.code === 0 ? r.out.replace(/\n$/, "") : null;
   },
   getSync(service, account) {
-    const r = runSync("secret-tool", ["lookup", ...attrs(service, account)]);
+    const r = runSync("secret-tool", ["lookup", ...attrs(service, account)], { env: utf8Env() });
     return r.code === 0 ? r.out.replace(/\n$/, "") : null;
   },
   async has(service, account) {
@@ -104,13 +107,13 @@ const libsecret = {
   },
   async setMany(items) {
     for (const i of items) {
-      const r = await run("secret-tool", ["store", `--label=${String(i.label || `Ensō ${i.service}`).replace(/\n/g, " ")}`, ...attrs(i.service, i.account)], { input: String(i.value) });
-      if (r.code !== 0) throw new Error("The keyring did not store the secret.");
+      const r = await run("secret-tool", ["store", `--label=${String(i.label || `Ensō ${i.service}`).replace(/\n/g, " ")}`, ...attrs(i.service, i.account)], { input: String(i.value), env: utf8Env() });
+      if (r.code !== 0) throw new Error(`The keyring did not store the secret${r.err.trim() ? ` (${r.err.trim().split("\n")[0].slice(0, 160)})` : ""}.`);
     }
   },
   async delete(service, account) {
     const had = await libsecret.has(service, account);
-    await run("secret-tool", ["clear", ...attrs(service, account)]);
+    await run("secret-tool", ["clear", ...attrs(service, account)], { env: utf8Env() });
     return had;
   },
 };
