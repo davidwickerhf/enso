@@ -154,9 +154,9 @@ function setServers(list) {
 
 const pending = new Map();
 let reqSeq = 0;
-function browserRequest(type, action, args, tabId) {
+function browserRequest(type, action, args, tabId, agent) {
   const reqId = `r${++reqSeq}`;
-  send({ type, reqId, action, args, tabId });
+  send({ type, reqId, action, args, tabId, agent }); // agent: who is acting (MCP client label), shown on the page ribbon
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => {
       pending.delete(reqId);

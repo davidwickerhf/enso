@@ -87,10 +87,10 @@
 
   let ribbon = null;
   let ribbonTimer = null;
+  let agentName = "Claude"; // who is acting: Ensō's own Claude, or the MCP client (Codex, Cursor…) named in the request
   function showRibbon() {
     if (!ribbon) {
       ribbon = document.createElement("div");
-      ribbon.textContent = "✦ Claude is working on this page";
       Object.assign(ribbon.style, {
         position: "fixed", top: "10px", left: "50%", transform: "translateX(-50%)", zIndex: 2147483647,
         background: ACCENT, color: "white", font: "500 12px -apple-system, system-ui, sans-serif",
@@ -99,6 +99,7 @@
       });
       document.documentElement.appendChild(ribbon);
     }
+    ribbon.textContent = `✦ ${agentName} is working on this page`;
     ribbon.style.opacity = "1";
     clearTimeout(ribbonTimer);
     ribbonTimer = setTimeout(() => (ribbon.style.opacity = "0"), 4000);
@@ -438,6 +439,7 @@
       try {
         const fn = actions[msg.action];
         if (!fn) throw new Error(`Unknown page action ${msg.action}`);
+        agentName = typeof msg.agent === "string" && msg.agent.trim() ? msg.agent.trim().slice(0, 40) : "Claude";
         return { ok: true, result: await fn(msg.args ?? {}) };
       } catch (err) {
         return { ok: false, error: String(err?.message ?? err) };

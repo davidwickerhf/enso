@@ -502,7 +502,7 @@ async function write(ctx, tool, { title, input, url, target }, fn) {
   requireGithub();
   const toolUseId = ctx.toolUse?.(tool);
   if (ctx.external) {
-    if (ctx.mode() !== "full") throw new Error("Ensō only lets Claude Code read right now; GitHub changes need External control = Full (Ensō → Settings).");
+    if (ctx.mode() !== "full") throw new Error("Ensō only lets external agents read right now; GitHub changes need External control = Full (Ensō → Settings).");
     if (!input.requested_by_user) throw new Error(`${title}: Claude Code may only do this when the user asked for exactly this (requested_by_user=true).`);
   } else if (!input.requested_by_user) {
     const decision = await ctx.ask({ toolUseId, tool, title, input, reason: "Claude suggested this step itself." });

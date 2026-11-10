@@ -182,7 +182,7 @@ starts a fresh warm session. A Claude Code registration of the same name
   autoApproveReadOnly: true,
   alwaysAllowedTools: ["mcp__notes__search_notes", ...],
   dashboard: { autoRefreshMinutes: 60 },
-  externalControl: "full" | "read" | "off",   // what Claude Code (zen-browser MCP) may do
+  externalControl: "full" | "read" | "off",   // what MCP clients (zen-browser) may do; a read-scope token caps it at "read"
   developerTools: true,                        // console/network/eval/storage/session tools (default on)
   headless: true,                              // headless Zen tools (default on)
   sessionAccess: { "https://github.com": "allow" }  // per-site use of the user's signed-in sessions; missing = "ask"
@@ -265,8 +265,14 @@ pages the assistant acted on (`actions.list`).
 
 ## host → background (page actions)
 
-`{ type: "page.request", reqId, tabId, action, args }` →
+`{ type: "page.request", reqId, tabId, action, args, agent? }` →
 `{ type: "page.response", reqId, ok, result?, error? }`
+
+`agent` (also on `browser.request`) names the MCP client acting ("Codex",
+"Cursor", …) when the request comes from the zen-browser server; background.js
+passes it to the page agent with the action, and the ribbon reads
+"✦ <agent> is working on this page". Without it (Ensō's own turns) it says
+"Claude".
 
 | action | args | result |
 |---|---|---|
@@ -330,7 +336,7 @@ The headless browser stops after 10 minutes idle, on `headless_stop`, and when
 the helper exits; leftovers of a crashed helper are removed at the next start.
 All of these are refused on `sensitiveHosts`, switched off by
 `developerTools: false` / `headless: false`, and logged in the activity log
-(`source: "Claude Code"` for MCP callers).
+(`source`: the MCP client's label, e.g. "Claude Code" or "Codex", for MCP callers; see below).
 
 ## GitHub tools (helper side)
 
@@ -357,4 +363,51 @@ characters; issue and PR text is marked as data. The morning brief gets a short
 GitHub summary (reviews waiting, own PRs that need him) as input for `tasks`.
 
 The page agent outlines the element it acts on and shows a small
-"Claude is working" ribbon on the page while a turn uses page tools.
+"Claude is working on this page" ribbon (with the MCP client's name instead when one is acting) while a turn uses page tools.
+
+## zen-browser MCP server (`helper/lib/mcpserver.mjs`)
+
+`http://127.0.0.1:47823/mcp`, Streamable HTTP, stateless (a fresh server per
+POST). Requests with an `Origin` header are refused (403), so web pages can't
+call it.
+
+**Tokens and scopes** (`lib/mcpauth.mjs`). `Authorization: Bearer <token>`,
+compared against two files in the data folder, re-read on every request:
+
+| file | scope | tools |
+|---|---|---|
+| `mcp-token` | `full` | every page, browser, developer, headless and GitHub tool (subject to `externalControl`) |
+| `mcp-token-read` | `read` | read-only tools only: `tabs_list`, `tab_read`, `history_search`, `page_read`, `page_screenshot`, `page_scroll`, `devtools_console`, `devtools_network`, `page_storage`, `headless_read`, `headless_screenshot`, `headless_console`, `github_my_work`, `github_search`, `github_notifications`, `github_pr`, `github_issue`, `github_repo`. Other tools aren't listed, and calling one returns a tool error. `externalControl` is capped at `"read"`. |
+
+`enso mcp rotate` rewrites both (0600). A helper started before this version
+read the token once at start and keeps the old one until Zen restarts.
+
+**Client identity.** Each request is attributed to a client, available to every
+tool as `ctx.client = { name, version, label, scope, via }` (`via`: `"launcher"`
+or `"http"`):
+
+1. `X-Enso-Client: <name>/<version>`, sent by the launcher from the
+   `initialize` request's `clientInfo`;
+2. else the `clientInfo` of an `initialize` request in the body;
+3. else a recognisable `User-Agent`;
+
+`X-Enso-Client-Label` (launcher `--client`) overrides the label. Labels:
+`claude-code` → "Claude Code", `codex-mcp-client` / `codex` → "Codex",
+`cursor*` → "Cursor", `t3*` → "T3 Code", `claude-ai` → "Claude Desktop",
+otherwise the raw name (40 characters), or "An MCP client". The label is the
+activity log's `source` (with `client`: the raw name) and the page request's
+`agent`.
+
+**Launcher** (`helper/bin/enso.mjs` → `lib/mcplauncher.mjs`): `enso mcp
+[--read-only] [--client <label>]` is a stdio MCP server that POSTs each
+JSON-RPC line to the endpoint above with the token for its scope (read from the
+file per request), `X-Enso-Client` and `MCP-Protocol-Version`, and writes the
+JSON or SSE replies back as lines. If the helper can't be reached it answers
+`initialize` and `ping` itself, `tools/list` from `mcp-tools-cache[-read].json`
+(the last list it forwarded), and `tools/call` with
+`{ isError: true, content: [{ type: "text", text: "Zen isn't running: open Zen and try again." }] }`;
+it then polls every 5 s and sends `notifications/tools/list_changed` when the
+helper is back.
+
+**Registration** (`lib/mcpinstall.mjs`): `enso mcp install | uninstall | status`,
+see the README.
