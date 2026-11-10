@@ -36,6 +36,23 @@ Agents can give pages files, wait for slow work, and send large payloads.
   appears once, never "✦ ✦ ", and goes only when the last session ends; after an
   extension update the old copy's pill, flashes and prefix are removed instead
   of stacking under the new one's.
+- **One agent acts on a tab at a time.** The first agent session to click, type,
+  upload, navigate, press, select, scroll or run `page_eval` on a tab holds it;
+  each action renews the lease, which ends with `session_end`, Stop or 90 s
+  without an action (never while the agent is paused). Other agents can still
+  read the tab, but their actions there are refused with who holds it and what
+  it is doing, and a nudge to open their own tab, use the headless browser or
+  ask you. `session_start` on a held tab warns. In the agent card the holder
+  wears **In control** and a refused agent **Waiting for the tab**; **Hand over
+  to …** gives the tab to another session and **Let both act** lets them share
+  it, with the risk in one line. Your own clicks never take a lease.
+- **Exact attribution.** Every page action from an agent session carries that
+  session's id to the extension, so the outline flash and the pill name the
+  right one of two Claude Code sessions on a tab instead of guessing.
+- **`tabs_open` for agents** opens tabs in the background (your tab keeps
+  focus) in the current space, replies with their tab ids, and gives them to
+  the agent that opened them. The server instructions now say to prefer an own
+  tab.
 - **Agent instructions** (the MCP server's and Ensō's own): use `page_upload` for
   files and never shrink or edit a user's file to fit a limit; use `page_wait`;
   a timeout isn't a failure, so check before retrying.

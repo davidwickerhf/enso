@@ -148,7 +148,8 @@
     const more = sessions.length - 1;
     const text = `✦ ${sessions.length} agents · ${top.label}${top.task ? `: ${top.task}` : ""} (+${more})`;
     const paused = sessions.filter(s => stateOf(s) === "paused").length;
-    const state = tone === "stopped" ? "· Stopped" : tone === "paused" ? "· Paused" : paused ? `· ${paused} paused` : "";
+    const waiting = sessions.filter(s => s.control === "waiting" && stateOf(s) !== "stopped").length;
+    const state = tone === "stopped" ? "· Stopped" : tone === "paused" ? "· Paused" : paused ? `· ${paused} paused` : waiting ? `· ${waiting} waiting` : "";
     return { text, state, tone };
   }
 
@@ -280,7 +281,9 @@
       Object.assign(task.style, { opacity: s.task ? "0.85" : "0.55" });
       who.append(name, task);
       const chip = document.createElement("span");
-      chip.textContent = STATE_LABEL[st];
+      // Who may act here (lib/agentsessions.mjs tab leases): in control, shared, or waiting for the tab.
+      chip.textContent = s.control === "waiting" && st !== "stopped" ? "Waiting for the tab" : `${STATE_LABEL[st]}${s.control === "holder" ? " · in control" : s.control === "shared" ? " · shared" : ""}`;
+      if (s.control) row.setAttribute("data-control", s.control);
       Object.assign(chip.style, { flex: "none", fontSize: "11px", fontWeight: "600", padding: "2px 7px", borderRadius: "999px", background: st === "working" ? "rgba(217,100,58,.28)" : st === "paused" ? "rgba(138,90,63,.45)" : "rgba(255,255,255,.12)", color: st === "working" ? "#ffd9c7" : "#f0e6de" });
       row.append(dot, who, chip);
       p.list.append(row);
@@ -335,6 +338,7 @@
     running: !!x?.running,
     paused: !!x?.paused,
     stopped: !!x?.stopped,
+    control: x?.control === "holder" || x?.control === "shared" || x?.control === "waiting" ? x.control : null, // its part in the tab lease
   });
 
   function removePill() {
@@ -402,9 +406,15 @@
   function highlight(el, verb = "") {
     const r = el.getBoundingClientRect();
     const still = reduceMotion();
-    const actor = (actorId && sessions.find(s => s.id === actorId)) || (sessions.length === 1 ? sessions[0] : sessions.find(s => s.label === agentName));
+    // The helper names the acting session exactly (background.js passes it as `session`); only
+    // requests without one (plain-http clients outside a session) fall back to the client's name.
+    const actor = actorId ? sessions.find(s => s.id === actorId) : sessions.length === 1 ? sessions[0] : sessions.find(s => s.label === agentName);
     const shade = (actor && shadeOf.get(actor.id)) || ACCENT;
     const who = actor?.label || agentName;
+    if (actor && pill) {
+      // Its row in the expanded pill shows it is the one acting.
+      for (const row of pill.rows ?? []) row.el.toggleAttribute("data-acting", row.id === actor.id);
+    }
     const box = document.createElement("div");
     box.setAttribute("aria-hidden", "true");
     box.setAttribute("data-enso-flash", INSTANCE);

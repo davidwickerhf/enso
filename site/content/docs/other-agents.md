@@ -68,6 +68,19 @@ You can also send an agent a screenshot of the page, even while it's idle: press
 
 Agents are asked to say what they are doing when they start (`session_start`). Those that don't still show up, with their name and their latest step.
 
+## Two agents on one tab
+
+Only one agent acts on a tab at a time. The first one to click, type, scroll or navigate there has the tab for as long as it keeps working; it lets go when it finishes, when you stop it, or after about a minute and a half without doing anything. Pausing an agent doesn't take the tab away from it, since you may resume it.
+
+Other agents can still read that tab, but what they try to do there is refused, and they're told to open their own tab or ask you. In the sidebar the card then shows both: **In control** on the one working, **Waiting for the tab** on the other. You decide:
+
+- **Hand over to …** gives the tab to the other agent. It's told to read the page again before doing anything.
+- **Let both act** lets them work on the tab at the same time. The card reminds you that they may overwrite each other's changes; **One at a time** goes back.
+
+Your own clicks and typing are never blocked. To take a tab back from an agent, pause it.
+
+Agents are asked to prefer a tab of their own: one they open with `tabs_open` opens in the background, in your current space with its logins, so it doesn't pull you away from what you're doing.
+
 ## Running JavaScript: page_eval and the two builds
 
 Agents can debug your pages with `devtools_console`, `devtools_network`, `page_storage`, and two fixed queries that run no code: `page_query` (the elements matching a CSS selector, with their text, attributes, visibility and position) and `page_inspect` (one element's computed styles, size, scroll size, and whether it is visible, in view or covered by something else).

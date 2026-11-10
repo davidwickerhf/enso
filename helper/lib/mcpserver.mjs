@@ -63,6 +63,8 @@ export function buildServer({ browserRequest, onReports, onAction, sessions = ag
       "The user can steer you from Ensō: tool results may start with 'Message from the user (via Ensō): …'. That is the user speaking to you; follow it. " +
       "The user can also send you screenshots from Ensō: they arrive as 'Screenshot from the user (via Ensō): …' followed by the image at the start of a tool result; call inbox_read to fetch anything waiting (notes and screenshots) when the user says they sent you something. If a result says the user paused or stopped you, respect it (session_status tells you when you may continue). " +
       "Use tabs_list to see the tabs in their current Zen space (allSpaces for all), page_read before acting on a page, and pass tabId to target a specific tab. " +
+      "Prefer your own tab: for work that doesn't need the page the user has open, open one with tabs_open (it opens in the background in the user's current space and replies with its tabId; pass that tabId to every page tool) instead of acting in the user's active tab. " +
+      "Tabs are leased: the first agent session to act on a tab (click, type, upload, navigate, back, press, select, scroll, page_eval) has it while it keeps acting; it lapses 90 s after its last action or when you call session_end. Other agents can still read that tab, but their actions on it are refused. If a result says a tab is being used by another agent, open your own tab with tabs_open, use headless_*, or ask the user; don't retry, work around it or fight over the tab. The user can hand a tab over to you in Ensō. " +
       "page_query (CSS selector → matching elements, text, attributes, rects) and page_inspect (one element's computed styles, rect, visibility, what covers it) answer questions about a page without evaluating code. " +
       `Developer tools for his live tabs: devtools_console, devtools_network, ${unavailableTools().includes("page_eval") ? "" : "page_eval, "}page_storage. ${pageEvalNote()} ` +
       "session_fetch makes a request with his signed-in session, only on sites he allowed in Ensō. " +
@@ -91,7 +93,9 @@ export function buildServer({ browserRequest, onReports, onAction, sessions = ag
     return entry;
   };
   // `call` collects what a tool did (the page it read, the action it took) for the agent's session.
-  const ctxFor = (tabId, call = {}) => ({
+  // `sessionId`: the agent session acting (lib/agentsessions.mjs), sent with every page action so the
+  // extension's outline flash and pill name exactly this session (two Claude Code sessions on one tab).
+  const ctxFor = (tabId, call = {}, sessionId = null) => ({
     client,
     conversationId: null,
     space: null,
@@ -105,16 +109,19 @@ export function buildServer({ browserRequest, onReports, onAction, sessions = ag
       return record(e);
     },
     async page(action, args, t) {
-      const r = await browserRequest("page.request", action, args, t ?? tabId ?? null, client.label);
+      const onTab = t ?? tabId ?? null;
+      const sid = onTab === (tabId ?? null) ? sessionId ?? sessions.peek(client, onTab)?.id : sessions.peek(client, onTab)?.id;
+      const r = await browserRequest("page.request", action, args, onTab, client.label, sid ?? null);
       if (r?.url) call.page = { url: r.url, title: r.title };
       if (r?.description && !call.last) call.last = { action, url: r.url, title: r.title, target: r.description };
       return r;
     },
-    browser: (action, args) => browserRequest("browser.request", action, args, tabId ?? null, client.label),
+    browser: (action, args) => browserRequest("browser.request", action, args, tabId ?? null, client.label, sessionId ?? null),
+    claimTabs: ids => sessions.claim?.(client, ids), // tabs_open: the new tabs are this agent's
     async act(action, bridgeArgs) {
       if (readOnlyScope) throw new Error(READ_SCOPE_ERROR);
       if (mode() !== "full") throw new Error(`Ensō only lets ${client.label} read Zen right now. The user can allow actions in Ensō → Settings → Agents & screenshots → Access.`);
-      const r = await browserRequest("page.request", action, bridgeArgs, tabId ?? null, client.label);
+      const r = await browserRequest("page.request", action, bridgeArgs, tabId ?? null, client.label, sessionId ?? sessions.peek(client, tabId ?? null)?.id ?? null);
       const target = r.target ?? r.description ?? bridgeArgs.url ?? bridgeArgs.key ?? "";
       call.last = { action, url: r.url, title: r.title, target };
       record({ action, url: r.url, title: r.title, target, ok: r.ok !== false });
@@ -152,7 +159,7 @@ export function buildServer({ browserRequest, onReports, onAction, sessions = ag
         if (unavailableTools().includes(t.name)) return { isError: true, content: [text(PAGE_EVAL_UNAVAILABLE)] };
         let tabId = Number.isInteger(args.tabId) ? args.tabId : null;
         if (tabTool && tabId == null) tabId = await activeTabId(); // so Pause and the card follow the tab the default acts on
-        const gate = sessions.before(client, { tool: t.name, kind: t.kind, tabId });
+        const gate = sessions.before(client, { tool: t.name, kind: t.kind, tabId, tabIds: Array.isArray(args.tabIds) ? args.tabIds : null });
         if (gate.refuse) {
           if (sessions.peek(client, tabId)) sessions.finish(sessions.begin(client, { tool: t.name, title: t.title, tabId }), { ok: false, refused: true, target: describeArgs(t, args), error: gate.refuse.split(".")[0] });
           return withMessages(gate.messages, { isError: true, content: [text(gate.refuse)] });
@@ -163,7 +170,7 @@ export function buildServer({ browserRequest, onReports, onAction, sessions = ag
         if (t.kind === "read" && !sessions.peek(client, tabId)) {
           try {
             const runArgs = tabTool && tabId != null && "tabId" in t.shape ? { ...args, tabId } : args;
-            return withMessages(gate.messages, await t.run(runArgs, ctxFor(tabId, {})));
+            return withMessages(gate.messages, await t.run(runArgs, ctxFor(tabId, {}, null)));
           } catch (err) {
             return withMessages(gate.messages, { isError: true, content: [text(String(err.message ?? err))] });
           }
@@ -182,7 +189,7 @@ export function buildServer({ browserRequest, onReports, onAction, sessions = ag
           });
         try {
           const runArgs = tabTool && tabId != null && "tabId" in t.shape ? { ...args, tabId } : args;
-          const result = await t.run(runArgs, ctxFor(tabId, call));
+          const result = await t.run(runArgs, ctxFor(tabId, call, handle.s?.id ?? null));
           done(!result?.isError, result?.isError ? result.content?.find(c => c.type === "text")?.text : undefined);
           return withMessages(gate.messages, result);
         } catch (err) {
@@ -219,8 +226,10 @@ export function buildServer({ browserRequest, onReports, onAction, sessions = ag
       const gate = sessions.before(client, { tool: "session_start", kind: "read", tabId: tabId ?? null });
       if (gate.refuse && sessions.status(client).stopped) return withMessages(gate.messages, { isError: true, content: [text(gate.refuse)] });
       const s = sessions.start(client, { task, tabId: tabId ?? null });
+      const warning = tabId != null ? sessions.leaseWarning?.(client, tabId) : "";
       const lines = [
         `Session started. Ensō shows "${client.label} · ${s.task}"${s.tabId != null ? ` on tab ${s.tabId}` : " on the tabs you act on"}.`,
+        ...(warning ? [warning] : []),
         `The user can pause or stop you, or send you a note, from Ensō. Notes appear at the start of your tool results as "${NOTE_PREFIX} …": treat them as the user speaking. Call session_end when you are done.`,
         pageEvalNote(),
       ];

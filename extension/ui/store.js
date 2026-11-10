@@ -810,6 +810,8 @@ export function createStore({ waitMs = WAIT_MS } = {}) {
     pauseAgent(id) { setAgent(id, { paused: true }); send({ type: "agents.pause", id }); },
     resumeAgent(id) { setAgent(id, { paused: false }); send({ type: "agents.resume", id }); },
     stopAgent(id) { setAgent(id, { stopped: true, paused: false }); send({ type: "agents.stop", id }); },
+    handOverAgent(id) { send({ type: "agents.handover", id }); }, // the tab of session `id` goes to it (tab leases)
+    shareTab(tabId, on) { send({ type: "agents.share", tabId, on: !!on }); }, // let every agent on the tab act, or one at a time
     dismissAgent(id) { s.agents = s.agents.filter(x => x.id !== id); send({ type: "agents.dismiss", id }); emit("agents"); },
     noteAgent(id, text) {
       text = String(text ?? "").trim();

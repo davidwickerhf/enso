@@ -243,6 +243,29 @@ try {
     assert.equal(fc.label, "Codex · clicking");
     console.log("ok - outline flashes carry the acting agent's shade and name");
 
+    // Two sessions of the same client: the exact session id picks the flash, never the name.
+    const fb = await flashOf("b2", "Claude Code", "Share");
+    assert.equal(fb.session, "b2", "the second Claude Code session, not the first one with that name");
+    assert.notEqual(fb.border, fa.border);
+    const unknown = await flashOf("zz", "Claude Code", "Share");
+    assert.equal(unknown.session, null, "an id the page doesn't know yet: no guess by name");
+    assert.equal(unknown.label, "Claude Code · clicking");
+    console.log("ok - the session id from the helper attributes flashes exactly between two sessions of one client");
+
+    // Tab leases in the pill: who is in control, who waits for the tab.
+    await presence({ ...C, paused: false, control: "waiting" }, { ...B, control: null }, { ...A, control: "holder" });
+    st = await state();
+    assert.equal(st.state, "· 1 waiting");
+    await page.hover("[data-enso-pill]");
+    await page.waitForFunction(() => document.querySelector("[data-enso-pill]")?.hasAttribute("data-expanded"));
+    st = await state();
+    const rowOf = id => st.rows.find(x => x.id === id).text;
+    assert.match(rowOf("a1"), /Working · in control$/);
+    assert.match(rowOf("c3"), /Waiting for the tab$/);
+    await page.mouse.move(5, 400);
+    await presence(C, B, A);
+    console.log("ok - the pill shows who is in control and who is waiting for the tab");
+
     // The page rewrites its title; sessions end in a mixed order; the prefix stays single, then goes exactly.
     await page.evaluate(() => (document.title = "Interview notes (saved)"));
     await page.waitForFunction(() => document.title === "✦ Interview notes (saved)");

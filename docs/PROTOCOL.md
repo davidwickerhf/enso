@@ -68,6 +68,8 @@ All messages are objects with a `type`. Times are ISO strings. Ids are strings.
 | `agents.stop` | `id` | `agents` (every further call of that agent session is refused for 30 minutes) |
 | `agents.note` | `id`, `text` (≤ 1000 characters) | `agents` (the note, undelivered) + `actions.added` (`action: "note"`, without the text); `deliveredAt` is set when the agent's next tool result carries it |
 | `agents.dismiss` | `id` | `agents` (removes the session from the list, e.g. a stopped one) |
+| `agents.handover` | `id` (an `AgentSession` id) | `agents` (tab leases: the tab of that session goes to it, shared mode there ends; its next tool result starts with the hand-over note) |
+| `agents.share` | `tabId`, `on` | `agents` (on: every agent on the tab may act, `control: "shared"`; off: one at a time again, the last holder keeps it) |
 | `send.targets` | `tabId`, `url` (the captured tab) | `send.targets` (see [Send screenshots](#send-screenshots)) |
 | `send.screenshot` | `target: { kind: "t3" \| "agent", id }`, `image` (PNG/JPEG data URL, ≤ 25 MB), `message`, `url`, `title`, `includePage` (bool, default true), `consoleErrors?` ([{ text, source }], only when ticked) | `send.result` + `actions.added` (`action: "screenshot"`) |
 | `screenshot.save` | `image`, `url` | `screenshot.saved` `{ ok, path }` (saved under `<data>/screenshots`; the UI copies the path) |
@@ -186,7 +188,12 @@ prefix and the toolbar badge.
   actions: [{ id, at, tool: "page_type", title: "Type", target: 'textbox "Body"',
               ok: true, irreversible: false, typed?: "Dear Sam…" /* ≤ 40 chars, "••••••" for password fields */,
               error?: "…", refused?: true }],   // the last 30
-  notes: [{ id, text, at, deliveredAt: ISO | null }] }
+  notes: [{ id, text, at, deliveredAt: ISO | null }],
+  // tab leases (one agent acts on a tab at a time):
+  control: "holder" | "shared" | "waiting" | null, // in control; the user let all act; its last action was refused while another holds the tab
+  holderId: "…" | null,                    // the session holding its tab, when known
+  leaseEndsAt: ISO | null,                 // when the tab's lease lapses without another action
+  waitingSince: ISO | null, waitingTool?: "page_click" }
 ```
 A session ends two minutes after its last call (paused: 30 minutes), or when
 the agent calls `session_end`. Since the screenshot work a session also has
@@ -550,7 +557,11 @@ it. Without it (Ensō's own turns) they say "Claude". For external agents with a
 live session the pill comes from `presence` instead (below) and stays for the
 whole session. background.js also adds `session`, the id of the session acting
 on that tab (with two sessions of one client there, the one running a tool,
-else the most recent), so the outline flash takes that agent's shade.
+else the most recent), so the outline flash takes that agent's shade. Since tab
+leases the helper names the session itself: `agentSession` (on `page.request`
+and `browser.request`) is the `AgentSession` id of the call's session, and
+background.js passes it on as `session` unchanged; only requests without it
+(a lone read outside a session) fall back to that guess.
 
 | action | args | result |
 |---|---|---|
@@ -569,7 +580,7 @@ else the most recent), so the outline flash takes that agent's shade.
 | `query` | `selector`, `attributes?` (allowed: `href`, `src`, `value`, `alt`, `title`, `id`, `class`, `type`, `role`, `name`, `placeholder`, `aria-*`, `data-*` and a few more), `limit?` (≤ 200), `includeText?` | `{ url, title, description, selector, total, count, truncated, refusedAttributes, elements: [{ tag, text?, attributes?, visible, rect }] }`. A fixed query (`querySelectorAll`), no code evaluated; URL attributes resolved; password values never returned; ≤ 60k characters. Every build (since 0.5.7). |
 | `inspect` | `ref?` or `selector?` | `{ url, title, description, tag, role, name, matched?, rect, scroll, viewport, visible, inView, covered, coveredBy, styles }`. A curated set of computed styles. Every build (since 0.5.7). |
 | `eval` | `expression`, `awaitPromise?` (default true), `timeoutMs?` (default 30 s, max 120 s) | `{ ok, world: "page", type?, json?, error?, stack?, timedOut?, waitedMs?, url, title, description }` (page world only; a page whose CSP blocks eval returns an error, since 0.5.5). `timedOut`: a returned promise didn't settle in time; the code keeps running in the page. **Not in the listed (addons.mozilla.org) build**: the page agent answers "Unknown page action eval", and background.js refuses it first. |
-| `presence` | `{ agents: [{ id, label, task, startedAt, running, paused, stopped }], titlePrefix }` (every session on the tab, newest first; a single `{ label, task, … }` still works), or `{ off: true }` | `{ shown, count, title }`. Sent by background.js itself (not the host) from `agents`: one pill for all sessions on the tab ("Claude Code · task", or "2 agents · Claude Code: task (+1)" led by the most important state, working > paused > idle > stopped, with a list of each agent on hover, focus or click) and the "✦ " title prefix exactly once; an empty list or `off` removes both (the page's latest own title restored exactly). |
+| `presence` | `{ agents: [{ id, label, task, startedAt, running, paused, stopped, control }], titlePrefix }` (every session on the tab, newest first; a single `{ label, task, … }` still works), or `{ off: true }` | `{ shown, count, title }`. Sent by background.js itself (not the host) from `agents`: one pill for all sessions on the tab ("Claude Code · task", or "2 agents · Claude Code: task (+1)" led by the most important state, working > paused > idle > stopped, with a list of each agent on hover, focus or click) and the "✦ " title prefix exactly once; an empty list or `off` removes both (the page's latest own title restored exactly). `control` (tab leases) adds "in control", "shared" or "Waiting for the tab" to an agent's row, and "· N waiting" to the pill. |
 | `pill_ready` / `pill_hint` | — / `{ text }` | background.js → page agent: the pill's frame loaded (clicks go to it now) / a short hint on the pill ("Press ⌘E for Ensō", or Ctrl+E off macOS) |
 | `pill_pick` | `{ y }` | `{ sessionId }`: the agent whose row is at `y` px from the top of the pill (a click in `pill.html`), else the one the pill leads with |
 | `pill_state` | — | `{ shown, count, text, state, expanded, rows, shades }`: what the pill shows (its shadow root is closed to the page); diagnostics and tests |
