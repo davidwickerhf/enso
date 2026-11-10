@@ -22,6 +22,7 @@ const LOOKS = [
   { re: /atlassian|jira|confluence/i, letter: "A", tint: "#0052cc", order: 11 },
   { re: /figma/i, letter: "F", tint: "#a259ff", order: 12 },
   { re: /asana/i, letter: "A", tint: "#f06a6a", order: 13 },
+  { re: /monday/i, letter: "m", tint: "#6161ff", order: 14 },
 ];
 
 export const labelOf = sv => sv.label || String(sv.name ?? "").replace(/^claude\.ai\s+/i, "");
@@ -190,6 +191,7 @@ const CATALOG = [
   { key: "atlassian", name: "Atlassian", adds: "Jira issues and Confluence pages.", match: /atlassian|jira|confluence/i },
   { key: "figma", name: "Figma", adds: "Read designs and comments from your files.", match: /figma/i },
   { key: "asana", name: "Asana", adds: "Tasks and projects across your teams.", match: /asana/i },
+  { key: "monday", name: "monday.com", adds: "Boards, items, updates and docs: see and update your team's work.", match: /monday/i, mcp: { name: "monday", url: "https://mcp.monday.com/mcp", label: "monday.com" } },
   { key: "gmail", name: "Gmail", adds: "Search, read and draft email.", match: /gmail/i },
   { key: "gcal", name: "Google Calendar", adds: "Events, free time and scheduling.", match: /calendar/i },
   { key: "gdrive", name: "Google Drive", adds: "Find and read files in Drive.", match: /drive/i },
@@ -230,7 +232,7 @@ export function createToolsPage(store, ctx) {
     h("label", { class: "field" }, h("span", null, "MCP URL"), urlIn),
     addErr,
     h("button", { type: "submit", class: "btn small primary" }, "Connect"),
-    h("p", { class: "cat-note" }, "Servers with an API key instead go under ", h("code", null, "extraServers"), " in ", h("code", null, "chat/host/config.json"), "."));
+    h("p", { class: "cat-note" }, "Servers with an API key instead go under ", h("code", null, "extraServers"), " in ", h("code", null, "config.local.json"), " (Ensō's data folder)", "."));
   const listEl = h("div", { class: "tools-groups" });
   const catalogEl = h("div", { class: "catalog" });
   const el = h("section", { class: "page-view tools-view", aria: { label: "Tools" } },
@@ -279,6 +281,7 @@ export function createToolsPage(store, ctx) {
         c.note ? h("p", { class: "cat-note" }, c.note) : null,
         connected ? h("span", { class: "cat-state" }, icon("check"), "Connected")
           : have?.status === "needs-auth" ? h("a", { class: "btn small", href: have.connectUrl || CONNECTORS_URL, target: "_blank", rel: "noreferrer noopener" }, "Sign in", icon("arrowUpRight"))
+          : c.mcp ? h("button", { type: "button", class: "btn small primary", onclick: () => { adding = c.mcp.name; store.actions.addServer(c.mcp); } }, "Connect")
           : h("a", { class: "btn small", href: CONNECTORS_URL, target: "_blank", rel: "noreferrer noopener" }, "Connect on claude.ai", icon("arrowUpRight")));
     }), addForm);
     void names;

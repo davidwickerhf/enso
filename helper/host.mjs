@@ -51,6 +51,7 @@ const CATALOG = {
   "claude.ai Slack": { label: "Slack", about: "Search channels and messages." },
   "claude.ai Notion": { label: "Notion", about: "Search and edit Notion pages." },
   github: { label: "GitHub", about: "Your pull requests, reviews, issues and notifications across all your orgs and repos (through the GitHub CLI's sign-in). Comments, reviews, labels and closing ask first unless you asked.", examples: ["What's waiting on me on GitHub?", "Why is CI failing on my latest PR?", "Which of my PRs have changes requested?"] },
+  monday: { label: "monday.com", about: "Your monday.com boards, items, updates and docs (monday's own MCP server; you sign in with your monday account).", examples: ["What's assigned to me on monday.com this week?", "Summarise the updates on my team's board"] },
   ...(config.catalog ?? {}), // labels and examples for your own servers (config.local.json → catalog)
 };
 const CONNECT_URL = name => (name.startsWith("claude.ai ") ? "https://claude.ai/customize/connectors" : null);
