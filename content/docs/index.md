@@ -7,29 +7,30 @@ group: Start
 
 # Ensō documentation
 
-<p class="lede">Ensō is a personal assistant that lives in the Zen browser. It knows you, uses your tools, and can read and act on web pages. It runs on your own Claude subscription, and keeps what it knows on your Mac.</p>
+<p class="lede">Ensō is an assistant inside the Zen browser. It knows you, uses your tools, and can read and act on web pages. It runs on your own Claude subscription, and keeps what it knows on your Mac.</p>
 
 ## Where it lives
 
-- **The sidebar.** Press <kbd>⌘E</kbd> to open a chat next to the page you are on.
-- **The new tab.** One box that [searches or asks](/docs/new-tab), with the cursor already in it, plus widgets you choose.
-- **A full page.** Right-click the Ensō button for the full-page app, with your conversations, reports and activity.
+- **The sidebar.** Press <kbd>⌘E</kbd> for a chat next to the page you are on. See [the sidebar](/docs/sidebar).
+- **The new tab.** One box that [opens sites, searches or asks](/docs/new-tab), with the cursor already in it, plus [widgets](/docs/widgets) you choose.
+- **A full page.** Right-click the Ensō toolbar button for the full-page app, with your conversations, reports, tools and activity.
 
-All three show the same conversations, so you can start in one and continue in another.
+All three show the same conversations, so you can start in one and continue in another. Other agents on your Mac, such as Claude Code or Codex, can [use Zen through Ensō](/docs/other-agents) too.
 
 ## Two parts
 
-Ensō has two pieces, and you install both:
+You install both with one command:
 
-1. **The browser extension.** The interface: sidebar, new tab, full page. It also carries out page actions in your tabs.
-2. **The local helper.** A small Node.js program that Zen starts through Firefox *native messaging* whenever the extension needs it. The helper runs Claude (through Claude Code or an API key), talks to your MCP servers, and stores your conversations, memory and settings on disk.
+1. **The browser extension**: the sidebar, new tab and full page. It also carries out page actions in your tabs.
+2. **The local helper**: a small Node.js program that Zen starts whenever the extension needs it. It runs Claude (through Claude Code or an API key), talks to your tools, and stores your conversations, memory and settings on your Mac.
 
-The extension never talks to a server of ours. Your questions go from the helper to Anthropic, and nowhere else. The Ensō website only serves updates and, if you turn it on, encrypted sync.
+Your questions go from the helper to Anthropic, and to the tools you connected. Ensō's website only serves the installer and updates.
 
 ## Start here
 
-- [Install](/docs/install) the helper and the extension.
-- Choose an [engine](/docs/engines): your Claude subscription, or an API key.
-- See how it [acts on pages](/docs/acting-on-pages) and when it asks first.
-- Read [Privacy & data](/docs/privacy-data) for exactly what is stored where.
-- Let [Claude Code use Zen](/docs/claude-code) through Ensō.
+1. [Install](/docs/install) the helper and the extension.
+2. Choose an [engine](/docs/engines): your Claude subscription, or an API key.
+3. Learn [when Ensō asks first](/docs/acting-on-pages) before acting on a page.
+4. [Connect your tools](/docs/tools): mail, calendar, task apps, GitHub.
+
+All guides:

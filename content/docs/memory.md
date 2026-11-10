@@ -1,7 +1,7 @@
 ---
 title: Memory & profile
 description: What Ensō knows about you, how it learns, and how to read and change it.
-order: 15
+order: 17
 group: Using Ensō
 ---
 
@@ -19,10 +19,14 @@ A list of lasting facts and preferences, one per line, each with the date it was
 
 You can edit or delete any line in **Settings → Memory**. It is the file `memory.md` in the same folder.
 
+## Memory per space
+
+If you use [Zen spaces](/docs/spaces), Ensō can keep a fact to the space you are in, such as a work detail in your work space. Choose **Everywhere** or a space at the top of **Settings → Memory** to see and edit either. A space's memory goes only with messages in that space, in `memory/<space id>.md`.
+
 ## What memory is not
 
 Memory doesn't contain your conversations. Ensō only learns from a past conversation if it saved a fact to memory then, or if it [searches your history](/docs/history) when you ask.
 
 ## Privacy
 
-Profile and memory never leave your Mac on their own. They are sent to Anthropic as part of each request, as context, because that is how Claude can use them. With [sync](/docs/sync) on, they are uploaded encrypted.
+Profile and memory never leave your Mac on their own. They are sent to Anthropic as part of each request, as context, because that is how Claude can use them, and with the hourly [brief](/docs/sidebar#the-brief).

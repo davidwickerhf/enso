@@ -1,7 +1,7 @@
 ---
 title: Sync & recovery
 description: How end-to-end encrypted sync works, the recovery phrase, and what the server can and cannot see.
-order: 20
+order: 21
 group: Your data
 ---
 

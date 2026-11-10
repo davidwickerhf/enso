@@ -1,7 +1,7 @@
 ---
 title: Skills
 description: Slash commands for things you ask often, built in or written by you.
-order: 12
+order: 14
 group: Using Ensō
 ---
 

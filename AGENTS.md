@@ -6,3 +6,5 @@
 - Migrations: add `migrations/NNN_name.sql`; never edit an applied one (checksummed by `scripts/migrate.mjs`).
 - The server must never receive keys or plaintext for sync. If you change what it stores, update `content/privacy.md`, `content/docs/sync.md` and `content/docs/sync-api.md` in the same change.
 - Tests need a Postgres (`DATABASE_URL`, or `TEST_DATABASE_URL`); they use a separate `_test` database.
+- User help in `content/docs/` mirrors `docs/help/` in the enso repo (the source, next to the code). Change the enso copy first, then adapt it here (front matter, `/docs/<slug>` links). The mapping is in the enso repo's `docs/help/README.md`.
+- `static/install.sh` is a copy of `scripts/install.sh` in the enso repo; copy it over when that changes. The release workflow doesn't update it.

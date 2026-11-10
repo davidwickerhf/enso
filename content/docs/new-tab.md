@@ -1,6 +1,6 @@
 ---
 title: The new tab
-description: One box that searches like an address bar and asks like an assistant, plus widgets you choose.
+description: One box that opens sites, searches like an address bar and asks like an assistant, plus your tools and widgets.
 order: 9
 group: Using Ensō
 ---
@@ -13,32 +13,19 @@ Every new tab opens on a single box, with the cursor already in it. It is an add
 
 As you type, Ensō offers what you probably meant:
 
-- **A site.** If the text looks like an address, or matches a site in your history or bookmarks, it completes inline (`goo` → `google.com`). Press <kbd>→</kbd> or <kbd>Tab</kbd> to accept, <kbd>⌫</kbd> to drop the completion.
+- **A site.** If the text looks like an address, or matches a site in your history or bookmarks, it completes inline (`goo` → `google.com`). Press <kbd>→</kbd> or <kbd>Tab</kbd> to accept.
 - **A search** with your default search engine, plus that engine's suggestions.
 - **Your open tabs, bookmarks and history.**
 - **Ask Ensō.** Send it to the chat instead.
 
 The button shows what <kbd>Enter</kbd> will do: **Go** for a site, your engine's name for a search, **Ask** for the chat. Two shortcuts skip the guess: <kbd>⇧⌘↵</kbd> always searches, <kbd>⌃⌘↵</kbd> always asks. Opening and searching happen in the browser itself, so they are instant; only questions go to Claude.
 
-Private sites (banking, health, see [Privacy & data](/docs/privacy-data)) never appear in suggestions.
-
-## Widgets
-
-The page stays empty until you add something. Choose **Customize** (top right) or **+ Add widgets** under the box:
-
-| Widget | Shows |
-|---|---|
-| Next up | Your next event, and the one after |
-| Due soon | Deadlines and tasks in one list; tick tasks off |
-| Mail | How many mails need you, and the most important one |
-| Clock | Time and date |
-| Recent chats | Your last conversations in this space |
-| Quick links | Up to eight sites you pick |
-| Note | A small scratchpad |
-| Ask | Suggested questions for today |
-
-Drag to reorder, switch between small and wide, or remove one. Widget data comes from the same read-only check of your tools that Ensō does about once an hour.
+Private sites (banking, health; see [Acting on pages](/docs/acting-on-pages#private-sites)) never appear in suggestions.
 
 ## Your tools
 
-Under the box, small icons show the tools Ensō can use (Gmail, Calendar, Drive and so on). Click one to see what it can do, try an example question, switch it off, or open its settings. See [Your tools](/docs/tools).
+Under the box, small icons show the tools Ensō can use (Gmail, Calendar, GitHub and so on). Click one to see what it can do, try an example question, switch it off, or open its settings. Hide the strip with its **×**. See [Connecting tools](/docs/tools).
+
+## Widgets
+
+The page stays empty until you add something: choose **Add widgets** under the box, or **Edit widgets** at the top right. Next up, Due soon, Tasks, Mail, GitHub, Quick links and more: see [Widgets](/docs/widgets).

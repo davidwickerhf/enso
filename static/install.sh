@@ -5,8 +5,8 @@
 #
 # Installs the local helper (the Node.js program Zen starts through native
 # messaging) into ~/Library/Application Support/Enso/helper, registers it with
-# Zen and Firefox, optionally lets Claude Code use Zen (the zen-browser MCP
-# server), then opens the signed extension in Zen. Safe to run again: that is
+# Zen and Firefox, writes the `enso` command (Enso/bin/enso), optionally lets
+# Claude Code use Zen (the zen-browser MCP server, through `enso mcp`), then opens the signed extension in Zen. Safe to run again: that is
 # also how you update. Nothing is installed outside your home folder and
 # nothing needs sudo. Your data and config.local.json in the Enso folder are
 # never touched.
@@ -166,6 +166,22 @@ exec "$node_bin" "$HELPER_DIR/host.mjs"
 EOF
 	chmod +x "$HELPER_DIR/run.sh"
 	info "Helper $(cat "$HELPER_DIR/VERSION" 2>/dev/null || echo '') installed; it runs with $node_bin"
+
+	# The `enso` command (enso mcp: the stdio launcher MCP clients start; see docs/PROTOCOL.md).
+	local ENSO_BIN="$APP_DIR/bin/enso"
+	mkdir -p "$APP_DIR/bin"
+	cat >"$ENSO_BIN" <<EOF
+#!/bin/bash
+# The enso command (enso mcp, enso mcp install…). Written by install.sh.
+exec "$node_bin" "$HELPER_DIR/bin/enso.mjs" "\$@"
+EOF
+	chmod +x "$ENSO_BIN"
+	info "Command: $ENSO_BIN"
+	# Also on PATH as ~/.local/bin/enso, unless something else already has that name.
+	if [ -d "$HOME/.local/bin" ] && { [ ! -e "$HOME/.local/bin/enso" ] || [ "$(readlink "$HOME/.local/bin/enso" 2>/dev/null)" = "$ENSO_BIN" ]; }; then
+		ln -sf "$ENSO_BIN" "$HOME/.local/bin/enso"
+		info "Linked ~/.local/bin/enso"
+	fi
 	if [ -f "$APP_DIR/config.local.json" ]; then
 		info "Your config.local.json is kept as it is."
 	fi
@@ -183,11 +199,14 @@ EOF
 		info "Wrote $dir/$HOST_NAME.json"
 	done
 
-	# 7. Let Claude Code use Zen (optional)
+	# 7. Let Claude Code use Zen (optional). Registered through the stdio
+	#    launcher (`enso mcp`), which reads the token itself: no token in any config.
 	if [ -n "$claude_bin" ]; then
 		step "Claude Code and Zen"
 		if "$claude_bin" mcp get "$MCP_NAME" >/dev/null 2>&1; then
 			info "Claude Code already has the $MCP_NAME server."
+			info "${dim}To switch an older registration (token in the config) to the launcher, or to add Codex and Cursor:${reset}"
+			info "${dim}  \"$ENSO_BIN\" mcp install${reset}"
 		else
 			local register="${ENSO_REGISTER_MCP:-}"
 			if [ -z "$register" ]; then
@@ -205,21 +224,11 @@ EOF
 				if [ ! -f "$token_file" ] && [ -f "$LEGACY_DIR/mcp-token" ]; then
 					cp -p "$LEGACY_DIR/mcp-token" "$token_file" # keep the token of an install from before the rename
 				fi
-				if [ ! -f "$token_file" ]; then
-					(umask 077 && openssl rand -hex 32 >"$token_file")
-				fi
-				chmod 600 "$token_file"
-				local config_json
-				config_json="$("$node_bin" -e '
-					const fs = require("fs");
-					const [file, port] = process.argv.slice(1);
-					const token = fs.readFileSync(file, "utf8").trim();
-					process.stdout.write(JSON.stringify({ type: "http", url: `http://127.0.0.1:${port}/mcp`, headers: { Authorization: `Bearer ${token}` } }));
-				' "$token_file" "$MCP_PORT")"
-				if "$claude_bin" mcp add-json --scope user "$MCP_NAME" "$config_json" >/dev/null 2>&1; then
+				if "$ENSO_BIN" mcp install --client claude >/dev/null 2>&1; then
 					info "Added. Claude Code can use Zen while Zen is open."
+					info "${dim}Codex or Cursor too: \"$ENSO_BIN\" mcp install --client codex (or cursor, or all)${reset}"
 				else
-					warn "Claude Code did not accept the server; you can add it later from Ensō's docs."
+					warn "Claude Code did not accept the server; try \"$ENSO_BIN\" mcp install later."
 				fi
 			fi
 		fi

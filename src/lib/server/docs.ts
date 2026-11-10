@@ -78,6 +78,11 @@ export function getPage(name: string) {
 export function docNav() {
 	return GROUPS.map((group) => ({
 		group,
-		items: docs.filter((d) => d.group === group).map(({ slug, title }) => ({ slug, title }))
+		items: docs.filter((d) => d.group === group).map(({ slug, title, description }) => ({ slug, title, description }))
 	})).filter((g) => g.items.length);
 }
+
+/** Pages that moved: old slug → new slug (the old address redirects). */
+export const MOVED: Record<string, string> = {
+	'claude-code': 'other-agents'
+};
