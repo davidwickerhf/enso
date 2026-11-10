@@ -32,7 +32,7 @@ A list of sites where Claude may use your signed-in session: to make requests as
 - An entry covers its subdomains: `https://github.com` also allows `api.github.com`.
 - Requests that can change data (anything but GET, HEAD and OPTIONS) also need you to have asked for exactly that, or your approval.
 
-Banking, payment, password-manager and health sites can't be added.
+Banking, payment, password-manager, health, tax and government sites can't be added.
 
 ## What Claude sees of your session
 

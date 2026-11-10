@@ -1,0 +1,55 @@
+# Sets Ensō's addons.mozilla.org listing from the files in amo/ and the site's
+# privacy policy (amo/amo.mjs listing). Run it by hand after changing
+# amo/listing.json, amo/description.md, the previews or site/content/privacy.md.
+#
+# Repository secrets: AMO_JWT_ISSUER, AMO_JWT_SECRET (never printed).
+
+name: AMO listing
+
+on:
+  workflow_dispatch:
+    inputs:
+      icon:
+        description: Upload amo/icon-128.png as the icon
+        type: boolean
+        default: false
+      previews:
+        description: Replace the screenshots with amo/previews/*
+        type: boolean
+        default: false
+      version:
+        description: Optional version to report the status of, e.g. 0.5.5
+        required: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: amo-listing
+  cancel-in-progress: false
+
+jobs:
+  listing:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Preview what will be sent
+        run: node amo/amo.mjs listing --dry-run
+      - name: Set the listing
+        env:
+          AMO_JWT_ISSUER: ${{ secrets.AMO_JWT_ISSUER }}
+          AMO_JWT_SECRET: ${{ secrets.AMO_JWT_SECRET }}
+        run: |
+          args=""
+          [ "${{ github.event.inputs.icon }}" = true ] && args="$args --icon"
+          [ "${{ github.event.inputs.previews }}" = true ] && args="$args --previews"
+          node amo/amo.mjs listing $args
+      - name: Status
+        env:
+          AMO_JWT_ISSUER: ${{ secrets.AMO_JWT_ISSUER }}
+          AMO_JWT_SECRET: ${{ secrets.AMO_JWT_SECRET }}
+          VERSION: ${{ github.event.inputs.version }}
+        run: node amo/amo.mjs status $VERSION

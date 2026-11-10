@@ -518,7 +518,7 @@ whole session.
 | `back` | | `{ url, title }` |
 | `screenshot` | | `{ dataUrl }` (PNG) |
 | `console` | `since?` (ms), `level?`, `limit?` | `{ tabId, url, now, started, dropped, entries: [{ t, level, text, source?, stack? }] }`; the first call for a tab starts capture (`started: true`); `level: "nav"` entries mark navigations |
-| `eval` | `expression` | `{ ok, world: "page" \| "isolated", type?, json?, error?, stack?, url, title, description }` (page world; falls back to the content-script world when the page CSP blocks eval) |
+| `eval` | `expression` | `{ ok, world: "page", type?, json?, error?, stack?, url, title, description }` (page world only; a page whose CSP blocks eval returns an error, since 0.5.5) |
 | `presence` | `{ label, task, running, paused, stopped, titlePrefix }`, or `{ off: true }` | `{ shown, title }`. Sent by background.js itself (not the host) from `agents`: shows or updates the session pill and the "✦ " title prefix, or removes both (the page's latest own title restored exactly). |
 | `pill_ready` / `pill_hint` | — / `{ text }` | background.js → page agent: the pill's frame loaded (clicks go to it now) / a short hint on the pill ("Press ⌘E for Ensō") |
 | `storage` | `includeValues?` | `{ url, local: [{ key, length, value? }], session: [...], cookies: [{ name, domain, path, secure, httpOnly, sameSite, session, expires, partitioned }], container }`; cookie values are never included, credential-looking storage values are redacted |

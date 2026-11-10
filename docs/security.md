@@ -113,7 +113,7 @@ and writes to `sessionAccess` instead. Stopping a turn denies any open approval.
 
 ## Private sites
 
-Banking, payment, password-manager and health sites are never read, acted on,
+Banking, payment, password-manager, health, tax and government sites are never read, acted on,
 screenshotted, fetched with your session or copied to the headless Zen. The
 shipped list (`sensitiveHosts` in `helper/config.json`):
 
@@ -121,10 +121,19 @@ shipped list (`sensitiveHosts` in `helper/config.json`):
 *.paypal.com  *.wise.com  *.revolut.com  *.bunq.com  *.n26.com  *.monzo.com
 *.chase.com  *.americanexpress.com  *.1password.com  *.bitwarden.com
 *.lastpass.com  *.dashlane.com  *bank*  *health*  *patient*
+*.belastingdienst.nl  *.toeslagen.nl  mijn.overheid.nl  *.mijnoverheid.nl
+*.digid.nl  *.irs.gov  *.ssa.gov  *.login.gov  *.tax.service.gov.uk
+*.hmrc.gov.uk  *.account.gov.uk  *.elster.de  *.impots.gouv.fr
+*.agenziaentrate.gov.it  *.agenciatributaria.gob.es  *.myminfin.be
+*.ato.gov.au  my.gov.au  *.ird.govt.nz
 ```
 
 Patterns are matched against the hostname, case-insensitively, with `*` as a
-wildcard. `config.local.json` can add patterns but not remove them. The checks
+wildcard; a pattern starting with `*.` also matches the bare domain
+(`*.paypal.com` covers `paypal.com`). `config.local.json` can add patterns but
+not remove them. `background.js` carries a copy of the shipped list
+(`DEFAULT_SENSITIVE`, used until the helper sends its list; a unit test keeps
+them equal). The checks
 happen on both sides: `background.js` (no page text or screenshot is sent, page
 actions and screenshots refuse, the network log skips the site, the page chip
 shows a lock) and `lib/safety.mjs` (session requests, headless navigation and
@@ -299,7 +308,7 @@ anything on the page: mail, documents, tokens printed in a console.
 - **Only the user starts one.** Capture runs from the `send-screenshot` command
   or the camera button in Ensō's own pages; agents can't trigger it (they have
   `page_screenshot` for their own use, under External control). Private sites
-  (banking, health) are refused, like every other tool.
+  (banking, health, tax) are refused, like every other tool.
 - **It stays on this Mac.** The image goes to the helper over native messaging,
   then to one of: the user's T3 Code server, which must be on a loopback
   address (`127.0.0.1`, `localhost`, `[::1]`; anything else in T3's runtime file

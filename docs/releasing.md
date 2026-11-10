@@ -3,7 +3,8 @@
 How a version of Ensō gets from a tag to people's Macs: the version bump, the
 release workflow, signing on addons.mozilla.org (AMO), the site's update feed,
 and how installed copies update. Why it is done this way:
-[records/004-unlisted-amo-signing.md](records/004-unlisted-amo-signing.md).
+[records/007-listed-amo-channel.md](records/007-listed-amo-channel.md) (and,
+for the update feed, [004](records/004-unlisted-amo-signing.md)).
 
 ## Contents
 
@@ -13,6 +14,7 @@ and how installed copies update. Why it is done this way:
 - [The site's side](#the-sites-side)
 - [How installed copies update](#how-installed-copies-update)
 - [The installer](#the-installer)
+- [The AMO listing](#the-amo-listing)
 - [Re-publishing and fixing a release](#re-publishing-and-fixing-a-release)
 - [Checklist](#checklist)
 
@@ -43,8 +45,12 @@ new dev build (see [development.md](development.md#after-a-change)), and keep
    git push origin main v0.5.3
    ```
 
-4. Watch the **Release** workflow in GitHub Actions. Signing can take several
-   minutes (the workflow waits up to 15).
+4. Watch the **Release** workflow in GitHub Actions. It submits a listed
+   version to AMO and waits up to 12 minutes for the signature. If AMO signs it
+   in time, it publishes everything. If the version is queued for review, the
+   run ends green with "submitted, awaiting review" in its summary; after AMO
+   approves it (email from AMO, or `node amo/amo.mjs status <version>`), run
+   **Release** by hand with the tag and mode **publish-approved**.
 5. Check the result:
 
    ```sh
@@ -60,44 +66,62 @@ release runs at a time.
 
 ```mermaid
 flowchart LR
-  T[tag v0.5.3] --> V[check versions and add-on id]
+  T[tag v0.5.5] --> V[check versions and add-on id]
   V --> H[npm ci, syntax check, npm test]
-  H --> P[copy extension/, inject update_url]
+  H --> P[copy extension/, check no update_url]
   P --> S{site lists enso@wicker.life<br/>in EXTENSION_IDS?}
   S -- no --> F[fail]
   S -- yes --> L[web-ext lint]
-  L --> SG[web-ext sign --channel unlisted]
-  SG --> TB[pack-helper.sh]
+  L --> SG[web-ext sign --channel listed<br/>--approval-timeout 0]
+  SG --> W{amo.mjs wait<br/>12 min}
+  W -- pending --> R[green: awaiting review]
+  W -- rejected --> F
+  W -- signed --> TB[pack-helper.sh]
   TB --> PUB[PUT /api/releases/extension/:v<br/>PUT /api/releases/helper/:v]
   PUB --> GH[GitHub release with both files]
 ```
+
+Modes (`workflow_dispatch` input `mode`; a tag push is `submit-listed`):
+
+| Mode | What |
+|---|---|
+| `submit-listed` | Submit the tag's version as listed (skipped when AMO already has it), wait, publish if signed. |
+| `publish-approved` | No submission: check the version on AMO, download the signed `.xpi`, build the helper, publish both. Use it after a review. |
+| `submit-unlisted` | Emergency only: sign as unlisted with `update_url` injected, publish. That version number is then used up on AMO. |
 
 1. **Versions.** The tag without `v` must equal the manifest and helper
    versions; the manifest id must be `enso@wicker.life`.
 2. **Helper checks.** `npm ci --omit=optional`, `node --check` on every module,
    `npm test`.
-3. **Prepare the extension.** Copies `extension/` to `build/extension` and sets
-   `browser_specific_settings.gecko.update_url` to
-   `https://enso.wicker.life/updates.json`. The repository's manifest has no
-   `update_url`, so dev builds never update themselves.
+3. **Prepare the extension.** Copies `extension/` to `build/extension`. Listed:
+   fails if the manifest has an `update_url` (AMO refuses it). Unlisted: sets
+   `update_url` to `https://enso.wicker.life/updates.json`.
 4. **Site check.** Reads `extensionIds` from `/api/latest` and fails if
-   `enso@wicker.life` isn't there: installed copies would never be offered the
-   update.
-5. **Lint.** `web-ext lint --self-hosted`.
-6. **Sign.** `web-ext sign --channel unlisted` with the AMO API credentials.
-   AMO signs the add-on for self-distribution; it is not listed on
-   addons.mozilla.org. The signed file becomes `dist/enso-<version>.xpi`.
-7. **Helper tarball.** `scripts/pack-helper.sh <version> dist` copies
+   `enso@wicker.life` isn't there: self-hosted copies would never be offered
+   the update.
+5. **Lint.** `web-ext lint` (`--self-hosted` for unlisted).
+6. **Submit.** `amo/amo.mjs metadata` writes the `--amo-metadata` file (licence
+   MIT, reviewer notes from `amo/approval-notes.md`, release notes from this
+   version's CHANGELOG section), then `web-ext sign --channel listed
+   --approval-timeout 0` uploads and submits without waiting.
+7. **Wait.** `amo/amo.mjs wait <version> --minutes 12 --out dist/enso-<version>.xpi`
+   polls `GET /api/v5/addons/addon/enso@wicker.life/versions/<version>/` and
+   downloads the signed file when its status is `public`. It sets the step
+   output `status` to `signed`, `pending` or `rejected`.
+8. **Check the signed file.** The version matches and the `.xpi` carries
+   Mozilla's signature.
+9. **Helper tarball.** `scripts/pack-helper.sh <version> dist` copies
    `helper/` without `node_modules`, `test/` and `run.sh`, installs production
    dependencies without optional ones (so no ~200 MB Claude Code binary), fails
    on any file over 20 MB, writes `VERSION`, and produces
    `dist/enso-helper-<version>-darwin.tar.gz`. CI keeps it under 40 MB; 0.5.2
    was about 8.6 MB.
-8. **Publish.** `PUT https://enso.wicker.life/api/releases/<kind>/<version>`
-   with the file as the body and `Authorization: Bearer $ENSO_RELEASE_TOKEN`;
-   the extension upload carries `?strict_min_version=139.0`.
-9. **GitHub release.** Creates `v<version>` with both files and generated
-   notes, or uploads to an existing one (`--clobber`).
+10. **Publish.** `PUT https://enso.wicker.life/api/releases/<kind>/<version>`
+    with the file as the body and `Authorization: Bearer $ENSO_RELEASE_TOKEN`;
+    the extension upload carries `?strict_min_version=139.0`. Then checks that
+    `/updates.json` offers the version.
+11. **GitHub release.** Creates `v<version>` with both files and generated
+    notes, or uploads to an existing one (`--clobber`).
 
 Repository secrets:
 
@@ -125,10 +149,13 @@ pre-release Zen Chat builds. Details are in [site/docs/HOSTING.md](../site/docs/
 
 ## How installed copies update
 
-- **The extension** updates itself. Zen checks `update_url` (the site's
-  `/updates.json`) periodically, downloads a newer signed `.xpi` and installs it,
-  verifying the SHA-256. If a new version asks for more permissions, Zen asks
-  the user first (a badge on the menu button).
+- **The extension** updates itself. Copies installed from AMO, and every copy
+  from 0.5.5 on, update from AMO like any listed add-on. Copies installed from
+  enso.wicker.life before 0.5.5 have `update_url` (the site's `/updates.json`):
+  Zen downloads the newest `.xpi` from the site, verifying the SHA-256, and
+  since that file is the listed one without `update_url`, their later updates
+  come from AMO. If a new version asks for more permissions or data
+  collection, Zen asks the user first.
 - **The helper** does not update itself. Users run the installer again. The
   installer replaces `Enso/helper` in one move and keeps the data folder. The
   running helper keeps its old code until Zen is restarted.
@@ -154,11 +181,31 @@ scripts/pack-helper.sh 0.5.3-rc1 dist
 ENSO_HELPER_URL="file://$PWD/dist/enso-helper-0.5.3-rc1-darwin.tar.gz" ENSO_NO_OPEN=1 bash scripts/install.sh
 ```
 
+## The AMO listing
+
+Everything shown on <https://addons.mozilla.org/firefox/addon/enso/> is in
+`amo/`:
+
+| File | What |
+|---|---|
+| `listing.json` | Name, slug, summary (250 characters at most), categories, licence, links, flags, and which files below to use. |
+| `description.md` | The description (AMO renders a little Markdown). |
+| `approval-notes.md` | Notes for AMO's reviewers, attached to every submitted version. |
+| `icon-128.png`, `previews/*.png` | Icon and screenshots (1280×800, taken headlessly from the mock UI). |
+| `amo.mjs` | The AMO v5 API client: `listing`, `metadata`, `wait`, `status`. |
+
+The privacy policy on AMO is generated from `site/content/privacy.md`. To
+change the listing, edit these files, merge, and run the **AMO listing**
+workflow (Actions → AMO listing → Run workflow; tick *icon* or *previews* to
+upload those too). `node amo/amo.mjs listing --dry-run` prints what it would
+send, without credentials. The credentials are only in the repository secrets.
+
 ## Re-publishing and fixing a release
 
 - **Re-run** a release for an existing tag from the Actions tab (Release → Run
-  workflow → `tag`). AMO refuses to sign the same version twice, so this only
-  helps when signing hadn't completed.
+  workflow → `tag`, mode). AMO refuses the same version twice, so
+  `submit-listed` skips the submission when AMO already has the version and
+  only waits; use `publish-approved` once it is signed.
 - **A bad release:** release a higher patch version. The site's table has a
   `yanked` column that hides a release from `/updates.json`, `/api/latest` and
   downloads. There is no endpoint for it; set it with SQL on the site's
@@ -172,6 +219,7 @@ ENSO_HELPER_URL="file://$PWD/dist/enso-helper-0.5.3-rc1-darwin.tar.gz" ENSO_NO_O
 - [ ] `extension/manifest.json` and `helper/package.json` at the new version.
 - [ ] CI green on `main`.
 - [ ] If the user-visible behaviour changed: `site/content/docs/` updated.
-- [ ] Tag pushed; Release workflow green.
+- [ ] Tag pushed; Release workflow green (if "awaiting review": run
+      `publish-approved` after AMO approves it).
 - [ ] `/api/latest` and `/updates.json` show the version.
 - [ ] Installer run on a Mac; extension updated in Zen (Add-ons → Check for updates).

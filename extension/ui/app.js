@@ -294,7 +294,8 @@ function bootApp() {
     if (!s.ready || document.hidden || s.dashboard.loading || s.ui.view !== "home") return;
     const at = s.dashboard.data?.generatedAt ? new Date(s.dashboard.data.generatedAt).getTime() : 0;
     const stale = !at || (minutes > 0 && Date.now() - at > minutes * 60_000);
-    if (stale && Date.now() - lastRefreshAsk > 5 * 60_000 && (minutes > 0 || !at)) {
+    // "Off" (0) means no automatic brief at all, not even the first one.
+    if (stale && minutes > 0 && Date.now() - lastRefreshAsk > 5 * 60_000) {
       lastRefreshAsk = Date.now();
       actions.refreshDashboard();
     }

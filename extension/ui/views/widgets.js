@@ -669,7 +669,7 @@ export function createWidgets(store, ctx, { onEdit } = {}) {
     }
     editing = true;
     render();
-    if (!s.dashboard.data && !s.dashboard.loading) actions.refreshDashboard();
+    if (!s.dashboard.data && !s.dashboard.loading && (s.settings?.dashboard?.autoRefreshMinutes ?? 60) > 0) actions.refreshDashboard();
   }
 
   function exitEdit() {

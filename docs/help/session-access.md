@@ -36,7 +36,7 @@ as you, or to copy your login on that site into the headless Zen.
 - Requests that can change data (anything but GET, HEAD and OPTIONS) also need
   you to have asked for exactly that, or your approval.
 
-Banking, payment, password-manager and health sites can't be added, and session
+Banking, payment, password-manager, health, tax and government sites can't be added, and session
 requests never run there.
 
 ## What does Claude see from my session?

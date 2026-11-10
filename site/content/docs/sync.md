@@ -7,11 +7,11 @@ group: Your data
 
 # Sync & recovery
 
-Sync keeps conversations, memory, profile, skills, settings and reports the same on every Mac you use. It is **optional** and **off by default**, and it is **end-to-end encrypted**: your data is encrypted on your Mac before it is uploaded, with a key the server never receives.
+Sync keeps conversations, memory, profile, skills, settings and reports the same on every Mac you use. It will be **optional** and **off by default**, and it is **end-to-end encrypted**: your data is encrypted on your Mac before it is uploaded, with a key the server never receives.
 
-> **Status: preview.** The sync server described here is live. Turning sync on inside Ensō arrives with an upcoming helper release; until then nothing is uploaded.
+> **Not available yet.** The sync server described here is live, but the extension and helper can't turn sync on: there is no Settings → Sync yet, and nothing is uploaded. This page describes how it will work.
 
-## Turning it on
+## Turning it on (once it's available)
 
 1. In **Settings → Sync**, enter your email address and a name for this Mac.
 2. Ensō shows a short code, and we email you a sign-in link.

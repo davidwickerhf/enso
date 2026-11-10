@@ -49,7 +49,7 @@ them. Some things are refused for agents however you set it:
 - requests with your session on sites you haven't allowed in
   [session access](session-access.md);
 - GitHub comments, reviews and other changes you didn't ask for;
-- anything on banking, payment, password-manager and health sites.
+- anything on banking, payment, password-manager, health, tax and government sites.
 
 ## What happens when Zen is closed?
 

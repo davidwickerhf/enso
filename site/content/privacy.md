@@ -5,21 +5,36 @@ description: What Ensō and enso.wicker.life collect, why, where it is kept, and
 
 # Privacy policy
 
-<p class="lede">Ensō is built so that we hold as little about you as possible. This policy covers the Ensō extension and helper, and the website and sync service at enso.wicker.life.</p>
+<p class="lede">Ensō is built so that we hold as little about you as possible. This policy covers the Ensō extension (including the version listed on addons.mozilla.org) and helper, and the website and sync service at enso.wicker.life.</p>
 
-*Last updated 9 November 2026.*
+*Last updated 10 November 2026.*
 
 **Who we are.** Ensō is made and run by David Wicker, an individual developer in the Netherlands, who is the controller for the data described here. Contact: [privacy@enso.wicker.life](mailto:privacy@enso.wicker.life).
 
 ## The extension and the helper
 
-The Ensō extension and local helper run on your Mac. They store your conversations, memory, profile, settings, skills, reports and activity log as files in your home folder (listed in [Privacy & data](/docs/privacy-data)). **We do not receive any of it.** The extension and helper contain no analytics, telemetry or crash reporting.
+The Ensō extension and local helper run on your Mac. They store your conversations, memory, profile, settings, skills, reports, activity log and saved screenshots as files in your home folder (listed in [Privacy & data](/docs/privacy-data)). With the Claude subscription engine, **Claude Code** also keeps its own transcript of each Ensō conversation in `~/.claude/projects/` on your Mac, under its own rules. **We do not receive any of it.** The extension and helper contain no analytics, telemetry or crash reporting.
 
 When you send a message, the helper sends it to **Anthropic**, together with the context needed to answer it: your profile and memory, the conversation so far, the current page if included, mentioned tabs, attachments, screenshots and tool results. This goes either through Claude Code under your Claude subscription, or to the Anthropic API under your own API key. Anthropic processes it as your provider, under the terms and privacy policy you accepted with them; we are not a party to that and never see it.
 
-When Ensō uses a tool you enabled, the request goes to that service (for example Google, for Gmail) under your account there.
+**The Home brief** also goes to Anthropic, without you sending a message. By default, about once an hour while Ensō is running, the helper asks Claude to write the brief on the new tab: it sends your profile and memory and what your read-only tools return (today's calendar, mail, tasks, a GitHub summary). To stop it, set *Settings → Home → Refresh the briefing* to **Off**; the brief then only updates when you press its refresh button.
 
-Ensō never reads or acts on banking, payment, tax, health or password-manager sites.
+**Search suggestions.** As you type in the new tab's search box, the text goes to your default search engine's suggestion service (Google or DuckDuckGo), without cookies, the same way Firefox's own address bar suggests searches.
+
+When Ensō uses a tool you enabled, the request goes to that service (for example Google, for Gmail) under your account there. Tools you connect with the *Connect* button (such as monday.com or Commonfold) sign in with OAuth; their tokens are kept in your macOS Keychain, and the helper calls those services directly, including every few minutes for the Tasks and monday.com widgets on the new tab.
+
+**Other AI agents.** If you connect agents such as Claude Code, Codex or Cursor to Zen through Ensō (`enso mcp`), whatever they read from your browser (tab lists, page text, screenshots, history results, console and network logs, GitHub data) goes to that agent and its own AI provider (for example Anthropic for Claude Code, OpenAI for Codex), under your terms with them. Nothing passes through us.
+
+**Screenshots you send.** "Send screenshot" stays on your Mac: the image goes to your own T3 Code server on this computer, to an agent you connected, or to the clipboard. What that agent then does with it, including sending it to its AI provider, is between you and that agent.
+
+**Private sites.** Ensō never reads, screenshots, or acts on these sites, and never uses your session on them or copies it:
+
+- banks and payment services (any site with "bank" in its address, PayPal, Wise, Revolut, bunq, N26, Monzo, Chase, American Express);
+- password managers (1Password, Bitwarden, LastPass, Dashlane);
+- health sites (any address containing "health" or "patient");
+- tax authorities and government identity portals: the Dutch Belastingdienst, Toeslagen, MijnOverheid and DigiD; the US IRS, Social Security and Login.gov; HMRC, GOV.UK tax services and GOV.UK One Login; ELSTER (Germany), impots.gouv.fr (France), Agenzia delle Entrate (Italy), Agencia Tributaria (Spain), MyMinfin (Belgium), the Australian Taxation Office and myGov, and Inland Revenue (New Zealand).
+
+The exact list is in the [source code](https://github.com/davidwickerhf/enso/blob/main/helper/config.json). The list matches site addresses, so a bank or office whose address isn't on it isn't covered; you can add your own sites in `config.local.json` ([how](/docs/privacy-data#private-sites)).
 
 ## The website
 
@@ -29,13 +44,15 @@ We may count page views with **Umami**, a self-hosted analytics tool that sets n
 
 The site sets cookies only when you sign in: a session cookie, which is necessary for the account page to work.
 
-## Updates
+## Installing and updates
 
-Zen and Firefox check `enso.wicker.life/updates.json` for new extension versions and download them from the site. These requests appear in the request logs above, like any other visit. The install script downloads the helper from the site in the same way.
+If you install Ensō from **addons.mozilla.org**, Mozilla provides the download and the updates, under [Mozilla's privacy policy](https://www.mozilla.org/privacy/websites/); we receive no information about you from that.
 
-## Sync (optional)
+Copies installed directly from our site check `enso.wicker.life/updates.json` for new versions and download them from the site, until they move to the addons.mozilla.org version with their next update. These requests appear in the request logs above, like any other visit. The install script downloads the helper from the site in the same way.
 
-Sync is off unless you turn it on. If you do, we process:
+## Sync (not available yet)
+
+**The Ensō extension and helper can't sync yet: there is no way to turn sync on, and nothing of yours is uploaded.** The sync service already runs on the website, and you can sign in to its account page. When sync arrives in Ensō it will be off unless you turn it on. For a sync account we process:
 
 | Data | Why | Kept |
 |---|---|---|
@@ -75,3 +92,5 @@ Ensō is not meant for children under 16, and we don't knowingly hold their data
 ## Changes
 
 If this policy changes in a way that affects your data, we will update the date above and, if you have a sync account, email you before the change takes effect.
+
+- **10 November 2026:** added the Home brief, Claude Code's transcripts, other agents, screenshots, OAuth-connected tools and the addons.mozilla.org listing; tax and government sites are now on the private-site list, which is described in full; sync is marked as not available yet.

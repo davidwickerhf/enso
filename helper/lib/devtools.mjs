@@ -82,7 +82,7 @@ export const DEV_TOOLS = [
       if (/document\s*\.\s*cookie|cookieStore/.test(args.expression)) throw new Error("Reading cookies is not allowed; use page_storage for cookie names and flags.");
       const r = await ctx.act("eval", { expression: args.expression }, { ...args, irreversible: !!args.irreversible });
       if (!r.ok) return { isError: true, content: [{ type: "text", text: `${r.error}${r.stack ? `\n${r.stack}` : ""}` }] };
-      return text(`${r.world === "isolated" ? "(The page's CSP blocks eval, so this ran in Ensō's isolated content-script world; page globals are on `window.wrappedJSObject`.)\n" : ""}${r.type ? `type: ${r.type}\n` : ""}${r.json}`);
+      return text(`${r.type ? `type: ${r.type}\n` : ""}${r.json}`);
     },
   },
   {
@@ -123,7 +123,7 @@ export const DEV_TOOLS = [
       const method = args.method ?? "GET";
       const { origin, host } = parseSite(args.url);
       if (!/^https?:\/\//i.test(args.url)) throw new Error("Only http(s) URLs.");
-      if (isSensitiveHost(host)) throw new Error("This is a private site (banking, health or similar); session requests are off here.");
+      if (isSensitiveHost(host)) throw new Error("This is a private site (banking, health, tax or similar); session requests are off here.");
       const headers = Object.fromEntries(Object.entries(args.headers ?? {}).filter(([k]) => !/^(cookie|authorization|proxy-authorization)$/i.test(k)));
       const unsafe = !["GET", "HEAD", "OPTIONS"].includes(method);
       const access = sessionAccessFor(origin);

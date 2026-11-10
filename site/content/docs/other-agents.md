@@ -74,7 +74,7 @@ Ensō can't ask you on an agent's behalf; the agent's own permission prompts app
 
 - requests with your session on sites you haven't allowed in [session access](/docs/session-access);
 - GitHub comments, reviews and other changes you didn't ask for;
-- anything on banking, payment, password-manager and health sites.
+- anything on banking, payment, password-manager, health, tax and government sites.
 
 ## When Zen is closed
 

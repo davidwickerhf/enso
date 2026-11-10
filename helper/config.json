@@ -54,7 +54,26 @@
     "*.dashlane.com",
     "*bank*",
     "*health*",
-    "*patient*"
+    "*patient*",
+    "*.belastingdienst.nl",
+    "*.toeslagen.nl",
+    "mijn.overheid.nl",
+    "*.mijnoverheid.nl",
+    "*.digid.nl",
+    "*.irs.gov",
+    "*.ssa.gov",
+    "*.login.gov",
+    "*.tax.service.gov.uk",
+    "*.hmrc.gov.uk",
+    "*.account.gov.uk",
+    "*.elster.de",
+    "*.impots.gouv.fr",
+    "*.agenziaentrate.gov.it",
+    "*.agenciatributaria.gob.es",
+    "*.myminfin.be",
+    "*.ato.gov.au",
+    "my.gov.au",
+    "*.ird.govt.nz"
   ],
   "spaceHints": {}
 }

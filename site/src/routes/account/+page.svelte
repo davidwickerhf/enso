@@ -75,7 +75,7 @@
 					{/each}
 				</ul>
 			{:else}
-				<p class="empty">No devices yet. Turn on sync in Ensō’s settings and approve it from the email we send.</p>
+				<p class="empty">No devices yet. Sync isn’t available in Ensō yet; when it is, you’ll turn it on in Ensō’s settings and approve each Mac here.</p>
 			{/if}
 			{#if form?.deviceError}<p class="error" role="alert">{form.deviceError}</p>{/if}
 
