@@ -54,10 +54,17 @@ function isSensitive(url) {
 }
 const isWeb = url => /^https?:/i.test(url ?? "");
 
+// The window the user last worked in. When Zen loses focus no window is
+// "focused", and falling back to the first window showed whatever space that
+// window had open (e.g. BISS) instead of the one the user just left.
+let lastWindowId = null;
+browser.windows.getLastFocused({ windowTypes: ["normal"] }).then(w => { lastWindowId ??= w?.id ?? null; }).catch(() => {});
+
 async function activeTab() {
   const wins = await browser.windows.getAll({ windowTypes: ["normal"] });
-  const win = wins.find(w => w.focused) ?? wins[0];
+  const win = wins.find(w => w.focused) ?? wins.find(w => w.id === lastWindowId) ?? (await browser.windows.getLastFocused({ windowTypes: ["normal"] }).catch(() => null)) ?? wins[0];
   if (!win) return null;
+  if (win.focused) lastWindowId = win.id;
   const [tab] = await browser.tabs.query({ active: true, windowId: win.id });
   return tab ?? null;
 }
@@ -525,7 +532,15 @@ browser.runtime.onConnect.addListener(port => {
 
 browser.tabs.onActivated.addListener(() => pushCurrentPage());
 browser.tabs.onUpdated.addListener((_id, info, tab) => tab.active && (info.status === "complete" || info.title) && pushCurrentPage());
-browser.windows.onFocusChanged.addListener(() => pushCurrentPage());
+browser.windows.onFocusChanged.addListener(async windowId => {
+  // Zen losing focus (another app in front) changes nothing for Ensō: keep showing the last window's space.
+  if (windowId === browser.windows.WINDOW_ID_NONE) return;
+  const w = await browser.windows.get(windowId).catch(() => null);
+  if (w?.type !== "normal") return;
+  lastWindowId = windowId;
+  pushCurrentPage();
+});
+browser.windows.onRemoved.addListener(id => { if (id === lastWindowId) lastWindowId = null; });
 
 // ---------- new tabs: keyboard focus in Ensō's box, not the address bar ----------
 // Firefox focuses the address bar for every tab opened on the new-tab URL
