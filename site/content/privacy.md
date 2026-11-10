@@ -19,7 +19,9 @@ When you send a message, the helper sends it to **Anthropic**, together with the
 
 **The Home brief** also goes to Anthropic, without you sending a message. By default, about once an hour while Ensō is running, the helper asks Claude to write the brief on the new tab: it sends your profile and memory and what your read-only tools return (today's calendar, mail, tasks, a GitHub summary). To stop it, set *Settings → Home → Refresh the briefing* to **Off**; the brief then only updates when you press its refresh button.
 
-**Search suggestions.** As you type in the new tab's search box, the text goes to your default search engine's suggestion service (Google or DuckDuckGo), without cookies, the same way Firefox's own address bar suggests searches.
+**Search suggestions.** As you type in the new tab's search box, the text goes to the suggestion service of the web search engine you chose in Ensō (Google or DuckDuckGo), without cookies, the same way Firefox's own address bar suggests searches.
+
+**Address-bar search.** Ensō adds itself to Zen as a search engine whose address is `enso.wicker.life/ask#q=…`. What you type sits after the `#`, which browsers never send to a server, and the extension opens its own page before that address loads. Without the extension, the site's `/ask` page reads it in your browser only, has no analytics and records nothing.
 
 When Ensō uses a tool you enabled, the request goes to that service (for example Google, for Gmail) under your account there. Tools you connect with the *Connect* button (such as monday.com or Commonfold) sign in with OAuth; their tokens are kept in your macOS Keychain, and the helper calls those services directly, including every few minutes for the Tasks and monday.com widgets on the new tab.
 
@@ -40,7 +42,7 @@ The exact list is in the [source code](https://github.com/davidwickerhf/enso/blo
 
 When you visit enso.wicker.life, the server and its reverse proxy may record standard request data in operational logs: IP address, time, the page requested, the response status and your browser's user agent. We use these logs only to run and secure the service, and keep them no longer than 30 days.
 
-We may count page views with **Umami**, a self-hosted analytics tool that sets no cookies and stores no IP addresses or personal identifiers. Account pages and the API are excluded.
+We may count page views with **Umami**, a self-hosted analytics tool that sets no cookies and stores no IP addresses or personal identifiers. Account pages, the address-bar search page (`/ask`) and the API are excluded.
 
 The site sets cookies only when you sign in: a session cookie, which is necessary for the account page to work.
 

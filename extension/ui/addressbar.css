@@ -1,0 +1,36 @@
+/* The address bar as Ensō's box: the strip over a chat that came from the address
+   bar, the two-option chooser, and the Settings row (views/addressbar.js). */
+
+.ub-strip[hidden] { display: none; }
+.ub-strip { box-sizing: border-box; width: min(760px, 100% - 24px); margin: 10px auto 0; padding: 8px 8px 8px 12px; border-radius: var(--r); background: var(--surface-2); display: grid; gap: 2px; animation: rise var(--dur) var(--ease); }
+.ub-line { display: flex; align-items: center; gap: 8px; min-width: 0; font-size: 13px; }
+.ub-line > .icon { width: 16px; height: 16px; color: var(--accent); flex: none; }
+.ub-what { flex: 1; min-width: 0; color: var(--text-2); }
+.ub-switch { flex: none; }
+.ub-rule { margin: 0; font-size: 12px; color: var(--text-3); display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 2px; }
+.ub-rule .link-btn { font-size: 12px; }
+.ub-line + .ub-rule { padding-left: 24px; }
+
+.ub-chooser { margin-top: 14px; padding: 14px; border-radius: var(--r-xl); background: var(--surface); border: 1px solid var(--line); box-shadow: var(--shadow-float); display: grid; gap: 10px; animation: rise var(--dur) var(--ease); }
+.ub-q { margin: 0; font-size: 13px; overflow-wrap: anywhere; }
+.ub-opts { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.ub-opt { display: flex; align-items: center; gap: 10px; padding: 12px; border-radius: var(--r-lg); border: 1px solid var(--line); background: var(--bg-elev); text-align: left; transition: background var(--dur) var(--ease), border-color var(--dur) var(--ease); }
+.ub-opt:hover:not(:disabled) { background: var(--surface-2); }
+.ub-opt:disabled { opacity: 0.5; }
+.ub-opt.on { border-color: var(--accent); background: var(--accent-softer); box-shadow: 0 0 0 3px var(--accent-soft); }
+.ub-opt:focus-visible { outline: none; }
+.ub-glyph { width: 32px; height: 32px; border-radius: 10px; display: grid; place-items: center; background: var(--surface-2); flex: none; }
+.ub-glyph .icon { width: 17px; height: 17px; }
+.ub-opt.on .ub-glyph { background: var(--accent); color: #fff; }
+.ub-opt-text { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.ub-opt-text strong { font-weight: 600; font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ub-opt-text small { color: var(--text-3); font-size: 12px; }
+.ub-enter { visibility: hidden; }
+.ub-opt.on .ub-enter { visibility: visible; }
+.ub-keys { margin: 0; font-size: 12px; color: var(--text-3); }
+@media (max-width: 460px) { .ub-opts { grid-template-columns: 1fr; } }
+
+.ab-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; }
+.ab-engine { display: inline-flex; align-items: center; gap: 8px; }
+#settings-addressbar .setting-text p .icon { width: 14px; height: 14px; vertical-align: -2px; color: var(--ok); }
+#settings-addressbar .setting-text strong { color: var(--text-2); font-weight: 500; }

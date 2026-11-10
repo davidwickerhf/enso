@@ -9,6 +9,7 @@ import { sortTools, labelOf, statusOf, toolGlyph, openToolPopover } from "./tool
 import { profileFields, spaceHintFields } from "./onboarding.js";
 import { SCREENSHOT_SHORTCUT } from "./send.js";
 import { setupSummary } from "./setup.js";
+import { createAddressBarSetting } from "./addressbar.js";
 
 const MODELS = [
   ["claude-opus-5-5", "Claude Opus 5.5"],
@@ -46,7 +47,7 @@ export function createSettings(store, ctx) {
 
   const el = h("section", { class: "page-view settings-view", aria: { label: "Settings" } },
     h("header", { class: "page-head" }, h("h2", null, "Settings"), h("p", { class: "muted" }, "Saved to the Ensō helper on this Mac.")),
-    setupBlock, profile, general, sendBlock, developer, servers, skills, memory);
+    setupBlock, profile, general, createAddressBarSetting(store).el, sendBlock, developer, servers, skills, memory);
 
   function block(title, desc, ...content) {
     return h("section", { class: "settings-block" }, h("h3", null, title), desc ? h("p", { class: "block-desc" }, desc) : null, ...content);

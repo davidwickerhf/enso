@@ -21,6 +21,8 @@ import { createOnboarding } from "./views/onboarding.js";
 import { createAgentsPanel } from "./views/agents.js";
 import { createSendSheet, SCREENSHOT_SHORTCUT } from "./views/send.js";
 import { createHelperGuide, createSetupPage } from "./views/setup.js";
+import { createUrlbarArrival } from "./views/addressbar.js";
+import { readUrlbarHash } from "./addressbar.js";
 
 const root = document.documentElement;
 const MODES = ["sidebar", "newtab", "full", "report"];
@@ -28,6 +30,8 @@ const mode = [root.dataset.mode, new URLSearchParams(location.search).get("mode"
 root.dataset.mode = mode;
 // "#f" marks a new tab that background.js swapped in for keyboard focus; drop it before routing.
 if (location.hash === "#f") history.replaceState(null, "", location.pathname + location.search);
+// "#urlbar": background.js opened this page for a query typed in Zen's address bar (views/addressbar.js).
+const urlbarHash = mode === "newtab" ? readUrlbarHash() : null;
 
 // The new-tab focus fix lives in background.js (tabs.onCreated).
 
@@ -65,6 +69,8 @@ function bootApp() {
     ask(text) { actions.newChat(); actions.send(text); },
     focusComposer,
     newChat,
+    heroSlot: () => (mode === "newtab" ? view("home").heroSlot : null),
+    composerText(text) { composer.setText(text); },
     historySearch(q) { actions.search(q); },
     editMemory() { actions.go("settings"); requestAnimationFrame(() => view("settings").focusMemory()); },
     tryTip(id) {
@@ -97,7 +103,8 @@ function bootApp() {
   const dock = h("div", { class: "dock" });
   // External agents (Claude Code, Codex…) on the active tab and elsewhere: above the content, sidebar and full page.
   const agents = mode === "sidebar" || mode === "full" ? createAgentsPanel(store) : null;
-  const main = h("main", { class: "main" }, topbar, banner, agents?.el, scroller, dock);
+  const urlbar = mode === "newtab" ? createUrlbarArrival(store, ctx) : null;
+  const main = h("main", { class: "main" }, topbar, banner, urlbar?.el, agents?.el, scroller, dock);
   const nav = mode === "full" ? createNav(store, ctx) : null;
   const context = mode === "full" ? createContext(store, ctx) : null;
   const app = h("div", { class: "app" }, nav?.el, main, context?.el);
@@ -327,6 +334,7 @@ function bootApp() {
     context?.update(topics);
     agents?.update(topics);
     sendSheet?.update(topics);
+    urlbar?.update(topics);
     if (["ui", "approvals", "conversations", "settings", "state", "space", "tab"].some(t => topics.has(t)) || [...topics].some(t => t.startsWith("conv:"))) renderTopbar();
     if (topics.has("ui") || [...topics].some(t => t.startsWith("conv:"))) placeComposer();
     if (topics.has("banner") || topics.has("connection") || topics.has("helper")) renderBanner();
@@ -340,13 +348,14 @@ function bootApp() {
 
   renderView();
   renderTopbar();
-  start();
+  start().then(() => urlbar?.start(urlbarHash));
   if (mode === "newtab") requestAnimationFrame(() => composer.focus());
 }
 
 // New tab: put the cursor in the box as soon as the page has focus.
 if (mode === "newtab") {
   const focusBox = () => {
+    if (document.querySelector(".ub-chooser")) return; // the address-bar chooser has the keyboard
     const box = document.querySelector(".nt-home .composer-input, .composer-input, textarea");
     if (box && document.activeElement !== box) box.focus({ preventScroll: true });
   };

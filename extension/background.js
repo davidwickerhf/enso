@@ -955,6 +955,68 @@ browser.tabs.onRemoved.addListener(tabId => {
   ours.delete(tabId);
 });
 
+// ---------- the address bar as Ensō's box ----------
+// Ensō is also a search engine (manifest chrome_settings_overrides.search_provider):
+// https://enso.wicker.life/ask#q={searchTerms}. The query sits in the fragment, so
+// it is never sent to the site, even when this interception loses the race. Here
+// the navigation is replaced before it commits: a web search goes straight to the
+// chosen engine, everything else to Ensō's page (newtab.html#urlbar, which takes
+// the query from this script with runtime.sendMessage, so it isn't in any URL).
+// Where a query goes: ui/route.js and the addressBar setting (storage.local).
+
+const ASK_FILTER = { url: [{ hostEquals: "enso.wicker.life", pathEquals: "/ask" }] };
+const urlbarQueries = new Map(); // tabId → what Ensō's page should do with the query
+
+async function addressBarPrefs() {
+  const { addressBar } = await browser.storage.local.get("addressBar").catch(() => ({}));
+  return { mode: ensoRoute.DEFAULT_MODE, ...(addressBar ?? {}) };
+}
+
+async function fromAddressBar(tabId, url) {
+  const [prefs, engines] = await Promise.all([addressBarPrefs(), browser.search.get().catch(() => [])]);
+  const ensoIsDefault = engines.find(e => e.isDefault)?.name === ensoRoute.ENGINE_NAME;
+  const r = ensoRoute.route(ensoRoute.queryFromUrl(url), prefs.mode, { ensoIsDefault });
+  const engine = ensoRoute.pickEngine(engines, prefs.engine);
+  // If the site's page did commit first, keep the query out of history anyway.
+  const forget = () => browser.history.deleteUrl({ url }).catch(() => {});
+  if (r.to === "web" && r.text && engine) {
+    try {
+      await browser.search.search({ query: r.text, engine, tabId });
+      forget();
+      return;
+    } catch { /* fall back to Ensō's page, which offers the search */ }
+  }
+  const entry = { query: r.text, to: r.to === "web" && !r.text ? "enso" : r.to, forced: r.forced, mode: prefs.mode, engine, ensoIsDefault, lastChoice: prefs.lastChoice ?? null };
+  urlbarQueries.set(tabId, entry);
+  setTimeout(() => { if (urlbarQueries.get(tabId) === entry) urlbarQueries.delete(tabId); }, 60_000);
+  await browser.tabs.update(tabId, { url: `${NEWTAB}#urlbar`, loadReplace: true }).catch(() => {});
+  forget();
+  setTimeout(forget, 2000);
+}
+
+browser.webNavigation.onBeforeNavigate.addListener(({ tabId, frameId, url }) => {
+  if (frameId === 0 && tabId >= 0) fromAddressBar(tabId, url);
+}, ASK_FILTER);
+// A tab already showing the site's /ask page (interception missed once) only changes its fragment.
+browser.webNavigation.onReferenceFragmentUpdated.addListener(({ tabId, frameId, url }) => {
+  if (frameId === 0 && tabId >= 0) fromAddressBar(tabId, url);
+}, ASK_FILTER);
+
+browser.runtime.onMessage.addListener((msg, sender) => {
+  if (msg?.ensoUrlbar !== "take" || sender.tab?.id == null || !sender.url?.startsWith(NEWTAB)) return;
+  const entry = urlbarQueries.get(sender.tab.id) ?? null;
+  urlbarQueries.delete(sender.tab.id);
+  return Promise.resolve(entry);
+});
+
+// Web searches go to the engine that was the default before Ensō (unless the user picks another).
+addressBarPrefs().then(async prefs => {
+  if (prefs.engine) return;
+  const engines = await browser.search.get().catch(() => []);
+  const before = engines.find(e => e.isDefault && e.name !== ensoRoute.ENGINE_NAME)?.name;
+  if (before) await browser.storage.local.set({ addressBar: { ...prefs, engine: before } });
+}).catch(() => {});
+
 // ---------- toolbar button and menu ----------
 
 browser.browserAction.onClicked.addListener(() => browser.sidebarAction.toggle());
