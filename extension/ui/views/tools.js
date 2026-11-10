@@ -280,7 +280,9 @@ export function createToolsPage(store, ctx) {
         h("p", { class: "cat-adds" }, c.adds),
         c.note ? h("p", { class: "cat-note" }, c.note) : null,
         connected ? h("span", { class: "cat-state" }, icon("check"), "Connected")
-          : have?.status === "needs-auth" ? h("a", { class: "btn small", href: have.connectUrl || CONNECTORS_URL, target: "_blank", rel: "noreferrer noopener" }, "Sign in", icon("arrowUpRight"))
+          : have?.status === "needs-auth" && !have.auth ? h("a", { class: "btn small", href: have.connectUrl || CONNECTORS_URL, target: "_blank", rel: "noreferrer noopener" }, "Sign in", icon("arrowUpRight"))
+          // Already added through Ensō but not signed in (e.g. an abandoned sign-in): start the sign-in again instead of adding it twice.
+          : have?.auth ? h("button", { type: "button", class: "btn small primary", onclick: () => store.actions.connectServer(have.name) }, have.auth.state === "connecting" ? "Start sign-in again" : "Sign in")
           : c.mcp ? h("button", { type: "button", class: "btn small primary", onclick: () => { adding = c.mcp.name; store.actions.addServer(c.mcp); } }, "Connect")
           : h("a", { class: "btn small", href: CONNECTORS_URL, target: "_blank", rel: "noreferrer noopener" }, "Connect on claude.ai", icon("arrowUpRight")));
     }), addForm);
