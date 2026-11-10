@@ -20,6 +20,10 @@ Agents can give pages files, wait for slow work, and send large payloads.
   Settings → General → Address bar and an optional last step of the first-run
   card.
 
+- **The new tab's "Your tools" strip fits a narrow sidebar.** The tool icons
+  scroll sideways, faded at the cut-off edge, while the label and the manage
+  and hide buttons stay in view.
+
 - **`page_upload`** attaches files from this computer to a file input, or drops
   them on a drop zone, exactly as they are on disk: streamed in 512 KiB chunks,
   checked by size and SHA-256 before anything is attached, built as `File`

@@ -50,19 +50,32 @@ export function createNewtabHome(store, ctx) {
     if (e.key === "Escape" && widgets.editing && !e.target.closest?.(".widget-picker, .composer")) { e.preventDefault(); done(); }
   });
 
+  let iconsObserver = null;
+  function fadeEdges(box) {
+    const max = box.scrollWidth - box.clientWidth;
+    box.classList.toggle("fade-start", max > 1 && box.scrollLeft > 1);
+    box.classList.toggle("fade-end", max > 1 && box.scrollLeft < max - 1);
+  }
+
   function renderTools() {
     let hidden = false;
     try { hidden = localStorage.getItem(TOOLS_KEY) === "1"; } catch { /* ignore */ }
     const list = sortTools((s.servers ?? []).filter(x => x.enabled !== false && x.status !== "failed"));
     tools.hidden = hidden || !list.length;
     if (tools.hidden) return;
+    // In a narrow sidebar the icons scroll sideways (faded at the cut edge);
+    // the label and the more/× buttons stay put.
+    const icons = h("span", { class: "tools-icons", onscroll: () => fadeEdges(icons) }, list.map(sv => {
+      const st = statusOf(sv);
+      const title = st.key === "ok" ? labelOf(sv) : `${labelOf(sv)} · ${st.text}`;
+      return h("button", { type: "button", class: ["tool-icon", st.key !== "ok" && "dim"], title, aria: { label: title, haspopup: "dialog", expanded: "false" }, onclick: e => openToolPopover(store, sv, e.currentTarget, ctx) }, toolGlyph(sv));
+    }));
+    iconsObserver?.disconnect();
+    iconsObserver = typeof ResizeObserver === "function" ? new ResizeObserver(() => fadeEdges(icons)) : null;
+    iconsObserver?.observe(icons);
     clear(tools,
       h("button", { type: "button", class: "tools-label", onclick: () => store.actions.go("tools") }, "Your tools"),
-      h("span", { class: "tools-icons" }, list.map(sv => {
-        const st = statusOf(sv);
-        const title = st.key === "ok" ? labelOf(sv) : `${labelOf(sv)} · ${st.text}`;
-        return h("button", { type: "button", class: ["tool-icon", st.key !== "ok" && "dim"], title, aria: { label: title, haspopup: "dialog", expanded: "false" }, onclick: e => openToolPopover(store, sv, e.currentTarget, ctx) }, toolGlyph(sv));
-      })),
+      icons,
       iconButton("more", "Manage tools", () => store.actions.go("tools"), { class: "small" }),
       iconButton("x", "Hide your tools", () => { try { localStorage.setItem(TOOLS_KEY, "1"); } catch { /* ignore */ } renderTools(); }, { class: "small tools-x" }));
   }
