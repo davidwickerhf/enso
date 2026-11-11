@@ -68,6 +68,7 @@ export function createStore({ waitMs = WAIT_MS } = {}) {
     agents: [],              // live sessions of external agents (Claude Code, Codex…): see docs/PROTOCOL.md "agents"
     agentNotes: new Map(),   // local id → { sessionId, text, at } notes sent but not yet echoed by the helper
     agentTabs: { mode: "close", marked: [], leftovers: [], recentlyClosed: [] }, // tabs agents opened and left open, and "Recently closed by Ensō" (lib/agenttabs.mjs)
+    stoppedAgents: [],       // agents the user stopped, and their requests to use Zen again: [{ id, client, task, tabId, url, title, space, lastStep, stoppedAt, expiresAt, request: { task, at, status: "pending" | "kept" } | null }] (docs/PROTOCOL.md "agents")
     agentAccess: [],         // agents' session-access requests: [{ id, client, sessionId, sessionIds, tabId, origin, tool, at, status, told }] (docs/PROTOCOL.md "agents")
     agentFocus: null,        // { tabId, at } when the page pill asked for the agent card
     connectedAgents: [],     // agents connected through `enso mcp` (screenshot targets): [{ id, client, task, tabIds, active, t3ThreadId, pending }]
@@ -249,6 +250,7 @@ export function createStore({ waitMs = WAIT_MS } = {}) {
         if (msg.dashboard) s.dashboard = { ...s.dashboard, data: msg.dashboard };
         if (Array.isArray(msg.agents)) { s.agents = msg.agents; emit("agents"); }
         if (Array.isArray(msg.agentAccess)) { s.agentAccess = msg.agentAccess; emit("agents"); }
+        if (Array.isArray(msg.stoppedAgents)) { s.stoppedAgents = msg.stoppedAgents; emit("agents"); }
         if (msg.agentTabs) { s.agentTabs = msg.agentTabs; emit("agents"); }
         if (Array.isArray(msg.connectedAgents)) s.connectedAgents = msg.connectedAgents;
         if (first && s.settings) s.ui.includePage = s.settings.includePageByDefault !== false;
@@ -434,6 +436,7 @@ export function createStore({ waitMs = WAIT_MS } = {}) {
         if (Array.isArray(msg.connected)) s.connectedAgents = msg.connected;
         s.agents = Array.isArray(msg.sessions) ? msg.sessions : [];
         if (Array.isArray(msg.access)) s.agentAccess = msg.access;
+        if (Array.isArray(msg.stopped)) s.stoppedAgents = msg.stopped;
         if (msg.agentTabs) s.agentTabs = msg.agentTabs;
         // Drop local "sending" notes the helper now knows about.
         for (const [id, n] of s.agentNotes) {
@@ -819,6 +822,11 @@ export function createStore({ waitMs = WAIT_MS } = {}) {
     handOverAgent(id) { send({ type: "agents.handover", id }); }, // the tab of session `id` goes to it (tab leases)
     shareTab(tabId, on) { send({ type: "agents.share", tabId, on: !!on }); }, // let every agent on the tab act, or one at a time
     dismissAgent(id) { s.agents = s.agents.filter(x => x.id !== id); send({ type: "agents.dismiss", id }); emit("agents"); },
+    // A stopped agent (id: its stop record): "Allow" / "Allow again" lifts the stop (and starts the task it asked
+    // for), "Keep stopped" answers its request, "Dismiss" hides the card. Only these pages can send them.
+    allowAgent(id) { s.stoppedAgents = s.stoppedAgents.filter(x => x.id !== id); send({ type: "agents.allow", id }); emit("agents"); },
+    keepAgentStopped(id) { s.stoppedAgents = s.stoppedAgents.map(x => (x.id === id && x.request ? { ...x, request: { ...x.request, status: "kept" } } : x)); send({ type: "agents.keep", id }); emit("agents"); },
+    hideStoppedAgent(id) { s.stoppedAgents = s.stoppedAgents.filter(x => x.id !== id); send({ type: "agents.hide", id }); emit("agents"); },
     noteAgent(id, text) {
       text = String(text ?? "").trim();
       if (!text) return;

@@ -570,7 +570,8 @@ function agentsPayload() {
   });
   // access: agents' pending session-access requests (and just-answered ones), for the pill and the sidebar.
   // agentTabs: tabs agents opened (marked), their leftovers and "Recently closed by Ensō" (lib/agenttabs.mjs).
-  return { type: "agents", sessions, connected: agentSessions.connected().map(({ inbox, ...a }) => a), access: agentSessions.accessList(), agentTabs: agentTabs.state() };
+  // stopped: agents the user stopped (the stopped card with "Allow again") and their requests to use Zen again.
+  return { type: "agents", sessions, connected: agentSessions.connected().map(({ inbox, ...a }) => a), access: agentSessions.accessList(), stopped: agentSessions.stoppedList(), agentTabs: agentTabs.state() };
 }
 let t3Refreshing = false;
 async function pushAgents() {
@@ -651,6 +652,7 @@ async function handle(msg) {
         agents: agentsPayload().sessions,
         connectedAgents: agentsPayload().connected,
         agentAccess: agentSessions.accessList(),
+        stoppedAgents: agentSessions.stoppedList(),
         agentTabs: agentTabs.state(),
       });
       if (DOCTOR) break; // `enso doctor` only checks that we answer: no MCP servers, Claude, dashboard or GitHub
@@ -926,6 +928,25 @@ async function handle(msg) {
       break;
     case "agents.dismiss":
       agentSessions.dismiss(msg.id);
+      break;
+    // A stopped agent (lib/agentsessions.mjs stop): "Allow" on its request to use Zen again or
+    // "Allow again" on the stopped card lifts the stop (and starts the requested task); "Keep
+    // stopped" keeps refusing; "Dismiss" hides the card. Only the user's click reaches here:
+    // background.js accepts "ui" ports from Ensō's own extension pages only, and the MCP server
+    // has no way to send these, so an agent can't lift its own stop.
+    case "agents.allow": {
+      const r = agentSessions.allowAgain(msg.id);
+      if (!r) break;
+      const action = { id: store.newId(), at: store.now(), conversationId: null, source: "You", url: "", title: "", host: "", action: "agent_allow", target: `allowed ${r.client} to use Zen again${r.task ? `: ${r.task}` : ""}`, ok: true };
+      store.logAction(action);
+      send({ type: "actions.added", action });
+      break;
+    }
+    case "agents.keep":
+      agentSessions.keepStopped(msg.id);
+      break;
+    case "agents.hide":
+      agentSessions.hideStopped(msg.id);
       break;
     case "agents.handover": // "Hand over to …": the tab of session `id` goes to it
       agentSessions.handOver(msg.id);

@@ -15,7 +15,17 @@
 //   - notes are prepended to the next tool result of that client (exactly once);
 //   - Pause refuses the client's calls on that tab (and its tab-less actions)
 //     until Resume; the first call after Resume carries a hand-back note;
-//   - Stop refuses every further call of that client (STOP_TTL_MS).
+//   - Stop ends the client's task at once: its sessions end, its leases go,
+//     its presence (pill, title prefix, badge) is cleared, and every further
+//     call except session_status and session_end is refused with STOPPED_TEXT.
+//     A session_start after a Stop doesn't resume: it records one restart
+//     request per client ("<client> wants to use Zen again: <task>"), which
+//     Ensō shows with Allow and Keep stopped. Allow (or "Allow again" on the
+//     stopped card at any time) lifts the stop and starts the requested task;
+//     Keep stopped keeps refusing and says so. Only host.mjs "agents.allow" /
+//     "agents.keep" (Ensō's own pages, via background.js) answer; no MCP tool
+//     can. The stop and its request expire STOP_TTL_MS after the last of the
+//     Stop, the request and the user's answer; then session_start works as usual.
 //
 // Screenshots the user sends to an agent (Ensō's "Send screenshot") wait in the
 // session's inbox and ride on the next tool result as MCP image content, after
@@ -64,7 +74,12 @@ export const SCREENSHOT_PREFIX = "Screenshot from the user (via Ensō):";
 export const AGENT_TTL_MS = 12 * 3600_000; // a launcher not heard from in 12 h is forgotten
 export const MAX_INBOX = 5; // screenshots waiting per session (each up to a few MB in memory)
 export const PAUSED_TEXT = "The user paused you on this tab. Wait, then call session_status or retry later; don't work around it (no other tabs, no other tools for this step).";
-export const STOPPED_TEXT = "The user stopped this task in Ensō. Don't continue in the browser; tell the user you stopped.";
+export const STOPPED_TEXT = "The user stopped this task in Ensō. Don't continue in the browser; tell the user you stopped. If they ask you to continue, call session_start with the new task: Ensō will ask them to allow it.";
+/** session_start after a Stop: Ensō asked the user (deduplicated per agent). */
+export const RESTART_REQUESTED_TEXT = "The user stopped your previous task in Ensō. Ensō has asked the user to allow this new task; call session_status to check. Don't retry in a loop.";
+/** The user chose "Keep stopped" on the request. */
+export const RESTART_KEPT_TEXT = "The user chose to keep you stopped in Ensō. Don't continue in the browser; tell the user. If they want you to continue, they can press Allow again on your card in Ensō's sidebar.";
+export const restartAllowedNote = task => (task ? `Note from Ensō: the user allowed your new task ("${task}"). You may continue; call page_read before acting on a page.` : "Note from Ensō: the user allowed you to use Zen again. Call session_start with your task before you continue.");
 export const HAND_OVER_TEXT = "Note from Ensō: the user handed this tab over to you. Another agent worked on it before; call page_read again before your next action.";
 export const LEASE_MS = 90_000;
 /** Tools that act on one tab and so need its lease. Reads (page_read, tab_read, screenshots, devtools, page_query, page_inspect, page_wait) don't. */
@@ -121,7 +136,8 @@ export function maskTyped(text, target = "") {
 export function createAgentSessions({ now = Date.now, onChange = () => {}, idleMs = IDLE_MS, timers = true, alive = pidAlive } = {}) {
   const agents = new Map(); // client key -> connected agent (launcher process): inbox, pid, T3 thread
   const sessions = new Map(); // `${key}#${tabId ?? "-"}` -> session
-  const stopped = new Map(); // client key -> stoppedAt
+  const stopped = new Map(); // client key -> stop record { id, client, at, touchedAt, request, hidden, notes, … } (see stop())
+  const notices = new Map(); // client key -> [text]: Ensō's notes for the next result (the user allowed a restart)
   const tasks = new Map(); // client key -> task (from session_start), applies to new tabs too
   const spaces = new Map(); // client key -> { id, name } (session_start's space): where its tabs open by default
   const leases = new Map(); // tabId -> { key, client, at }: the agent session that may act on the tab
@@ -149,14 +165,18 @@ export function createAgentSessions({ now = Date.now, onChange = () => {}, idleM
   const ofClient = key => [...sessions.values()].filter(s => s.key === key && !s.ended);
 
   function isStopped(key) {
-    const at = stopped.get(key);
-    if (at == null) return false;
-    if (now() - at > STOP_TTL_MS) {
+    const rec = stopped.get(key);
+    if (!rec) return false;
+    if (now() - rec.touchedAt > STOP_TTL_MS) {
       stopped.delete(key);
       return false;
     }
     return true;
   }
+  const stopOf = key => (isStopped(key) ? stopped.get(key) : null);
+  const stopById = id => [...stopped.values()].find(r => r.id === id && isStopped(r.key)) ?? null;
+  /** What a refused call of a stopped agent is told. */
+  const stopText = rec => (rec.request?.status === "kept" ? RESTART_KEPT_TEXT : STOPPED_TEXT);
 
   /**
    * The live lease on a tab, or null (no side effects: sweep() drops dead ones).
@@ -246,6 +266,12 @@ export function createAgentSessions({ now = Date.now, onChange = () => {}, idleM
   function collect(key, tabId) {
     const out = [];
     const at = now();
+    const rec = stopped.get(key);
+    if (rec?.notes.length) out.push(...rec.notes.splice(0).map(t => `${NOTE_PREFIX} ${t}`)); // notes sent before the Stop, not yet delivered
+    if (notices.get(key)?.length) {
+      out.push(...notices.get(key));
+      notices.delete(key);
+    }
     for (const s of ofClient(key)) {
       if (s.handBack && (tabId == null || s.tabId === tabId || s.tabId == null)) {
         out.push(HAND_BACK_TEXT);
@@ -335,8 +361,9 @@ export function createAgentSessions({ now = Date.now, onChange = () => {}, idleM
      */
     before(client, { tool, kind = "act", tabId = null, tabIds = null }) {
       const key = clientKey(client);
-      if (tool === "session_status") return { messages: [] };
-      if (isStopped(key)) return { refuse: STOPPED_TEXT, messages: collect(key, tabId) };
+      if (tool === "session_status" || tool === "session_end") return { messages: [] }; // always allowed, even when stopped
+      const rec = stopOf(key);
+      if (rec) return { refuse: stopText(rec), stopped: true, messages: collect(key, tabId) };
       const paused = ofClient(key).filter(s => s.paused);
       if (paused.length) {
         // Calls on a paused tab are refused; so are actions without a tab (tabs_close, GitHub writes…).
@@ -473,6 +500,8 @@ export function createAgentSessions({ now = Date.now, onChange = () => {}, idleM
       return !isStopped(key) && ofClient(key).length > 0;
     },
     keyOf: client => clientKey(client),
+    /** Whether this client is stopped (no side effects: notes stay waiting). */
+    isStopped: client => isStopped(clientKey(client)),
 
     /** The Zen space this agent said it works in (session_start), or null. */
     spaceOf(client) {
@@ -483,11 +512,13 @@ export function createAgentSessions({ now = Date.now, onChange = () => {}, idleM
       const key = clientKey(client);
       const mine = ofClient(key);
       const onTab = tabId != null ? mine.find(s => s.tabId === tabId) : null;
+      const rec = stopOf(key);
       return {
-        stopped: isStopped(key),
+        stopped: !!rec,
+        restart: rec?.request ? { task: rec.request.task, status: rec.request.status } : null, // "pending" (Ensō is asking) | "kept"
         paused: onTab ? onTab.paused : mine.some(s => s.paused),
         pausedTabs: mine.filter(s => s.paused).map(s => s.tabId),
-        task: tasks.get(key) ?? onTab?.task ?? mine[0]?.task ?? "",
+        task: tasks.get(key) ?? onTab?.task ?? mine[0]?.task ?? rec?.task ?? "",
         space: spaces.get(key)?.name ?? null,
         sessions: mine.length,
         messages: collect(key, tabId),
@@ -517,19 +548,137 @@ export function createAgentSessions({ now = Date.now, onChange = () => {}, idleM
       changed();
       return true;
     },
+    /**
+     * Stop: the agent's task ends now. Its sessions end (no pill, title prefix or
+     * badge left over), its leases go, and a stop record keeps refusing it (see
+     * the top of the file) and shows in Ensō as a stopped card with "Allow again".
+     */
     stop(id) {
       const s = api.get(id);
       if (!s) return false;
-      stopped.set(s.key, now());
+      const t = now();
+      const mine = ofClient(s.key);
+      const last = [...mine].sort((a, b) => b.lastAt - a.lastAt)[0] ?? s;
+      const step = [...mine].flatMap(x => x.actions).sort((a, b) => String(a.at).localeCompare(String(b.at))).at(-1) ?? null;
+      const notes = mine.flatMap(x => x.notes.filter(n => !n.deliveredAt).map(n => n.text));
+      stopped.set(s.key, {
+        id: `st-${sid()}`,
+        key: s.key,
+        // What Allow needs to start the next task as this agent (never sent to the UI).
+        client: s.key.startsWith("s:")
+          ? { label: s.client, name: s.clientName, session: s.key.slice(2), via: s.via, t3Thread: last.t3ThreadId ?? undefined, agentPid: last.agentPid ?? undefined }
+          : (([label, name]) => ({ label, name, via: s.via }))(s.key.slice(2).split("|")), // http clients are keyed by label|name
+        label: s.client,
+        clientName: s.clientName,
+        task: last.task || tasks.get(s.key) || "",
+        space: spaces.get(s.key)?.name ?? null,
+        tabId: last.tabId,
+        url: last.url,
+        title: last.title,
+        t3ThreadId: last.t3ThreadId ?? null,
+        lastStep: step ? { tool: step.tool, title: step.title, target: step.target, at: step.at } : null,
+        at: t,
+        touchedAt: t,
+        request: null, // { task, tabId, space, at, status: "pending" | "kept", decidedAt }
+        hidden: false,
+        notes,
+      });
       release(s.key); // a stopped agent lets go of every tab
-      for (const x of ofClient(s.key)) {
+      for (const x of mine) {
+        x.ended = true;
         x.stopped = true;
-        x.paused = false;
-        x.lastAt = now();
+        sessions.delete(slot(x.key, x.tabId));
       }
+      tasks.delete(s.key);
+      spaces.delete(s.key);
+      notices.delete(s.key);
+      dropShared();
       pruneAccess(); // a stopped agent's requests go
       changed();
       return true;
+    },
+
+    /**
+     * session_start from a stopped agent: ask the user (once per agent; later
+     * calls update the task). → { status: "pending" | "kept", text }. Never lifts the stop.
+     */
+    requestRestart(client, { task, tabId = null, space } = {}) {
+      const rec = stopOf(clientKey(client));
+      if (!rec) return null;
+      const t = clean(task, MAX_TASK_CHARS);
+      if (rec.request?.status === "kept") return { status: "kept", text: RESTART_KEPT_TEXT };
+      const sp = space?.id ? { id: String(space.id), name: clean(space.name, 60) } : null;
+      if (rec.request?.status === "pending") {
+        if (t) rec.request.task = t;
+        rec.request.tabId = tabId ?? rec.request.tabId;
+        if (sp) rec.request.space = sp;
+      } else {
+        rec.request = { task: t, tabId, space: sp, at: now(), status: "pending", decidedAt: null };
+        rec.touchedAt = now(); // a fresh request gets its own 30 minutes
+      }
+      rec.hidden = false;
+      changed();
+      return { status: "pending", text: RESTART_REQUESTED_TEXT };
+    },
+
+    // ---- answers to a Stop, only from the user in Ensō (host.mjs "agents.allow" / "agents.keep" / "agents.hide") ----
+
+    /**
+     * "Allow" on a restart request, or "Allow again" on a stopped card: the stop
+     * ends, and a requested task starts as a new session. → { id, client, task } or null.
+     */
+    allowAgain(id) {
+      const rec = stopById(String(id ?? ""));
+      if (!rec) return null;
+      stopped.delete(rec.key);
+      const req = rec.request;
+      if (req?.task) {
+        const s = api.start(rec.client, { task: req.task, tabId: req.tabId ?? null, space: req.space ?? undefined });
+        s.lastAt = now();
+      }
+      notices.set(rec.key, [restartAllowedNote(req?.task ?? "")]);
+      changed();
+      return { id: rec.id, client: rec.label, task: req?.task ?? "" };
+    },
+    /** "Keep stopped" on a restart request: it keeps refusing (and tells the agent so) until the stop expires. */
+    keepStopped(id) {
+      const rec = stopById(String(id ?? ""));
+      if (!rec?.request || rec.request.status !== "pending") return false;
+      rec.request.status = "kept";
+      rec.request.decidedAt = now();
+      rec.touchedAt = now();
+      changed();
+      return true;
+    },
+    /** "Dismiss" on a stopped card: out of the sidebar; the stop still applies, and a new request shows again. */
+    hideStopped(id) {
+      const rec = stopById(String(id ?? ""));
+      if (!rec) return false;
+      rec.hidden = true;
+      changed();
+      return true;
+    },
+    /** Stopped agents for the UI (no client keys): the stopped card, the Agents row, the toolbar. */
+    stoppedList() {
+      return [...stopped.values()]
+        .filter(r => isStopped(r.key) && (!r.hidden || r.request?.status === "pending"))
+        .sort((a, b) => b.touchedAt - a.touchedAt)
+        .map(r => ({
+          id: r.id,
+          client: r.label,
+          clientName: r.clientName,
+          task: r.task,
+          space: r.space,
+          tabId: r.tabId,
+          url: r.url,
+          title: r.title,
+          t3ThreadId: r.t3ThreadId,
+          lastStep: r.lastStep,
+          stoppedAt: new Date(r.at).toISOString(),
+          expiresAt: new Date(r.touchedAt + STOP_TTL_MS).toISOString(),
+          request: r.request ? { task: r.request.task, space: r.request.space?.name ?? null, at: new Date(r.request.at).toISOString(), status: r.request.status, decidedAt: r.request.decidedAt ? new Date(r.request.decidedAt).toISOString() : null } : null,
+          agentId: agents.get(r.key)?.id ?? null,
+        }));
     },
     /** The user gives the tab of session `id` to that session (Ensō: "Hand over to …"). Ends shared mode there. */
     handOver(id) {
@@ -735,7 +884,11 @@ export function createAgentSessions({ now = Date.now, onChange = () => {}, idleM
       if (pruneAccess()) any = true;
       // An answered request leaves the UI after ACCESS_SHOWN_MS: push once it has.
       for (const r of access.values()) if (r.status !== "pending" && !r.hidden && t - r.resolvedAt >= ACCESS_SHOWN_MS) { r.hidden = true; any = true; }
-      for (const [k, at] of stopped) if (t - at > STOP_TTL_MS) stopped.delete(k);
+      for (const [k, r] of stopped)
+        if (t - r.touchedAt > STOP_TTL_MS) {
+          stopped.delete(k);
+          any = true;
+        }
       for (const [k, a] of agents)
         if (t - a.lastAt > AGENT_TTL_MS || !alive(a.agentPid)) {
           agents.delete(k);

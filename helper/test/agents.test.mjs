@@ -1,11 +1,17 @@
 // External agent sessions and steering (lib/agentsessions.mjs, lib/mcpserver.mjs):
 //   - the registry on a fake clock: lifecycle, the 2-minute idle timeout,
 //     paused sessions outliving it, tasks, tab-less calls folding into a tab,
-//     typed-text masking, notes delivered exactly once, Stop's lifetime;
+//     typed-text masking, notes delivered exactly once; Stop ending the task
+//     (sessions, leases and presence gone, actions refused, session_status and
+//     session_end still allowed), session_start after a Stop recording one
+//     deduplicated request, Allow / Allow again / Keep stopped / Dismiss, and
+//     the 30-minute expiry;
 //   - end to end through host.mjs (native messaging, like Zen) and its MCP
 //     endpoint: session_start, the live push of `agents` and `actions.added`
 //     to the UI (also for page_eval), a note delivered on the next call only,
-//     Pause refusing actions and Resume's hand-back note, Stop refusing calls,
+//     Pause refusing actions and Resume's hand-back note, Stop refusing calls
+//     while session_status / session_end work, the restart request in the
+//     push, no MCP path that lifts a stop, Keep stopped and Allow from the UI,
 //     and the old http + bearer use without a session id.
 // Everything runs in a throwaway HOME; nothing reaches a real browser.
 //
@@ -20,7 +26,7 @@ import { fileURLToPath } from "node:url";
 import { dataDirFor, isolatedEnv, stopAndRemove } from "./env.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const { createAgentSessions, maskTyped, clientKey, IDLE_MS, PAUSED_TTL_MS, STOP_TTL_MS, NOTE_PREFIX, PAUSED_TEXT, STOPPED_TEXT, HAND_BACK_TEXT } = await import("../lib/agentsessions.mjs");
+const { createAgentSessions, maskTyped, clientKey, IDLE_MS, PAUSED_TTL_MS, STOP_TTL_MS, NOTE_PREFIX, PAUSED_TEXT, STOPPED_TEXT, HAND_BACK_TEXT, RESTART_REQUESTED_TEXT, RESTART_KEPT_TEXT, restartAllowedNote } = await import("../lib/agentsessions.mjs");
 const tick = () => new Promise(r => setTimeout(r, 0));
 
 // ---------- the registry, on a fake clock ----------
@@ -109,22 +115,145 @@ const tick = () => new Promise(r => setTimeout(r, 0));
   assert.equal(reg.get(id), null, "a forgotten pause ends eventually");
   console.log("ok - pause refuses actions; resume hands back once");
 
-  // Stop: every call of that client refused for STOP_TTL_MS, other clients unaffected
-  reg.finish(reg.begin(claude, { tool: "page_read", title: "Read", tabId: 3 }), { ok: true });
+  // Stop ends the task: sessions, leases and presence go at once; further actions are refused
+  reg.finish(reg.begin(claude, { tool: "page_read", title: "Read", tabId: 3 }), { ok: true, url: "https://admin.example.com/privacy", pageTitle: "Privacy" });
+  reg.before(claude, { tool: "page_click", kind: "act", tabId: 3 });
+  reg.finish(reg.begin(claude, { tool: "page_click", title: "Click", tabId: 3 }), { ok: true, target: 'button "DPA"' });
   reg.finish(reg.begin(codex, { tool: "page_read", title: "Read", tabId: 4 }), { ok: true });
+  reg.start(claude, { task: "Find the DPA options" });
+  assert.ok(reg.lease(3), "claude holds tab 3");
   const cid = reg.list().find(x => x.tabId === 3).id;
   reg.note(cid, "Never mind");
   assert.equal(reg.stop(cid), true);
-  const st = reg.before(claude, { tool: "tabs_list", kind: "read", tabId: null });
-  assert.equal(st.refuse, STOPPED_TEXT);
-  assert.deepEqual(st.messages, [`${NOTE_PREFIX} Never mind`], "a refused call still carries notes");
-  assert.equal(reg.list().find(x => x.tabId === 3).stopped, true);
-  assert.equal(reg.before(codex, { tool: "page_click", kind: "act", tabId: 4 }).refuse, undefined);
-  assert.equal(reg.before({ ...claude, session: "new-process" }, { tool: "page_read", kind: "read", tabId: 3 }).refuse, undefined, "a new agent session isn't stopped");
-  t += STOP_TTL_MS + 1000;
-  assert.equal(reg.before(claude, { tool: "page_read", kind: "read", tabId: 3 }).refuse, undefined, "Stop expires");
+  assert.equal(reg.list().filter(x => x.client === "Claude Code").length, 0, "a stopped agent's sessions end at once (no Stopped pill left over)");
+  assert.equal(reg.lease(3), null, "its leases go");
+  assert.equal(reg.isLive(clientKey(claude)), false);
+  let [rec] = reg.stoppedList();
+  assert.equal(rec.client, "Claude Code");
+  assert.equal(rec.task, "Find the DPA options");
+  assert.equal(rec.tabId, 3);
+  assert.equal(rec.title, "Privacy");
+  assert.equal(rec.lastStep.tool, "page_click");
+  assert.equal(rec.request, null);
+  assert.ok(!JSON.stringify(rec).includes("abc"), "no client key (the launcher's session id) reaches the UI");
+  const firstRefusal = reg.before(claude, { tool: "page_click", kind: "act", tabId: 3 });
+  assert.deepEqual(firstRefusal.messages, [`${NOTE_PREFIX} Never mind`], "a note sent before the Stop still reaches the agent, once");
+  for (const [tool, kind, tabId] of [["page_click", "act", 3], ["page_read", "read", 3], ["tabs_list", "read", null], ["tabs_open", "act", null], ["github_comment", "act", null], ["inbox_read", "read", null]]) {
+    const r = reg.before(claude, { tool, kind, tabId });
+    assert.equal(r.refuse, STOPPED_TEXT, `${tool} is refused when stopped`);
+    assert.equal(r.stopped, true);
+  }
+  assert.match(STOPPED_TEXT, /call session_start with the new task: Ensō will ask them to allow it/);
+  assert.equal(reg.before(codex, { tool: "page_click", kind: "act", tabId: 4 }).refuse, undefined, "other agents are unaffected");
+  assert.equal(reg.before({ ...claude, session: "new-process" }, { tool: "page_read", kind: "read", tabId: 3 }).refuse, undefined, "a new agent process isn't stopped");
+  console.log("ok - stop ends the task at once and refuses further actions");
+
+  // session_end and session_status always work when stopped
+  const stat = reg.before(claude, { tool: "session_status", kind: "read" });
+  assert.equal(stat.refuse, undefined, "session_status isn't refused");
+  assert.equal(reg.before(claude, { tool: "session_end", kind: "read" }).refuse, undefined, "session_end isn't refused");
+  let st = reg.status(claude);
+  assert.equal(st.stopped, true);
+  assert.equal(st.restart, null);
+  assert.deepEqual(st.messages, [], "the note was delivered once already");
+  assert.equal(reg.endClient(claude), 0, "ending a stopped agent is fine");
+  assert.equal(reg.isStopped(claude), true, "session_end doesn't lift a Stop");
+  assert.equal(reg.before(claude, { tool: "page_read", kind: "read", tabId: 3 }).refuse, STOPPED_TEXT);
+  console.log("ok - session_end and session_status work when stopped and don't lift it");
+
+  // session_start after a Stop: one pending request (deduplicated), never a silent resume
+  const pushed = pushes.length;
+  let rr = reg.requestRestart(claude, { task: "Download the signed DPA" });
+  assert.deepEqual(rr, { status: "pending", text: RESTART_REQUESTED_TEXT });
+  assert.match(RESTART_REQUESTED_TEXT, /Ensō has asked the user to allow this new task; call session_status to check\. Don't retry in a loop\./);
+  assert.equal(reg.isStopped(claude), true, "asking doesn't resume");
+  assert.equal(reg.list().filter(x => x.client === "Claude Code").length, 0, "no session until the user allows");
+  const firstAt = reg.stoppedList()[0].request.at;
+  t += 5000;
+  rr = reg.requestRestart(claude, { task: "Download the signed DPA as PDF" });
+  rr = reg.requestRestart(claude, { task: "Download the signed DPA as PDF" });
+  assert.equal(rr.status, "pending");
+  assert.equal(reg.stoppedList().length, 1, "one stopped entry per agent");
+  [rec] = reg.stoppedList();
+  assert.equal(rec.request.status, "pending");
+  assert.equal(rec.request.task, "Download the signed DPA as PDF", "the latest task");
+  assert.equal(rec.request.at, firstAt, "deduplicated: still the first request");
+  await tick();
+  assert.ok(pushes.length > pushed, "the request is pushed to Ensō");
+  st = reg.status(claude);
+  assert.deepEqual(st.restart, { task: "Download the signed DPA as PDF", status: "pending" });
+  assert.equal(reg.before(claude, { tool: "page_click", kind: "act", tabId: 3 }).refuse, STOPPED_TEXT, "still refused while Ensō asks");
+  console.log("ok - session_start after a stop records one pending request (deduplicated)");
+
+  // Allow: the stop ends, the requested task starts, the agent hears it once
+  assert.equal(reg.allowAgain("st-nope"), null, "unknown ids do nothing");
+  const allowed = reg.allowAgain(rec.id);
+  assert.deepEqual(allowed, { id: rec.id, client: "Claude Code", task: "Download the signed DPA as PDF" });
+  assert.equal(reg.isStopped(claude), false);
+  assert.equal(reg.stoppedList().length, 0);
+  const resumed = reg.list().find(x => x.client === "Claude Code");
+  assert.equal(resumed.task, "Download the signed DPA as PDF");
+  assert.equal(resumed.stopped, false);
+  st = reg.status(claude);
+  assert.equal(st.stopped, false);
+  assert.deepEqual(st.messages, [restartAllowedNote("Download the signed DPA as PDF")]);
+  assert.equal(reg.before(claude, { tool: "page_click", kind: "act", tabId: 3 }).refuse, undefined, "actions work again");
+  assert.equal(reg.allowAgain(rec.id), null, "a used grant can't be replayed");
+  console.log("ok - Allow lifts the stop and starts the new task");
+
+  // "Allow again" on the stopped card without a request: the stop ends, the agent starts a session itself
+  reg.stop(reg.peek(claude).id);
+  [rec] = reg.stoppedList();
+  assert.ok(reg.allowAgain(rec.id));
+  assert.equal(reg.isStopped(claude), false);
+  assert.equal(reg.list().filter(x => x.client === "Claude Code").length, 0, "no task to start");
+  assert.deepEqual(reg.status(claude).messages, [restartAllowedNote("")]);
+  console.log("ok - Allow again without a request lifts the stop");
+
+  // Keep stopped: refusals continue and say so; no new request until it expires; Dismiss hides only
+  reg.start(claude, { task: "Another go" });
+  reg.stop(reg.peek(claude).id);
+  reg.requestRestart(claude, { task: "Try once more" });
+  [rec] = reg.stoppedList();
+  assert.equal(reg.keepStopped(rec.id), true);
+  assert.equal(reg.keepStopped(rec.id), false, "only a pending request");
+  assert.equal(reg.stoppedList()[0].request.status, "kept");
+  assert.deepEqual(reg.requestRestart(claude, { task: "Please" }), { status: "kept", text: RESTART_KEPT_TEXT });
+  assert.equal(reg.stoppedList()[0].request.task, "Try once more", "kept: not asked again");
+  assert.equal(reg.before(claude, { tool: "page_read", kind: "read", tabId: 3 }).refuse, RESTART_KEPT_TEXT);
+  assert.deepEqual(reg.status(claude).restart, { task: "Try once more", status: "kept" });
+  assert.equal(reg.hideStopped(rec.id), true);
+  assert.equal(reg.stoppedList().length, 0, "dismissed from the sidebar");
+  assert.equal(reg.isStopped(claude), true, "but still stopped");
+  console.log("ok - Keep stopped keeps refusing and tells the agent; Dismiss only hides");
+
+  // Expiry: the stop and its request go 30 minutes after the last of Stop, request and answer; then the normal flow
+  t += STOP_TTL_MS - 1000;
+  assert.equal(reg.isStopped(claude), true);
+  t += 2000;
+  reg.sweep();
+  assert.equal(reg.isStopped(claude), false, "Stop expires");
+  assert.equal(reg.stoppedList().length, 0);
+  assert.equal(reg.requestRestart(claude, { task: "x" }), null, "no prompt after expiry");
+  assert.equal(reg.before(claude, { tool: "page_read", kind: "read", tabId: 3 }).refuse, undefined);
+  reg.start(codex, { task: "c" });
+  reg.stop(reg.peek(codex).id);
+  t += 20 * 60_000;
+  reg.requestRestart(codex, { task: "again" });
+  t += 20 * 60_000;
+  assert.equal(reg.stoppedList()[0].request.status, "pending", "a fresh request gets its own 30 minutes");
+  t += 11 * 60_000;
+  assert.equal(reg.isStopped(codex), false, "an unanswered request expires with the stop");
+  assert.equal(reg.allowAgain(reg.stoppedList()[0]?.id), null, "an expired request can't be allowed");
   assert.equal(clientKey({ label: "Cursor", name: "cursor-vscode" }), "c:Cursor|cursor-vscode", "http clients without a session id are keyed by label");
-  console.log("ok - stop refuses every call of that agent session");
+  // An http client (no launcher session id) is allowed back under its own key
+  const cursor = { label: "Cursor", name: "cursor-vscode", via: "http" };
+  reg.start(cursor, { task: "c" });
+  reg.stop(reg.peek(cursor).id);
+  reg.requestRestart(cursor, { task: "Back" });
+  reg.allowAgain(reg.stoppedList()[0].id);
+  assert.equal(reg.peek(cursor)?.task, "Back", "http clients resume under the same key");
+  console.log("ok - the stop and its request expire after 30 minutes; then session_start works as usual");
 }
 
 // ---------- end to end: host.mjs + its MCP endpoint ----------
@@ -195,7 +324,8 @@ async function call(name, args = {}, { session = "launcher-1", client = "claude-
   if (msg.error) throw new Error(JSON.stringify(msg.error));
   return { isError: !!msg.result.isError, texts: msg.result.content.map(c => c.text) };
 }
-const latestAgents = () => [...inbox].reverse().find(m => m.type === "agents")?.sessions ?? [];
+const latestAgentsMsg = () => [...inbox].reverse().find(m => m.type === "agents");
+const latestAgents = () => latestAgentsMsg()?.sessions ?? [];
 
 try {
   post({ type: "hello" });
@@ -279,17 +409,85 @@ try {
   assert.ok(!inbox.some(m => m.type !== "page.request" && JSON.stringify(m).includes("correct horse")), "the typed password is not pushed or logged");
   console.log("ok - typed passwords are masked in the session");
 
-  // Stop: every call of that session refused, a new session works
+  // Stop: the task ends (session gone from the push), actions refused, session_status / session_end still work
   post({ type: "agents.stop", id: session.id });
-  await waitFor(m => m.type === "agents" && m.sessions[0]?.stopped);
+  pushed = await waitFor(m => m.type === "agents" && !m.sessions.some(s => s.id === session.id) && m.stopped?.length === 1);
+  assert.equal(pushed.stopped[0].client, "Claude Code");
+  assert.equal(pushed.stopped[0].request, null);
   r = await call("page_read", {});
   assert.equal(r.isError, true);
   assert.equal(r.texts.at(-1), STOPPED_TEXT);
-  r = await call("session_start", { task: "Try again" });
-  assert.equal(r.isError, true, "session_start doesn't lift a Stop");
+  r = await call("session_status", {});
+  assert.equal(r.isError, false);
+  assert.match(r.texts.at(-1), /Status: stopped: the user stopped this task\. .*call session_start with the new task and Ensō will ask them to allow it/);
+  r = await call("session_end", {});
+  assert.equal(r.isError, false, "session_end works when stopped");
+  assert.match(r.texts.at(-1), /Session ended\. The user stopped this task in Ensō/);
+  r = await call("page_read", {});
+  assert.equal(r.texts.at(-1), STOPPED_TEXT, "session_end doesn't lift the stop");
   r = await call("page_read", {}, { session: "launcher-2" });
   assert.equal(r.isError, false, "another agent session isn't affected");
-  console.log("ok - stop refuses every further call of that session");
+  console.log("ok - end to end: stop refuses actions; session_status and session_end still work");
+
+  // session_start after the Stop: Ensō asks the user once; the agent is told to check session_status
+  mark = inbox.length;
+  r = await call("session_start", { task: "Download the signed DPA" });
+  assert.equal(r.isError, true, "session_start doesn't resume silently");
+  assert.equal(r.texts.at(-1), RESTART_REQUESTED_TEXT);
+  r = await call("session_start", { task: "Download the signed DPA as PDF" });
+  assert.equal(r.texts.at(-1), RESTART_REQUESTED_TEXT);
+  pushed = await nextFrom(mark, m => m.type === "agents" && m.stopped?.[0]?.request?.task === "Download the signed DPA as PDF");
+  assert.equal(pushed.stopped.length, 1, "one request per agent");
+  assert.equal(pushed.stopped[0].request.status, "pending");
+  const stopId = pushed.stopped[0].id;
+  r = await call("session_status", {});
+  assert.match(r.texts.at(-1), /Ensō is asking the user to allow your new task \("Download the signed DPA as PDF"\)/);
+  console.log("ok - end to end: session_start after a stop asks the user once");
+
+  // No MCP path can lift a stop: no such tool, no native message types as methods, no arguments
+  const token = readFileSync(path.join(dataDirFor(home), "mcp-token"), "utf8").trim();
+  const rpcRaw = async (method, params, extra = {}) => {
+    const res = await fetch(`http://127.0.0.1:${port}/mcp`, { method: "POST", headers: { "Content-Type": "application/json", Accept: "application/json, text/event-stream", Authorization: `Bearer ${token}`, "MCP-Protocol-Version": "2025-06-18", "X-Enso-Client": "claude-code/2.1.3", "X-Enso-Session": "launcher-1", ...extra }, body: JSON.stringify({ jsonrpc: "2.0", id: ++rpc, method, params }) });
+    const body = await res.text();
+    if (!res.ok) return { status: res.status };
+    return (res.headers.get("content-type") ?? "").includes("event-stream") ? JSON.parse(body.split("\n").find(l => l.startsWith("data:")).slice(5)) : JSON.parse(body);
+  };
+  const toolNames = (await rpcRaw("tools/list", {})).result.tools.map(t => t.name);
+  assert.ok(!toolNames.some(n => /allow|grant|resume|unstop|restart|keep/i.test(n)), `no tool lifts a stop: ${toolNames.join(", ")}`);
+  for (const name of ["agents_allow", "session_resume", "session_allow"]) assert.equal((await call(name, { id: stopId }).catch(() => ({ isError: true }))).isError, true, `${name} doesn't exist`);
+  for (const method of ["agents.allow", "agents.keep", "agents.resume"]) {
+    const m = await rpcRaw(method, { id: stopId });
+    assert.ok(m.error || m.status, `${method} over MCP is rejected`);
+  }
+  assert.equal((await rpcRaw("tools/call", { name: "session_start", arguments: { task: "x" } }, { Origin: "https://evil.example" })).status, 403, "no web page");
+  for (const [name, args] of [["session_start", { task: "Download the signed DPA as PDF", allow: true, id: stopId, requested_by_user: true }], ["session_end", { id: stopId }], ["session_status", { allow: true }], ["inbox_read", {}], ["page_click", { ref: 1, requested_by_user: true, id: stopId }]]) await call(name, args).catch(() => {});
+  r = await call("page_read", {});
+  assert.equal(r.texts.at(-1), STOPPED_TEXT, "still stopped after every MCP path");
+  pushed = latestAgentsMsg();
+  assert.equal(pushed.stopped[0].request.status, "pending");
+  console.log("ok - no MCP tool, method or argument (and no web page) lifts a stop");
+
+  // Keep stopped from Ensō: refused with the kept text
+  post({ type: "agents.keep", id: stopId });
+  await waitFor(m => m.type === "agents" && m.stopped?.[0]?.request?.status === "kept");
+  r = await call("session_start", { task: "Please" });
+  assert.equal(r.texts.at(-1), RESTART_KEPT_TEXT);
+  r = await call("page_read", {});
+  assert.equal(r.texts.at(-1), RESTART_KEPT_TEXT);
+  console.log("ok - end to end: Keep stopped keeps refusing and says so");
+
+  // Allow again from Ensō (the UI message path): the stop ends and the requested task starts
+  mark = inbox.length;
+  post({ type: "agents.allow", id: stopId });
+  pushed = await nextFrom(mark, m => m.type === "agents" && !m.stopped?.length && m.sessions.some(s => s.task === "Download the signed DPA as PDF"));
+  const logged = await nextFrom(mark, m => m.type === "actions.added" && m.action.action === "agent_allow");
+  assert.match(logged.action.target, /allowed Claude Code to use Zen again: Download the signed DPA as PDF/);
+  r = await call("session_status", {});
+  assert.match(r.texts.join("\n"), /Status: running: you may continue/);
+  assert.ok(r.texts.includes(restartAllowedNote("Download the signed DPA as PDF")), "told once that the user allowed it");
+  r = await call("page_read", {});
+  assert.equal(r.isError, false, "actions work again");
+  console.log("ok - end to end: Allow from Ensō lifts the stop and starts the new task");
 
   // A lone read from an agent with no session doesn't open one (no pill, no ✦)
   const before = latestAgents().length;

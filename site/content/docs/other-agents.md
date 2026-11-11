@@ -62,7 +62,11 @@ From the card in the sidebar:
 
 - **Tell the agent…** sends it a note, such as "use the work account, not the personal one". The agent gets it with the result of its next step, marked as coming from you. The note says "Waiting for the agent's next step" until then, and **Delivered** after.
 - **Pause** holds the agent on this tab: its next steps there are refused and it is told to wait. **Resume** lets it continue, and tells it to read the page again, since you may have changed it.
-- **Stop** ends the task: everything it tries in Zen is refused, and it is told to stop. It keeps running in its own app; a new session there can use Zen again.
+- **Stop** ends the task right away: the agent lets go of its tabs, its marks leave the page, and everything else it tries in Zen is refused. It is told to stop and tell you. It keeps running in its own app.
+
+After a Stop the agent shows as **Stopped** in the sidebar, with **Allow again**. If you later ask it to continue, it asks Ensō for a new task, and you see "Claude Code wants to use Zen again: …" at the top of the Agents list (and a **!** on Ensō's toolbar button) with **Allow** and **Keep stopped**. Allow lets it start that task; Keep stopped keeps refusing it, and it is told so. You don't need to dismiss anything or reconnect the agent. A stop you leave alone expires after 30 minutes.
+
+Each agent in the Agents list wears its state: **Working**, **Idle**, **Paused**, **Waiting for the tab** or **Stopped**. The list's header says "working" only when an agent really is; otherwise it counts them, for example "1 agent stopped" or "1 agent waiting for you".
 
 You can also send an agent a screenshot of the page, even while it's idle: press <kbd>⌘</kbd><kbd>⇧</kbd><kbd>2</kbd> (<kbd>Ctrl+Shift+2</kbd> on Linux and Windows) and pick it under **Agents**. It gets the image with its next step, or when it calls `inbox_read`. See [Send screenshots to your agents](/docs/screenshots).
 

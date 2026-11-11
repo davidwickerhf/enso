@@ -12,8 +12,16 @@
 //     the tab". The card offers "Hand over to <agent>" (the lease moves to that
 //     session) and "Let both act" (shared: everyone may act, with the risk in
 //     one line), and "One at a time" to end sharing;
-//   - the Agents row: every live session across tabs and spaces; a row
-//     switches to that tab, Stop stops it;
+//   - the Agents row: every live session across tabs and spaces, and every
+//     agent the user stopped; a row switches to that tab, Stop stops it. Each
+//     row wears its state (Working, Idle, Paused, Waiting for the tab,
+//     Stopped), and the row's header counts them ("1 agent stopped", "1 agent
+//     waiting for you"); "working" only when one really is;
+//   - Stop (lib/agentsessions.mjs stop): the agent's task ends and its live
+//     sessions go. A stopped card (on the tab it worked on) and a Stopped row
+//     offer "Allow again". When the stopped agent calls session_start again,
+//     "<Client> wants to use Zen again: <task>" shows at the top of the Agents
+//     row (or in the stopped card) with Allow and Keep stopped;
 //   - tabs agents left open (lib/agenttabs.mjs): tabs an agent opened and
 //     didn't close before its session ended, "Opened by <agent> for <task>",
 //     with Close all, ✕ and Keep per tab, and when Ensō will close them
@@ -90,6 +98,87 @@ function stateLabel(a) {
   if (a.running) return "Working";
   if (a.control === "waiting") return "Waiting";
   return "Idle";
+}
+
+/**
+ * One state per row of the Agents list: a live session ({ client, running, paused, control… })
+ * or a stopped agent (an entry of state.stoppedAgents, { stoppedAt, request }).
+ * → { key: "asking" | "working" | "paused" | "waiting" | "idle" | "stopped", label }
+ */
+export function rowState(x, access = []) {
+  if (x.stoppedAt) return x.request?.status === "pending" ? { key: "asking", label: "Wants to continue" } : { key: "stopped", label: "Stopped" };
+  if (x.stopped) return { key: "stopped", label: "Stopped" };
+  if (access.some(r => r.status === "pending" && (r.sessionIds ?? [r.sessionId]).includes(x.id))) return { key: "asking", label: "Asks for access" };
+  if (x.paused) return { key: "paused", label: "Paused" };
+  if (x.running) return { key: "working", label: "Working" };
+  if (x.control === "waiting") return { key: "waiting", label: "Waiting for the tab" };
+  return { key: "idle", label: "Idle" };
+}
+
+const STATE_ORDER = ["asking", "working", "paused", "waiting", "idle", "stopped"];
+const STATE_PHRASE = { asking: "waiting for you", working: "working", paused: "paused", waiting: "waiting for a tab", idle: "idle", stopped: "stopped" };
+
+/**
+ * The Agents row's header from its rows' states: "An agent is working in other tabs" only when
+ * every one works; otherwise counts, the most urgent first ("1 agent waiting for you · 1 stopped").
+ * more: the active tab's agents are in the card above, so these are "more".
+ */
+export function rowSummary(states, { more = false } = {}) {
+  const n = {};
+  for (const k of states) n[k] = (n[k] ?? 0) + 1;
+  const keys = STATE_ORDER.filter(k => n[k]);
+  if (!keys.length) return "";
+  const total = states.length;
+  if (keys.length === 1 && keys[0] === "working" && !more) return total === 1 ? "An agent is working in other tabs" : `${total} agents are working in other tabs`;
+  const noun = c => `${c}${more ? " more" : ""} ${c === 1 ? "agent" : "agents"}`;
+  return keys.map((k, i) => (i === 0 ? `${noun(n[k])} ${STATE_PHRASE[k]}` : `${n[k]} ${STATE_PHRASE[k]}`)).join(" · ");
+}
+
+/** A state pill for a row or a card: a live dot while working. */
+function stateBadge(st) {
+  return h("span", { class: ["badge", "state-badge", `state-${st.key}`] }, st.key === "working" ? h("span", { class: "live-dot", aria: { hidden: "true" } }) : null, st.label);
+}
+
+/** "3 min ago" for a stop. */
+const since = iso => relTime(iso);
+
+/**
+ * A stopped agent's request to use Zen again (prominent), or the answer "Keep stopped".
+ * Allow lifts the stop and starts the task it asked for; Keep stopped keeps refusing it.
+ */
+function restartItem(r, actions) {
+  const kept = r.request?.status === "kept";
+  const task = r.request?.task || "";
+  const title = kept ? `You kept ${r.client} stopped` : `${r.client} wants to use Zen again${task ? `: ${task}` : ""}`;
+  const detail = kept
+    ? `It was told to stop and tell you. Allow again if you want it to continue${task ? ` with “${task}”` : ""}.`
+    : `You stopped it ${since(r.stoppedAt)}${r.task ? ` (“${r.task}”)` : ""}. Allow lets it start this new task${r.request?.space ? ` in ${r.request.space}` : ""}; Keep stopped refuses it and tells it so.`;
+  return h("div", { class: ["agent-access", "agent-restart", kept && "answered kept"], role: "group", dataset: { restart: r.id }, aria: { label: title } },
+    h("span", { class: "agent-access-icon", aria: { hidden: "true" } }, icon(kept ? "stop" : "play")),
+    h("div", { class: "agent-access-text" },
+      h("strong", { class: "agent-access-title" }, title),
+      h("span", { class: "agent-access-detail" }, detail)),
+    h("div", { class: "agent-access-actions" },
+      kept ? null : h("button", { type: "button", class: "btn small ghost", dataset: { fk: `restart-keep-${r.id}` }, title: `Keep refusing ${r.client} in Zen; it is told you kept it stopped`, onclick: () => actions.keepAgentStopped(r.id) }, "Keep stopped"),
+      h("button", { type: "button", class: ["btn", "small", kept ? "" : "primary"].filter(Boolean).join(" "), dataset: { fk: `restart-allow-${r.id}` }, title: `Let ${r.client} use Zen again${task ? ` for “${task}”` : ""}`, onclick: () => actions.allowAgent(r.id) }, kept ? "Allow again" : "Allow")));
+}
+
+/** The card of a stopped agent on the tab it worked on: Stopped, with "Allow again" (and its request, if any). */
+function stoppedCard(r, actions) {
+  const last = r.lastStep ? stepText(r.lastStep) : "";
+  return h("section", { class: "agent-card stopped", tabindex: "-1", aria: { label: `${r.client}${r.task ? `: ${r.task}` : ""}. Stopped.` } },
+    h("header", { class: "agent-head" },
+      h("span", { class: "agent-mark", aria: { hidden: "true" } }, "✦"),
+      h("div", { class: "agent-who" },
+        h("span", { class: "agent-who-line" }, h("strong", { class: "agent-client" }, r.client), r.space ? h("span", { class: "tag agent-space" }, r.space) : null),
+        r.task ? h("span", { class: "agent-task" }, r.task) : null),
+      h("div", { class: "agent-meta" }, stateBadge(r.request?.status === "pending" ? { key: "asking", label: "Wants to continue" } : { key: "stopped", label: "Stopped" }), h("span", { class: "agent-time" }, since(r.stoppedAt)))),
+    r.request ? restartItem(r, actions) : null,
+    h("p", { class: "agent-status" }, `You stopped ${r.client}. Its task has ended and anything it tries in Zen is refused. ${r.request ? "" : "If it starts a new task, you'll be asked here first."}`.trim()),
+    last ? h("p", { class: "agent-stopped-last" }, `Last step: ${last}`) : null,
+    r.request?.status === "pending" ? null : h("div", { class: "agent-actions" }, h("div", { class: "agent-controls" },
+      r.request ? null : h("button", { type: "button", class: "btn small", dataset: { fk: `stopped-allow-${r.id}` }, title: `Let ${r.client} use Zen again; it starts with a new session_start`, onclick: () => actions.allowAgent(r.id) }, icon("play"), "Allow again"),
+      h("button", { type: "button", class: "btn small ghost", dataset: { fk: `stopped-hide-${r.id}` }, title: "Hide this card; the agent stays stopped", onclick: () => actions.hideStoppedAgent(r.id) }, "Dismiss"))));
 }
 
 /** "Claude Code", or "Claude Code · Export the brief…" when another agent on the tab has the same name. */
@@ -170,6 +259,7 @@ export function createAgentsPanel(store) {
   let lastAnnounced = null;
   let ticker = null;
   let leftTicker = null;
+  let stoppedTicker = null;
 
   let picked = null; // the session shown when several work on the active tab
   const shades = new Map(); // session id -> shade
@@ -278,7 +368,7 @@ export function createAgentsPanel(store) {
       c.t3Title.textContent = a.t3.title ? `${a.t3.title}${a.t3.projectTitle ? ` · ${a.t3.projectTitle}` : ""}` : "Running in a T3 Code thread";
       c.t3Open.hidden = !a.t3.openable;
     }
-    clear(c.stateEl, a.running && !a.paused && !a.stopped ? h("span", { class: "live-dot", aria: { hidden: "true" } }) : null, stateLabel(a));
+    clear(c.stateEl, stateBadge(rowState(a, s.agentAccess))); // the same pill as the Agents row: Working, Idle, Paused, Waiting for the tab
     tick();
     // Steps: newest last, like a log; re-rendered only when they change.
     const ids = a.actions.map(x => x.id).join(",");
@@ -313,7 +403,7 @@ export function createAgentsPanel(store) {
     c.dismissBtn.hidden = !a.stopped;
     c.form.hidden = !!a.stopped;
     c.status.textContent = a.stopped
-      ? `${a.client} is stopped: its further calls are refused until it starts a new session.`
+      ? `${a.client} is stopped: its task has ended and anything it tries in Zen is refused.`
       : a.paused
         ? `Paused. ${a.client}'s actions on this tab are refused until you resume; it was told to wait.`
         : "";
@@ -346,27 +436,47 @@ export function createAgentsPanel(store) {
     }));
   }
 
-  function renderList(skipIds) {
+  function renderList(skipIds, skipStoppedId = null) {
     const others = s.agents.filter(a => !skipIds.includes(a.id));
-    if (!others.length) return null;
-    const skipId = skipIds.length > 0;
+    const stopped = (s.stoppedAgents ?? []).filter(r => r.id !== skipStoppedId);
+    if (!others.length && !stopped.length) return null;
+    const more = skipIds.length > 0 || !!skipStoppedId;
+    const states = [...stopped.map(r => rowState(r)), ...others.map(a => rowState(a, s.agentAccess))];
+    const asking = stopped.filter(r => r.request?.status === "pending");
+    const lead = states.some(x => x.key === "asking") ? "asking" : states.some(x => x.key === "working") ? "" : "idle";
+    // A stopped agent asking to use Zen again leads the row, in both its collapsed and expanded state.
+    const requests = asking.length ? h("div", { class: "agents-restarts", role: "region", aria: { label: "Agents asking to use Zen again" } }, asking.map(r => restartItem(r, actions))) : null;
     const toggle = h("button", { type: "button", class: "agents-toggle", dataset: { fk: "toggle" }, aria: { expanded: String(listOpen), controls: "agents-list" }, onclick: () => { listOpen = !listOpen; if (listOpen) actions.listTabs(); render(); } },
-      h("span", { class: "agents-dot", aria: { hidden: "true" } }),
-      h("span", { class: "agents-label" }, skipId ? `${others.length} more ${others.length === 1 ? "agent" : "agents"} working` : `${others.length === 1 ? "An agent is" : `${others.length} agents are`} working in other tabs`),
+      h("span", { class: ["agents-dot", lead], aria: { hidden: "true" } }),
+      h("span", { class: "agents-label" }, rowSummary(states.map(x => x.key), { more })),
       icon(listOpen ? "chevronDown" : "chevronRight"));
-    const list = listOpen ? h("ul", { class: "agents-list", id: "agents-list", aria: { label: "Agents" } }, others.map(a => {
+    const stoppedRow = r => {
+      const host = hostOf(r.url);
+      const st = rowState(r);
+      return h("li", { class: ["agents-row", "stopped", st.key === "asking" && "asking"] },
+        h("button", { type: "button", class: "agents-go", dataset: { fk: `go-${r.id}` }, disabled: r.tabId == null, title: r.tabId == null ? "It wasn't on a tab" : "Switch to the tab it worked on", aria: { label: `${r.client}, stopped${r.title ? `, on ${r.title}` : ""}` }, onclick: () => r.tabId != null && actions.switchToTab(r.tabId) },
+          host ? hostBadge(host) : h("span", { class: "agent-mark small", aria: { hidden: "true" } }, "✦"),
+          h("span", { class: "agents-main" },
+            h("span", { class: "agents-who" }, h("strong", null, r.client), stateBadge(st), r.space ? ` · ${r.space}` : "", (r.request?.task || r.task) ? ` · ${r.request?.task || r.task}` : ""),
+            h("span", { class: "agents-sub" }, [`Stopped ${since(r.stoppedAt)}`, r.title || host || null, r.lastStep ? stepText(r.lastStep) : null].filter(Boolean).join(" · ")))),
+        st.key === "asking" ? null : h("button", { type: "button", class: "btn small ghost agents-allow", dataset: { fk: `allow-${r.id}` }, title: `Let ${r.client} use Zen again`, onclick: () => actions.allowAgent(r.id) }, "Allow again"),
+        iconButton("x", `Hide ${r.client} (it stays stopped)`, () => actions.hideStoppedAgent(r.id), { class: "small", dataset: { fk: `hide-${r.id}` } }));
+    };
+    const liveRow = a => {
       const tab = s.tabs.find(t => t.tabId === a.tabId);
       const host = hostOf(a.url);
       const last = a.actions.at(-1);
-      return h("li", { class: ["agents-row", a.paused && "paused", a.stopped && "stopped"] },
-        h("button", { type: "button", class: "agents-go", dataset: { fk: `go-${a.id}` }, disabled: a.tabId == null, title: a.tabId == null ? "Not on a tab yet" : "Switch to this tab", aria: { label: `Switch to the tab where ${a.client} is working${a.title ? `: ${a.title}` : ""}` }, onclick: () => a.tabId != null && actions.switchToTab(a.tabId) },
+      const st = rowState(a, s.agentAccess);
+      return h("li", { class: ["agents-row", `is-${st.key}`, a.paused && "paused", a.stopped && "stopped"] },
+        h("button", { type: "button", class: "agents-go", dataset: { fk: `go-${a.id}` }, disabled: a.tabId == null, title: a.tabId == null ? "Not on a tab yet" : "Switch to this tab", aria: { label: `Switch to the tab where ${a.client} is ${st.label.toLowerCase()}${a.title ? `: ${a.title}` : ""}` }, onclick: () => a.tabId != null && actions.switchToTab(a.tabId) },
           host ? hostBadge(host) : h("span", { class: "agent-mark small", aria: { hidden: "true" } }, "✦"),
           h("span", { class: "agents-main" },
-            h("span", { class: "agents-who" }, h("strong", null, a.client), a.space ? ` · ${a.space}` : "", a.task ? ` · ${a.task}` : "", s.agentAccess.some(r => r.status === "pending" && (r.sessionIds ?? [r.sessionId]).includes(a.id)) ? h("span", { class: "tag accent agents-asks" }, "asks for access") : null),
-            h("span", { class: "agents-sub" }, [a.control === "waiting" && !a.stopped ? "Waiting for the tab" : stateLabel(a), a.space ? null : tab?.space || null, a.title || host || null, last ? stepText(last) : null].filter(Boolean).join(" · ")))),
+            h("span", { class: "agents-who" }, h("strong", null, a.client), stateBadge(st), a.space ? ` · ${a.space}` : "", a.task ? ` · ${a.task}` : ""),
+            h("span", { class: "agents-sub" }, [a.space ? null : tab?.space || null, a.title || host || null, last ? stepText(last) : null].filter(Boolean).join(" · ")))),
         a.stopped ? iconButton("x", `Dismiss ${a.client}`, () => actions.dismissAgent(a.id), { class: "small", dataset: { fk: `x-${a.id}` } }) : iconButton("stop", `Stop ${a.client}`, () => actions.stopAgent(a.id), { class: "small danger-icon", dataset: { fk: `stop-${a.id}` } }));
-    })) : null;
-    return h("div", { class: "agents-row-wrap" }, toggle, list);
+    };
+    const list = listOpen ? h("ul", { class: "agents-list", id: "agents-list", aria: { label: "Agents" } }, [...stopped.filter(r => r.request?.status === "pending"), ...others, ...stopped.filter(r => r.request?.status !== "pending")].map(x => (x.stoppedAt ? stoppedRow(x) : liveRow(x)))) : null;
+    return h("div", { class: ["agents-row-wrap", asking.length && "has-requests"] }, requests, toggle, list);
   }
 
   const SKIPPED = { active: "it's the tab you're on", pinned: "it's pinned", group: "it's in one of your groups" };
@@ -421,6 +531,9 @@ export function createAgentsPanel(store) {
 
   const tabsHost = h("div", { class: "agent-tabs-host" });
   const cardHost = h("div", { class: "agent-card-host" });
+  // A stopped agent on the active tab (no live session there): its stopped card.
+  const stoppedHost = h("div", { class: "agent-stopped-host" });
+  let stoppedSig = "";
   const stack = h("div", { class: "agent-stack" }, tabsHost, cardHost);
   const listHost = h("div", { class: "agents-list-host" });
   // Requests of agents that aren't on the active tab (another tab, another site): above the Agents row.
@@ -430,7 +543,7 @@ export function createAgentsPanel(store) {
   let tabsSig = "";
   const leftHost = h("div", { class: "agents-leftovers-host" });
   let leftSig = "";
-  el.append(stack, accessHost, listHost, leftHost);
+  el.append(stack, stoppedHost, accessHost, listHost, leftHost);
 
   function render() {
     const a = current();
@@ -457,15 +570,26 @@ export function createAgentsPanel(store) {
       if (here.length > 1) card.root.setAttribute("role", "tabpanel");
       else card.root.removeAttribute("role");
     }
+    // A stopped agent on this tab, when no live one is: the stopped card with "Allow again".
+    const stoppedHere = !here.length && s.tab ? (s.stoppedAgents ?? []).find(r => r.tabId === s.tab.tabId) ?? null : null;
+    const ssig = JSON.stringify(stoppedHere ? [stoppedHere.id, stoppedHere.task, stoppedHere.request, stoppedHere.lastStep, Math.floor((Date.now() - Date.parse(stoppedHere.stoppedAt)) / 60_000)] : null);
+    if (ssig !== stoppedSig) {
+      stoppedSig = ssig;
+      const focused = stoppedHost.contains(document.activeElement) ? document.activeElement.dataset.fk : null;
+      clear(stoppedHost, stoppedHere ? stoppedCard(stoppedHere, actions) : null);
+      if (focused) stoppedHost.querySelector(`[data-fk="${CSS.escape(focused)}"]`)?.focus();
+    }
+    stoppedHost.hidden = !stoppedHere;
     // The card node (and the note being typed) stays in place; only the list is rebuilt.
     const hereIds = here.map(x => x.id);
     const others = s.agents.filter(x => !hereIds.includes(x.id));
-    const sig = JSON.stringify([listOpen, hereIds, others.map(x => [x.id, x.task, x.paused, x.stopped, x.running, x.control, x.title, x.actions.at(-1)?.id]), listOpen ? s.tabs.map(t => [t.tabId, t.space]) : 0, s.agentAccess.filter(r => r.status === "pending").map(r => r.sessionIds)]);
+    const stoppedRows = (s.stoppedAgents ?? []).filter(r => r.id !== stoppedHere?.id);
+    const sig = JSON.stringify([listOpen, hereIds, others.map(x => [x.id, x.task, x.paused, x.stopped, x.running, x.control, x.title, x.actions.at(-1)?.id]), stoppedRows.map(r => [r.id, r.task, r.request, r.title, Math.floor((Date.now() - Date.parse(r.stoppedAt)) / 60_000)]), stoppedHere?.id, listOpen ? s.tabs.map(t => [t.tabId, t.space]) : 0, s.agentAccess.filter(r => r.status === "pending").map(r => r.sessionIds)]);
     let list = listHost.firstChild;
     if (sig !== listSig) {
       listSig = sig;
       const focused = listHost.contains(document.activeElement) ? document.activeElement.dataset.fk : null;
-      list = renderList(hereIds);
+      list = renderList(hereIds, stoppedHere?.id ?? null);
       clear(listHost, list);
       if (focused) listHost.querySelector(`[data-fk="${CSS.escape(focused)}"]`)?.focus();
     }
@@ -494,9 +618,12 @@ export function createAgentsPanel(store) {
     cardHost.hidden = !card;
     stack.hidden = !card;
     listHost.hidden = !list;
-    el.hidden = !card && !list && !elsewhere.length && !left;
+    el.hidden = !card && !stoppedHere && !list && !elsewhere.length && !left;
     if (s.agents.length && !ticker) ticker = setInterval(tick, 1000);
     if (!s.agents.length && ticker) { clearInterval(ticker); ticker = null; }
+    const stoppedShown = (s.stoppedAgents ?? []).length > 0;
+    if (stoppedShown && !stoppedTicker) stoppedTicker = setInterval(render, 30_000); // "Stopped 3 min ago"
+    if (!stoppedShown && stoppedTicker) { clearInterval(stoppedTicker); stoppedTicker = null; }
     const counting = (at.leftovers ?? []).some(l => l.closesAt);
     if (counting && !leftTicker) leftTicker = setInterval(render, 30_000); // "Closes in N min"
     if (!counting && leftTicker) { clearInterval(leftTicker); leftTicker = null; }

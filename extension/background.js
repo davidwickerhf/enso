@@ -658,22 +658,49 @@ let agentSessions = [];
 // Agents' session-access requests (helper: lib/agentsessions.mjs accessList): pending ones and
 // ones just answered. Shown on the pill of every tab of the requested site, with Allow / Not now.
 let agentAccess = [];
+// Agents the user stopped (helper: lib/agentsessions.mjs stoppedList). Their sessions are gone, so
+// no pill or per-tab badge; a pending "wants to use Zen again" request puts "!" on the toolbar button.
+let agentStopped = [];
 let titlePrefixOn = true; // settings.agentTitlePrefix
 const presenceSent = new Map(); // tabId -> last presence sent (JSON)
+
+/** One word for a session's state, the same as the sidebar's: Working, Idle, Paused, Stopped. */
+const agentState = s => (s.stopped ? "stopped" : s.paused ? "paused" : s.running ? "working" : "idle");
 
 function setAgentBadge(tabId, list) {
   const ba = browser.browserAction;
   const live = list.filter(s => !s.stopped);
   ba.setBadgeText({ tabId, text: !live.length ? "" : live.length > 1 ? `AI${live.length}` : "AI" }).catch?.(() => {});
-  ba.setBadgeBackgroundColor({ tabId, color: live.length && live.every(s => s.paused) ? AGENT_BADGE_PAUSED : AGENT_BADGE }).catch?.(() => {});
+  // Copper while an agent works here; grey when they are all idle or paused.
+  ba.setBadgeBackgroundColor({ tabId, color: live.some(s => s.running && !s.paused) ? AGENT_BADGE : AGENT_BADGE_PAUSED }).catch?.(() => {});
   ba.setBadgeTextColor?.({ tabId, color: "#ffffff" })?.catch?.(() => {});
-  const line = s => `${s.client}${s.space ? ` · ${s.space}` : ""}${s.task ? `: ${s.task}` : " is working on this tab"}${s.stopped ? " (stopped)" : s.paused ? " (paused)" : ""}${list.length > 1 && s.control === "holder" ? " · in control" : s.control === "waiting" ? " · waiting for the tab" : ""}`;
+  const line = s => `${s.client}${s.space ? ` · ${s.space}` : ""}${s.task ? `: ${s.task}` : ""} (${agentState(s)})${list.length > 1 && s.control === "holder" ? " · in control" : s.control === "waiting" ? " · waiting for the tab" : ""}`;
   ba.setTitle({ tabId, title: list.length > 1 ? `Ensō · ${list.length} agents\n${list.map(line).join("\n")}` : `Ensō · ${line(list[0])}` }).catch?.(() => {});
 }
 function clearAgentBadge(tabId) {
   const ba = browser.browserAction;
   ba.setBadgeText({ tabId, text: null }).catch?.(() => {});
   ba.setTitle({ tabId, title: null }).catch?.(() => {});
+}
+
+/**
+ * The toolbar button's global badge (tabs without an agent fall back to it): "!" while a
+ * stopped agent asks to use Zen again, with the request in the tooltip; nothing otherwise.
+ */
+let globalBadgeSent = "";
+function syncGlobalBadge() {
+  const ba = browser.browserAction;
+  const asking = agentStopped.filter(r => r.request?.status === "pending");
+  const stoppedOnly = agentStopped.filter(r => r.request?.status !== "pending");
+  const title = asking.length
+    ? `Ensō · ${asking.map(r => `${r.client} wants to use Zen again${r.request.task ? `: ${r.request.task}` : ""}`).join("\n")}`
+    : stoppedOnly.length ? `Ensō · ${stoppedOnly.map(r => `${r.client} stopped${r.task ? `: ${r.task}` : ""}`).join("\n")}` : "Ensō";
+  const key = JSON.stringify([asking.length, title]);
+  if (key === globalBadgeSent) return;
+  globalBadgeSent = key;
+  ba.setBadgeText({ text: asking.length ? "!" : "" }).catch?.(() => {});
+  if (asking.length) ba.setBadgeBackgroundColor({ color: AGENT_BADGE }).catch?.(() => {});
+  ba.setTitle({ title }).catch?.(() => {});
 }
 
 // Every session on a tab goes to the page together (newest first): one pill, one title prefix.
@@ -1088,6 +1115,11 @@ function connectNative() {
       agentSessions = (msg.type === "agents" ? msg.sessions : msg.agents) ?? [];
       const acc = msg.type === "agents" ? msg.access : msg.agentAccess;
       if (Array.isArray(acc)) agentAccess = acc.filter(r => r && typeof r.id === "string" && typeof r.origin === "string").slice(0, 20);
+      const stopped = msg.type === "agents" ? msg.stopped : msg.stoppedAgents;
+      if (Array.isArray(stopped)) {
+        agentStopped = stopped.filter(r => r && typeof r.id === "string").slice(0, 20);
+        syncGlobalBadge();
+      }
       const tabsState = msg.agentTabs;
       if (Array.isArray(tabsState?.marked)) markedTabs = new Set(tabsState.marked.filter(Number.isInteger));
       syncPresence();

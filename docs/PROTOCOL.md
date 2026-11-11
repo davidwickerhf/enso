@@ -65,7 +65,10 @@ All messages are objects with a `type`. Times are ISO strings. Ids are strings.
 | `agents.list` | | `agents` |
 | `agents.pause` | `id` (an `AgentSession` id) | `agents` (that agent's calls on that tab, and its tab-less actions, are refused until resumed) |
 | `agents.resume` | `id` | `agents` (its next call carries the hand-back note) |
-| `agents.stop` | `id` | `agents` (every further call of that agent session is refused for 30 minutes) |
+| `agents.stop` | `id` | `agents` (the agent's task ends: its sessions and leases go, and a stop record in `stopped` refuses it until the user allows it again or 30 minutes pass) |
+| `agents.allow` | `id` (a stopped agent's id) | the user's **Allow** on a request to use Zen again, or **Allow again** on a stopped card: the stop ends and a requested task starts; `agents` + `actions.added` (`action: "agent_allow"`). Only from Ensō's pages (background.js "ui" ports); no MCP path |
+| `agents.keep` | `id` (a stopped agent's id) | **Keep stopped** on its pending request; `agents` (the request `kept`) |
+| `agents.hide` | `id` (a stopped agent's id) | **Dismiss** on a stopped card: hidden from the sidebar, still stopped; `agents` |
 | `agents.note` | `id`, `text` (≤ 1000 characters) | `agents` (the note, undelivered) + `actions.added` (`action: "note"`, without the text); `deliveredAt` is set when the agent's next tool result carries it |
 | `agents.dismiss` | `id` | `agents` (removes the session from the list, e.g. a stopped one) |
 | `agents.handover` | `id` (an `AgentSession` id) | `agents` (tab leases: the tab of that session goes to it, shared mode there ends; its next tool result starts with the hand-over note) |
@@ -214,6 +217,19 @@ answered in the last 15 seconds, newest first.
   status: "pending" | "granted" | "dismissed", resolvedAt: ISO | null,
   told: false }                            // the agent's next tool result carried the answer
 ```
+`agents` also carries `stopped: [StoppedAgent]` (and `state` carries
+`stoppedAgents`): agents the user stopped, while the stop lasts, and their
+requests to use Zen again. Hidden ones (Dismiss) come back with a new request.
+```js
+{ id: "st-1a2b3c4d5e6f", client: "Claude Code", clientName: "claude-code",
+  task: "Find the DPA options", space: "Personal" | null,
+  tabId: 42 | null, url, title,            // where it last worked (the stopped card shows on that tab)
+  t3ThreadId: null, lastStep: { tool, title, target, at } | null,
+  stoppedAt: ISO, expiresAt: ISO,          // 30 min after the last of Stop, request and answer
+  request: { task, space, at: ISO, status: "pending" | "kept", decidedAt: ISO | null } | null,
+  agentId: "ag-…" | null }
+```
+background.js shows "!" on the toolbar button while a request is pending.
 `agents` (and `state`) also carry `agentTabs` (lib/agenttabs.mjs): the tabs
 agents opened with `tabs_open`, and what's left once their agent is gone.
 ```js
