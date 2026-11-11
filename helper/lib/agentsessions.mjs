@@ -123,6 +123,7 @@ export function createAgentSessions({ now = Date.now, onChange = () => {}, idleM
   const sessions = new Map(); // `${key}#${tabId ?? "-"}` -> session
   const stopped = new Map(); // client key -> stoppedAt
   const tasks = new Map(); // client key -> task (from session_start), applies to new tabs too
+  const spaces = new Map(); // client key -> { id, name } (session_start's space): where its tabs open by default
   const leases = new Map(); // tabId -> { key, client, at }: the agent session that may act on the tab
   const sharedTabs = new Set(); // tabIds the user let every agent act on
   const access = new Map(); // request id -> { id, key, client, clientName, sessionId, tabId, origin, tool, at, status, resolvedAt, notified }
@@ -429,11 +430,14 @@ export function createAgentSessions({ now = Date.now, onChange = () => {}, idleM
       return action;
     },
 
-    /** session_start: the agent says what it is doing. */
-    start(client, { task, tabId = null, url, title }) {
+    /** session_start: the agent says what it is doing, and optionally in which Zen space ({ id, name }). */
+    start(client, { task, tabId = null, url, title, space }) {
       const key = clientKey(client);
       const t = clean(task, MAX_TASK_CHARS);
       if (t) tasks.set(key, t);
+      const sp = space?.id ? { id: String(space.id), name: clean(space.name, 60) } : null;
+      if (sp) spaces.set(key, sp);
+      else if (space === null) spaces.delete(key);
       for (const s of ofClient(key)) if (t) s.task = t;
       const s = ensure(client, tabId, { url, title });
       if (t) s.task = t;
@@ -452,13 +456,27 @@ export function createAgentSessions({ now = Date.now, onChange = () => {}, idleM
         s.ended = true;
         n++;
       }
-      if (tabId == null) tasks.delete(key);
+      if (tabId == null) {
+        tasks.delete(key);
+        spaces.delete(key);
+      }
       release(key, tabId);
       for (const [k, s] of sessions) if (s.ended) sessions.delete(k);
       dropShared();
       pruneAccess();
       changed();
       return n;
+    },
+
+    /** Whether the agent with this key (clientKey) has a live session that isn't stopped (lib/agenttabs.mjs). */
+    isLive(key) {
+      return !isStopped(key) && ofClient(key).length > 0;
+    },
+    keyOf: client => clientKey(client),
+
+    /** The Zen space this agent said it works in (session_start), or null. */
+    spaceOf(client) {
+      return spaces.get(clientKey(client)) ?? null;
     },
 
     status(client, { tabId = null } = {}) {
@@ -470,6 +488,7 @@ export function createAgentSessions({ now = Date.now, onChange = () => {}, idleM
         paused: onTab ? onTab.paused : mine.some(s => s.paused),
         pausedTabs: mine.filter(s => s.paused).map(s => s.tabId),
         task: tasks.get(key) ?? onTab?.task ?? mine[0]?.task ?? "",
+        space: spaces.get(key)?.name ?? null,
         sessions: mine.length,
         messages: collect(key, tabId),
       };
@@ -636,7 +655,7 @@ export function createAgentSessions({ now = Date.now, onChange = () => {}, idleM
         .sort((a, b) => b.lastAt - a.lastAt)
         .map(a => {
           const live = ofClient(a.key).sort((x, y) => y.lastAt - x.lastAt);
-          return { id: a.id, client: a.client, clientName: a.clientName, task: live[0]?.task || tasks.get(a.key) || "", tabIds: live.map(x => x.tabId).filter(x => x != null), sessionIds: live.map(x => x.id), active: live.some(x => x.running > 0) || t - a.lastAt < idleMs, t3ThreadId: a.t3ThreadId, lastAt: new Date(a.lastAt).toISOString(), pending: a.inbox.filter(i => !i.deliveredAt).length, inbox: a.inbox.map(({ image, ...i }) => ({ ...i })) };
+          return { id: a.id, client: a.client, clientName: a.clientName, task: live[0]?.task || tasks.get(a.key) || "", space: spaces.get(a.key)?.name ?? null, tabIds: live.map(x => x.tabId).filter(x => x != null), sessionIds: live.map(x => x.id), active: live.some(x => x.running > 0) || t - a.lastAt < idleMs, t3ThreadId: a.t3ThreadId, lastAt: new Date(a.lastAt).toISOString(), pending: a.inbox.filter(i => !i.deliveredAt).length, inbox: a.inbox.map(({ image, ...i }) => ({ ...i })) };
         });
     },
 
@@ -740,6 +759,7 @@ export function createAgentSessions({ now = Date.now, onChange = () => {}, idleM
         client: s.client,
         clientName: s.clientName,
         task: s.task,
+        space: spaces.get(s.key)?.name ?? null, // the Zen space it said it works in
         tabId: s.tabId,
         url: s.url,
         title: s.title,

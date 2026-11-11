@@ -14,6 +14,11 @@
 //     one line), and "One at a time" to end sharing;
 //   - the Agents row: every live session across tabs and spaces; a row
 //     switches to that tab, Stop stops it;
+//   - tabs agents left open (lib/agenttabs.mjs): tabs an agent opened and
+//     didn't close before its session ended, "Opened by <agent> for <task>",
+//     with Close all, ✕ and Keep per tab, and when Ensō will close them
+//     (Settings → Agents & screenshots → Tabs agents leave open); below,
+//     "Recently closed by Ensō" with Reopen;
 //   - session-access requests (lib/agentsessions.mjs requestAccess): an agent
 //     refused because a site isn't on the session-access list asks through
 //     Ensō. The agent's card shows "<Client> wants to use your login on
@@ -27,7 +32,7 @@
 // nothing here takes focus unless the page pill asked for the card.
 
 import { h, clear, icon, iconButton, hostBadge } from "../dom.js";
-import { hostOf, fullDate } from "../format.js";
+import { hostOf, fullDate, relTime } from "../format.js";
 
 const STEP_VERB = {
   page_read: "Read the page",
@@ -160,8 +165,11 @@ export function createAgentsPanel(store) {
   const el = h("div", { class: "agents-slot" });
   let card = null; // { id, root, parts… }
   let listOpen = false;
+  let leftOpen = true; // "Tabs agents left open"
+  let closedOpen = false; // "Recently closed by Ensō"
   let lastAnnounced = null;
   let ticker = null;
+  let leftTicker = null;
 
   let picked = null; // the session shown when several work on the active tab
   const shades = new Map(); // session id -> shade
@@ -196,6 +204,7 @@ export function createAgentsPanel(store) {
     const stopBtn = h("button", { type: "button", class: "btn small ghost danger", onclick: () => { const x = current(); if (x) actions.stopAgent(x.id); } }, icon("stop"), "Stop");
     const dismissBtn = h("button", { type: "button", class: "btn small ghost", onclick: () => { const x = current(); if (x) actions.dismissAgent(x.id); } }, "Dismiss");
     const who = h("strong", { class: "agent-client" });
+    const spaceTag = h("span", { class: "tag agent-space", hidden: true }); // the Zen space it said it works in
     const task = h("span", { class: "agent-task" });
     const stateEl = h("span", { class: "agent-state" });
     const time = h("span", { class: "agent-time" });
@@ -213,12 +222,12 @@ export function createAgentsPanel(store) {
     const root = h("section", { class: "agent-card", tabindex: "-1", aria: { label: `${a.client} is working on this tab` } },
       h("header", { class: "agent-head" },
         h("span", { class: "agent-mark", aria: { hidden: "true" } }, "✦"),
-        h("div", { class: "agent-who" }, h("span", { class: "agent-who-line" }, who, controlBadge), task),
+        h("div", { class: "agent-who" }, h("span", { class: "agent-who-line" }, who, spaceTag, controlBadge), task),
         h("div", { class: "agent-meta" }, stateEl, time)),
       t3Line, accessHost, lease, steps, status, notes,
       h("div", { class: "agent-actions" }, form, h("div", { class: "agent-controls" }, pauseBtn, stopBtn, dismissBtn)),
       live);
-    return { id: a.id, root, steps, notes, input, form, pauseBtn, stopBtn, dismissBtn, who, task, stateEl, time, status, live, t3Line, t3Title, t3Open, controlBadge, lease, leaseText, leaseRisk, leaseActions, accessHost, accessSig: "", leaseSig: "", stepIds: "" };
+    return { id: a.id, root, steps, notes, input, form, pauseBtn, stopBtn, dismissBtn, who, spaceTag, task, stateEl, time, status, live, t3Line, t3Title, t3Open, controlBadge, lease, leaseText, leaseRisk, leaseActions, accessHost, accessSig: "", leaseSig: "", stepIds: "" };
   }
 
   function fillCard(a) {
@@ -226,8 +235,11 @@ export function createAgentsPanel(store) {
     c.root.classList.toggle("paused", !!a.paused);
     c.root.classList.toggle("stopped", !!a.stopped);
     c.root.classList.toggle("running", !!a.running && !a.paused && !a.stopped);
-    c.root.setAttribute("aria-label", `${a.client}${a.task ? `: ${a.task}` : ""}. ${stateLabel(a)}.`);
+    c.root.setAttribute("aria-label", `${a.client}${a.space ? ` in ${a.space}` : ""}${a.task ? `: ${a.task}` : ""}. ${stateLabel(a)}.`);
     c.who.textContent = a.client;
+    c.spaceTag.hidden = !a.space;
+    c.spaceTag.textContent = a.space ?? "";
+    c.spaceTag.title = a.space ? `Working in the Zen space ${a.space}: its tabs open there` : "";
     // Tab leases: who may act here, and the user's hand-over / shared controls.
     const here = onTab();
     const lv = leaseView(a, here);
@@ -350,11 +362,61 @@ export function createAgentsPanel(store) {
         h("button", { type: "button", class: "agents-go", dataset: { fk: `go-${a.id}` }, disabled: a.tabId == null, title: a.tabId == null ? "Not on a tab yet" : "Switch to this tab", aria: { label: `Switch to the tab where ${a.client} is working${a.title ? `: ${a.title}` : ""}` }, onclick: () => a.tabId != null && actions.switchToTab(a.tabId) },
           host ? hostBadge(host) : h("span", { class: "agent-mark small", aria: { hidden: "true" } }, "✦"),
           h("span", { class: "agents-main" },
-            h("span", { class: "agents-who" }, h("strong", null, a.client), a.task ? ` · ${a.task}` : "", s.agentAccess.some(r => r.status === "pending" && (r.sessionIds ?? [r.sessionId]).includes(a.id)) ? h("span", { class: "tag accent agents-asks" }, "asks for access") : null),
-            h("span", { class: "agents-sub" }, [a.control === "waiting" && !a.stopped ? "Waiting for the tab" : stateLabel(a), tab?.space || null, a.title || host || null, last ? stepText(last) : null].filter(Boolean).join(" · ")))),
+            h("span", { class: "agents-who" }, h("strong", null, a.client), a.space ? ` · ${a.space}` : "", a.task ? ` · ${a.task}` : "", s.agentAccess.some(r => r.status === "pending" && (r.sessionIds ?? [r.sessionId]).includes(a.id)) ? h("span", { class: "tag accent agents-asks" }, "asks for access") : null),
+            h("span", { class: "agents-sub" }, [a.control === "waiting" && !a.stopped ? "Waiting for the tab" : stateLabel(a), a.space ? null : tab?.space || null, a.title || host || null, last ? stepText(last) : null].filter(Boolean).join(" · ")))),
         a.stopped ? iconButton("x", `Dismiss ${a.client}`, () => actions.dismissAgent(a.id), { class: "small", dataset: { fk: `x-${a.id}` } }) : iconButton("stop", `Stop ${a.client}`, () => actions.stopAgent(a.id), { class: "small danger-icon", dataset: { fk: `stop-${a.id}` } }));
     })) : null;
     return h("div", { class: "agents-row-wrap" }, toggle, list);
+  }
+
+  const SKIPPED = { active: "it's the tab you're on", pinned: "it's pinned", group: "it's in one of your groups" };
+  // When first (it's what the row is for), then whose tab it was; the full text is the tooltip.
+  function leftoverSub(l) {
+    const by = `${l.client}${l.task ? `: ${l.task}` : ""}`;
+    if (l.skipped) return `Kept open: ${SKIPPED[l.skipped] ?? "it's in use"} · ${by}`;
+    if (!l.closesAt) return `Left ${relTime(l.leftSince)} · ${by}`;
+    const mins = Math.max(0, Math.round((Date.parse(l.closesAt) - Date.now()) / 60_000));
+    return `Closes ${mins < 1 ? "in under a minute" : `in ${mins} min`} · ${by}`;
+  }
+
+  function renderLeftovers() {
+    const at = s.agentTabs ?? {};
+    const left = at.leftovers ?? [];
+    const closed = at.recentlyClosed ?? [];
+    if (!left.length && !closed.length) return null;
+    const leftBlock = left.length ? h("div", { class: "agents-row-wrap agents-leftovers" },
+      h("div", { class: "agents-leftovers-head" },
+        h("button", { type: "button", class: "agents-toggle", dataset: { fk: "left-toggle" }, aria: { expanded: String(leftOpen), controls: "agents-leftovers-list" }, onclick: () => { leftOpen = !leftOpen; render(); } },
+          h("span", { class: "agents-dot idle", aria: { hidden: "true" } }),
+          h("span", { class: "agents-label" }, `Tabs agents left open (${left.length})`),
+          icon(leftOpen ? "chevronDown" : "chevronRight")),
+        h("button", { type: "button", class: "btn small ghost", dataset: { fk: "left-close-all" }, title: "Close every tab in this list", onclick: () => actions.closeAgentTabs("all") }, "Close all")),
+      leftOpen ? h("ul", { class: "agents-list", id: "agents-leftovers-list", aria: { label: "Tabs agents left open" } }, left.map(l => {
+        const host = hostOf(l.url);
+        return h("li", { class: "agents-row" },
+          h("button", { type: "button", class: "agents-go", dataset: { fk: `left-go-${l.tabId}` }, title: "Switch to this tab (it becomes yours)", onclick: () => actions.switchToTab(l.tabId) },
+            host ? hostBadge(host) : h("span", { class: "agent-mark small", aria: { hidden: "true" } }, "✦"),
+            h("span", { class: "agents-main" },
+              h("span", { class: "agents-who" }, h("strong", null, l.title || host || l.url), l.space ? h("span", { class: "tag agent-space" }, l.space) : null),
+              h("span", { class: "agents-sub", title: `${leftoverSub(l)}. Opened by ${l.client}${l.task ? ` for ${l.task}` : ""}; using the tab makes it yours.` }, leftoverSub(l)))),
+          h("button", { type: "button", class: "btn small ghost", dataset: { fk: `left-keep-${l.tabId}` }, title: "Keep this tab open; it stops being an agent's tab", onclick: () => actions.keepAgentTabs([l.tabId]) }, "Keep"),
+          iconButton("x", `Close ${l.title || host || "this tab"}`, () => actions.closeAgentTabs([l.tabId]), { class: "small", dataset: { fk: `left-x-${l.tabId}` } }));
+      })) : null) : null;
+    const closedBlock = closed.length ? h("div", { class: "agents-row-wrap agents-closed" },
+      h("button", { type: "button", class: "agents-toggle", dataset: { fk: "closed-toggle" }, aria: { expanded: String(closedOpen), controls: "agents-closed-list" }, onclick: () => { closedOpen = !closedOpen; render(); } },
+        h("span", { class: "agents-label" }, `Recently closed by Ensō (${closed.length})`),
+        icon(closedOpen ? "chevronDown" : "chevronRight")),
+      closedOpen ? h("ul", { class: "agents-list", id: "agents-closed-list", aria: { label: "Recently closed by Ensō" } }, closed.map(c => {
+        const host = hostOf(c.url);
+        return h("li", { class: "agents-row" },
+          h("span", { class: "agents-go static" },
+            host ? hostBadge(host) : null,
+            h("span", { class: "agents-main" },
+              h("span", { class: "agents-who" }, h("strong", null, c.title || host || c.url)),
+              h("span", { class: "agents-sub" }, `Closed ${relTime(c.closedAt)}${c.auto ? ", unused" : ""} · ${c.client}`))),
+          h("button", { type: "button", class: "btn small ghost", dataset: { fk: `reopen-${c.id}` }, onclick: () => actions.reopenClosedTab(c.id) }, "Reopen"));
+      })) : null) : null;
+    return h("div", { class: "agents-leftovers-wrap" }, leftBlock, closedBlock);
   }
 
   const tabsHost = h("div", { class: "agent-tabs-host" });
@@ -366,7 +428,9 @@ export function createAgentsPanel(store) {
   let accessSig = "";
   let listSig = "";
   let tabsSig = "";
-  el.append(stack, accessHost, listHost);
+  const leftHost = h("div", { class: "agents-leftovers-host" });
+  let leftSig = "";
+  el.append(stack, accessHost, listHost, leftHost);
 
   function render() {
     const a = current();
@@ -415,12 +479,27 @@ export function createAgentsPanel(store) {
       if (focused) accessHost.querySelector(`[data-fk="${CSS.escape(focused)}"]`)?.focus();
     }
     accessHost.hidden = !elsewhere.length;
+    // Tabs agents left open, and the ones Ensō closed.
+    const at = s.agentTabs ?? {};
+    const lsig = JSON.stringify([leftOpen, closedOpen, at.mode, (at.leftovers ?? []).map(l => [l.tabId, l.title, l.url, l.task, l.skipped, l.closesAt && Math.round((Date.parse(l.closesAt) - Date.now()) / 60_000)]), (at.recentlyClosed ?? []).map(c => c.id)]);
+    let left = leftHost.firstChild;
+    if (lsig !== leftSig) {
+      leftSig = lsig;
+      const focused = leftHost.contains(document.activeElement) ? document.activeElement.dataset.fk : null;
+      left = renderLeftovers();
+      clear(leftHost, left);
+      if (focused) leftHost.querySelector(`[data-fk="${CSS.escape(focused)}"]`)?.focus();
+    }
+    leftHost.hidden = !left;
     cardHost.hidden = !card;
     stack.hidden = !card;
     listHost.hidden = !list;
-    el.hidden = !card && !list && !elsewhere.length;
+    el.hidden = !card && !list && !elsewhere.length && !left;
     if (s.agents.length && !ticker) ticker = setInterval(tick, 1000);
     if (!s.agents.length && ticker) { clearInterval(ticker); ticker = null; }
+    const counting = (at.leftovers ?? []).some(l => l.closesAt);
+    if (counting && !leftTicker) leftTicker = setInterval(render, 30_000); // "Closes in N min"
+    if (!counting && leftTicker) { clearInterval(leftTicker); leftTicker = null; }
   }
 
   render();

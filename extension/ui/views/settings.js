@@ -445,6 +445,8 @@ export function createSettings(store, ctx) {
         row({ label: "Access", desc: "Read: see tabs and pages. Full: also click, type, open and close. Private sites are always off-limits.", keys: "external control full read only off mcp permission",
           control: segmented("Agent access", [["full", "Full"], ["read", "Read"], ["off", "Off"]], st.externalControl ?? "full", v => save({ externalControl: v })) }),
         switchRow("Mark the tab an agent uses", "Puts ✦ in front of the tab's title while an agent works there.", st.agentTitlePrefix !== false, v => save({ agentTitlePrefix: v }), { keys: "title prefix star tab list" }),
+        row({ label: "Tabs agents leave open", desc: "Tabs an agent opened and didn't close by the time its session ended. Tabs you've used, the active tab, pinned tabs and tabs in your groups are never closed for you.", keys: "leftover tabs close agents opened cleanup abandoned",
+          control: segmented("Tabs agents leave open", [["close", "Close after 30 min unused"], ["ask", "Ask me"], ["keep", "Keep"]], st.agentLeftoverTabs ?? "close", v => save({ agentLeftoverTabs: v })) }),
         setup ? kit.readOnlyRow(setup) : null),
       group("Screenshots",
         row({ label: "Take a screenshot", desc: `${SCREENSHOT_SHORTCUT} or the camera button. Send it to a T3 Code thread or a connected agent, or copy it. Screenshots stay on ${here()}.`, keys: "screenshot capture camera shortcut send" }),

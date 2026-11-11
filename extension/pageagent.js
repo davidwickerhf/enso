@@ -20,6 +20,19 @@
   window.__ensoAgent = true;
   const INSTANCE = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
 
+  // The user's own click or key press here (trusted events only; the agent's are
+  // synthetic) makes a tab an agent opened the user's (background.js, lib/agenttabs.mjs).
+  if (window === window.top) {
+    let told = 0;
+    const userInput = e => {
+      if (!e.isTrusted || Date.now() - told < 5000) return;
+      told = Date.now();
+      browser.runtime.sendMessage({ ensoUserInput: true }).catch(() => {});
+    };
+    window.addEventListener("pointerdown", userInput, true);
+    window.addEventListener("keydown", userInput, true);
+  }
+
   const ACCENT = "#d9643a";
   let refs = new Map();
 
@@ -159,10 +172,11 @@
     const top = order[0];
     const tone = stateOf(top);
     if (sessions.length === 1) {
-      return { text: top.task ? `✦ ${top.label} · ${top.task}` : `✦ ${top.label} is working on this page`, state: tone === "stopped" ? "· Stopped" : tone === "paused" ? "· Paused" : "", tone };
+      const who = top.space ? `${top.label} · ${top.space}` : top.label;
+      return { text: top.task ? `✦ ${who} · ${top.task}` : `✦ ${who} is working on this page`, state: tone === "stopped" ? "· Stopped" : tone === "paused" ? "· Paused" : "", tone };
     }
     const more = sessions.length - 1;
-    const text = `✦ ${sessions.length} agents · ${top.label}${top.task ? `: ${top.task}` : ""} (+${more})`;
+    const text = `✦ ${sessions.length} agents · ${top.label}${top.space ? ` · ${top.space}` : ""}${top.task ? `: ${top.task}` : ""} (+${more})`;
     const paused = sessions.filter(s => stateOf(s) === "paused").length;
     const waiting = sessions.filter(s => s.control === "waiting" && stateOf(s) !== "stopped").length;
     const state = tone === "stopped" ? "· Stopped" : tone === "paused" ? "· Paused" : paused ? `· ${paused} paused` : waiting ? `· ${waiting} waiting` : "";
@@ -383,7 +397,7 @@
       const who = document.createElement("span");
       Object.assign(who.style, { flex: "1 1 auto", minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" });
       const name = document.createElement("strong");
-      name.textContent = s.label;
+      name.textContent = s.space ? `${s.label} · ${s.space}` : s.label;
       Object.assign(name.style, { fontWeight: "650" });
       const task = document.createElement("span");
       task.textContent = s.task ? ` · ${s.task}` : " · no task given";
@@ -445,6 +459,7 @@
     id: String(x?.id ?? `s${i}`).slice(0, 64),
     label: String(x?.label ?? "").trim().slice(0, 40) || "An agent",
     task: String(x?.task ?? "").slice(0, 200),
+    space: String(x?.space ?? "").trim().slice(0, 40), // the Zen space it said it works in
     startedAt: String(x?.startedAt ?? ""),
     running: !!x?.running,
     paused: !!x?.paused,

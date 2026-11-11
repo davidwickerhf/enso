@@ -3,6 +3,7 @@
 
 import { z } from "zod";
 import { createReport } from "./store.mjs";
+import { findSpace, listRoutes, listSpaces, routeFor, spaceHint, zenPrefs } from "./zenspaces.mjs";
 
 const COLORS = ["grey", "blue", "red", "yellow", "green", "pink", "purple", "cyan", "orange"];
 const text = t => ({ content: [{ type: "text", text: t }] });
@@ -42,20 +43,67 @@ export const BROWSER_TOOLS = [
     },
   },
   {
+    name: "spaces_list",
+    title: "List Zen spaces",
+    description: "List the user's Zen spaces (workspaces): name, id, icon, container (each space's own logins), which one is on screen, and what the user said each is for. Use it to pick the space for tabs_open and session_start when the task doesn't make it obvious.",
+    shape: {},
+    kind: "read",
+    async run(_a, ctx) {
+      const spaces = listSpaces();
+      if (!spaces.length) return text("Ensō can't see any Zen spaces (Zen's session file wasn't found). tabs_open opens in the current space.");
+      let info = { current: null, containers: {} };
+      try {
+        info = (await ctx.browser("spaces_info", { spaces })) ?? info;
+      } catch {}
+      const mine = ctx.sessionSpace?.() ?? null;
+      const lines = spaces.map(sp => {
+        const container = sp.containerId ? `container "${info.containers?.[sp.containerId] ?? `#${sp.containerId}`}"` : "no container (the default logins)";
+        const hint = spaceHint(sp);
+        const tags = [sp.id === info.current && "on screen now", mine?.id === sp.id && "your session's space"].filter(Boolean);
+        return `- ${sp.name}${tags.length ? ` (${tags.join(", ")})` : ""}: id ${sp.id}${sp.icon ? `, icon ${sp.icon}` : ""}, ${container}${hint ? `. About: ${hint}` : ""}`;
+      });
+      return text(`The user's Zen spaces:\n${lines.join("\n")}\nOpen tabs in the space that matches the task: tabs_open { urls, space: "<name>" }; session_start { task, space } makes it your default.`);
+    },
+  },
+  {
     name: "tabs_open",
     title: "Open tabs",
-    description: "Open one or more URLs in new tabs, in the user's current Zen space (its container, so its logins). Replies with each new tab's tabId: pass it to page tools to work in that tab. For external agents the tabs open in the background (the user's tab keeps focus) unless background is false, and they are yours: other agents can read them but not act on them.",
-    shape: { urls: z.array(z.string().url()).min(1).max(20), background: z.boolean().optional().describe("Open without switching to the tab (default: true for external agents, false in Ensō's own chat)") },
+    description:
+      "Open one or more URLs in new tabs in a Zen space, with that space's container (so its logins). space: a name or id from spaces_list; pick the one that matches the task (work for an organisation → that organisation's space) and never open work tabs in Personal by default. Without space it uses your session's space (session_start), else the space on screen. " +
+      "Replies with each new tab's tabId (pass it to page tools; they work on tabs in any space) and where the tabs actually landed: Zen only lets Ensō put a tab in a space that is on screen in some window, so otherwise the tab opens with that space's container in the current space and the reply says so. " +
+      "For external agents the tabs open in the background (the user's tab keeps focus) unless background is false, and they are yours: other agents can read them but not act on them.",
+    shape: {
+      urls: z.array(z.string().url()).min(1).max(20),
+      space: z.string().min(1).max(200).optional().describe("Zen space name or id (spaces_list). Default: your session's space, else the space on screen"),
+      background: z.boolean().optional().describe("Open without switching to the tab (default: true for external agents, false in Ensō's own chat)"),
+    },
     kind: "read",
     async run(args, ctx) {
       // An external agent shouldn't pull the user away from what they are doing.
       const background = args.background ?? (ctx.external ? true : false);
-      const opened = (await ctx.browser("tabs_open", { ...args, background })) ?? [];
+      const spaces = listSpaces();
+      let target = null;
+      let from = "";
+      if (args.space) {
+        const r = findSpace(args.space, spaces);
+        if (r.error) throw new Error(r.error);
+        target = r.space;
+        from = "asked";
+      } else {
+        const fallback = ctx.external ? ctx.sessionSpace?.() : ctx.space;
+        if (fallback?.id) {
+          target = spaces.find(sp => sp.id === fallback.id) ?? null;
+          from = ctx.external ? "session" : "conversation";
+        }
+      }
+      const reply = await ctx.browser("tabs_open", { urls: args.urls, background, ...(target ? { space: target, spaces } : spaces.length ? { spaces } : {}) });
+      // Older extensions answer with the bare list.
+      const r = Array.isArray(reply) ? { opened: reply, placement: "current", currentSpace: null, container: null } : (reply ?? { opened: [] });
+      const opened = r.opened ?? [];
       const ids = opened.map(o => o.tabId).filter(Number.isInteger);
-      if (ctx.external && ids.length) ctx.claimTabs?.(ids);
+      if (ctx.external && ids.length) ctx.claimTabs?.(ids, opened.filter(o => Number.isInteger(o.tabId)));
       if (!opened.length) return text("Opened no tabs (only http(s) URLs can be opened).");
-      const lines = opened.map(o => `- tab ${o.tabId}: ${o.url}`);
-      return text(`Opened ${opened.length} tab(s)${background ? " in the background" : ""}:\n${lines.join("\n")}${ctx.external ? "\nPass tabId to page tools to work in these tabs (without it they act on the user's active tab)." : ""}`);
+      return text(describeOpened({ opened, r, target, from, background, external: ctx.external, spaces }) + (ctx.external ? "\nWhen you're done, close the tabs you opened (tabs_close) and call session_end; otherwise Ensō cleans them up after your session ends." : ""));
     },
   },
   {
@@ -66,6 +114,7 @@ export const BROWSER_TOOLS = [
     kind: "read",
     async run(args, ctx) {
       const r = await ctx.browser("tabs_group", args);
+      if (ctx.external && args.groupId == null) ctx.agentGroup?.(r.groupId);
       return text(`Grouped into group ${r.groupId}.`);
     },
   },
@@ -103,6 +152,7 @@ export const BROWSER_TOOLS = [
         if (!ok) throw new Error("The user declined closing these tabs.");
       }
       await ctx.browser("tabs_close", { tabIds: args.tabIds });
+      ctx.tabsClosed?.(args.tabIds);
       return text(`Closed ${args.tabIds.length} tab(s).`);
     },
   },
@@ -121,5 +171,36 @@ export const BROWSER_TOOLS = [
     },
   },
 ];
+
+/** The tabs_open reply: the tabs, and where they landed compared with the space asked for. */
+export function describeOpened({ opened, r, target, from, background, external, spaces = listSpaces(), prefs = zenPrefs(), routes = listRoutes() }) {
+  const nameOf = id => spaces.find(sp => sp.id === id)?.name ?? "another space";
+  const where = target ? ` in ${target.name}` : r.currentSpace ? ` in ${r.currentSpace}` : "";
+  const logins = target ? (target.containerId ? `, with its container${r.container && r.container !== target.name ? ` "${r.container}"` : ""} (${target.name}'s logins)` : " (no container: the default logins)") : "";
+  const lines = opened.map(o => {
+    let note = "";
+    if (o.inView === false) {
+      const routed = routeFor(o.url, routes);
+      if (routed) note = ` (Zen's Space routing rule moved it to ${nameOf(routed)})`;
+      else if (prefs.forceContainerWorkspace && target) note = ` (Zen moved it to ${target.name} and switched the window there, because zen.workspaces.force-container-workspace is on)`;
+      else note = " (Zen moved it out of the current space)";
+    } else if (o.inView === true && target && r.placement === "current") {
+      const routed = routeFor(o.url, routes);
+      if (routed && routed !== target.id) note = ` (matches Zen's routing rule for ${nameOf(routed)})`;
+    }
+    return `- tab ${o.tabId}: ${o.url}${note}`;
+  });
+  const why = from === "session" ? " (your session's space)" : from === "conversation" ? " (this conversation's space)" : "";
+  let head;
+  if (!target || r.placement === "exact") head = `Opened ${opened.length} tab(s)${where}${why}${logins}${background ? " in the background" : ""}:`;
+  else if (r.placement === "window") head = `Opened ${opened.length} tab(s)${where}${why}${logins}, in the Zen window that shows ${target.name}${background ? ", in the background" : ""}:`;
+  else {
+    const stayed = opened.every(o => o.inView !== false);
+    head = stayed
+      ? `Opened ${opened.length} tab(s) with ${target.name}'s ${target.containerId ? "container (its logins)" : "logins (no container)"}${why}, but in the space on screen${r.currentSpace ? `, ${r.currentSpace}` : ""}, not in ${target.name}${background ? ", in the background" : ""}. Zen only lets Ensō put a tab in a space that some window shows; it moves a tab to its space on its own only when a Space routing rule matches the URL, or when zen.workspaces.force-container-workspace is on (off by default; it also switches the window to that space). Tell the user if it matters which space the tab is in:`
+      : `Opened ${opened.length} tab(s) with ${target.name}'s ${target.containerId ? "container (its logins)" : "logins"}${why}:`;
+  }
+  return `${head}\n${lines.join("\n")}${external ? "\nPass tabId to page tools to work in these tabs (without it they act on the user's active tab)." : ""}`;
+}
 
 export const browserToolByName = new Map(BROWSER_TOOLS.map(t => [t.name, t]));

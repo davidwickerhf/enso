@@ -189,6 +189,9 @@ try {
     assert.equal((await state()).expanded, false, "one agent: the pill already says it all, no list");
     await page.mouse.move(5, 400);
     console.log("ok - one agent: one pill, \"Claude Code · <task>\", one prefix");
+    await presence({ ...A, space: "BISS" });
+    assert.equal((await state()).text, "✦ Claude Code · BISS · Summarise the interview", "the session's Zen space on the pill");
+    await presence(A);
 
     await presence(B, A); // newest first, as background.js sends them
     st = await state();
@@ -386,7 +389,7 @@ try {
     // The content script's own (fallback) handler, even on a real click, only opens Ensō: it never names an answer
     await page.mouse.click(box.x + allow.x, box.y + allow.y);
     await page.waitForTimeout(50);
-    const sent = await page.evaluate(() => window.__sent);
+    const sent = (await page.evaluate(() => window.__sent)).filter(m => !m.ensoUserInput); // the user's own click also reports "the user used this tab" (agent tabs)
     assert.ok(sent.length >= 1, "the real click reached the fallback handler");
     assert.ok(sent.every(m => m.ensoPillFallback && !("access" in m) && !("choice" in m)), `fallback messages only: ${JSON.stringify(sent)}`);
 

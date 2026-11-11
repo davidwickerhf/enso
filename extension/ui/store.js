@@ -67,6 +67,7 @@ export function createStore({ waitMs = WAIT_MS } = {}) {
     prefill: null,           // composer.prefill text waiting for the composer
     agents: [],              // live sessions of external agents (Claude Code, Codex…): see docs/PROTOCOL.md "agents"
     agentNotes: new Map(),   // local id → { sessionId, text, at } notes sent but not yet echoed by the helper
+    agentTabs: { mode: "close", marked: [], leftovers: [], recentlyClosed: [] }, // tabs agents opened and left open, and "Recently closed by Ensō" (lib/agenttabs.mjs)
     agentAccess: [],         // agents' session-access requests: [{ id, client, sessionId, sessionIds, tabId, origin, tool, at, status, told }] (docs/PROTOCOL.md "agents")
     agentFocus: null,        // { tabId, at } when the page pill asked for the agent card
     connectedAgents: [],     // agents connected through `enso mcp` (screenshot targets): [{ id, client, task, tabIds, active, t3ThreadId, pending }]
@@ -248,6 +249,7 @@ export function createStore({ waitMs = WAIT_MS } = {}) {
         if (msg.dashboard) s.dashboard = { ...s.dashboard, data: msg.dashboard };
         if (Array.isArray(msg.agents)) { s.agents = msg.agents; emit("agents"); }
         if (Array.isArray(msg.agentAccess)) { s.agentAccess = msg.agentAccess; emit("agents"); }
+        if (msg.agentTabs) { s.agentTabs = msg.agentTabs; emit("agents"); }
         if (Array.isArray(msg.connectedAgents)) s.connectedAgents = msg.connectedAgents;
         if (first && s.settings) s.ui.includePage = s.settings.includePageByDefault !== false;
         emit("state", "settings", "servers", "conversations", "dashboard", "ui", "skills", "reports", "banner", "profile");
@@ -432,6 +434,7 @@ export function createStore({ waitMs = WAIT_MS } = {}) {
         if (Array.isArray(msg.connected)) s.connectedAgents = msg.connected;
         s.agents = Array.isArray(msg.sessions) ? msg.sessions : [];
         if (Array.isArray(msg.access)) s.agentAccess = msg.access;
+        if (msg.agentTabs) s.agentTabs = msg.agentTabs;
         // Drop local "sending" notes the helper now knows about.
         for (const [id, n] of s.agentNotes) {
           const sess = s.agents.find(x => x.id === n.sessionId);
@@ -824,6 +827,10 @@ export function createStore({ waitMs = WAIT_MS } = {}) {
       emit("agents");
     },
     switchToTab(tabId) { send({ type: "agents.switch", tabId }); },
+    // Tabs agents left open (lib/agenttabs.mjs): close (all or some), keep (drop the agent mark), reopen one Ensō closed.
+    closeAgentTabs(tabIds) { const all = tabIds === "all"; s.agentTabs = { ...s.agentTabs, leftovers: all ? [] : s.agentTabs.leftovers.filter(l => !tabIds.includes(l.tabId)) }; send({ type: "agentTabs.close", ...(all ? { all: true } : { tabIds }) }); emit("agents"); },
+    keepAgentTabs(tabIds) { const all = tabIds === "all"; s.agentTabs = { ...s.agentTabs, leftovers: all ? [] : s.agentTabs.leftovers.filter(l => !tabIds.includes(l.tabId)) }; send({ type: "agentTabs.keep", ...(all ? { all: true } : { tabIds }) }); emit("agents"); },
+    reopenClosedTab(id) { s.agentTabs = { ...s.agentTabs, recentlyClosed: s.agentTabs.recentlyClosed.filter(c => c.id !== id) }; send({ type: "agentTabs.reopen", id }); emit("agents"); },
     // An agent's session-access request: the user's Allow adds exactly that origin to
     // settings.sessionAccess (the helper does it); Not now dismisses it for the agent's task.
     allowAccess(id) { setAccess(id, { status: "granted", resolvedAt: new Date().toISOString(), told: false }); send({ type: "access.allow", id }); },
