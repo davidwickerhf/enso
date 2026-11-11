@@ -7,6 +7,8 @@ the extension updates itself, the helper updates when you run the installer agai
 
 ## Unreleased
 
+- **Each build updates along its own channel.** Only direct-download builds are published to enso.wicker.life and its update feed; Firefox Add-ons builds update from addons.mozilla.org, so direct-download users are never moved onto the build without `page_eval`.
+
 - **New tabs open once, always.** The optional tab swap that moved the cursor into Ensō's box is removed, with its setting: Zen showed it as an extra tab appearing and vanishing, and it could stay on unnoticed.
 
 Agents can give pages files, wait for slow work, and send large payloads.
