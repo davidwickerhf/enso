@@ -34,7 +34,7 @@ const tick = () => new Promise(r => setTimeout(r, 0));
   let t = Date.parse("2026-11-10T10:00:00Z");
   const pushes = [];
   const reg = createAgentSessions({ now: () => t, onChange: l => pushes.push(l), timers: false });
-  const claude = { label: "Claude Code", name: "claude-code", session: "abc", via: "launcher" };
+  const claude = { label: "Claude Code", name: "claude-code", session: "SESSION_QX7-launcher", via: "launcher" };
   const codex = { label: "Codex", name: "codex-mcp-client", session: "xyz", via: "launcher" };
 
   // Lifecycle and timeout
@@ -135,7 +135,7 @@ const tick = () => new Promise(r => setTimeout(r, 0));
   assert.equal(rec.title, "Privacy");
   assert.equal(rec.lastStep.tool, "page_click");
   assert.equal(rec.request, null);
-  assert.ok(!JSON.stringify(rec).includes("abc"), "no client key (the launcher's session id) reaches the UI");
+  assert.ok(!JSON.stringify(rec).includes("SESSION_QX7"), "no client key (the launcher's session id) reaches the UI");
   const firstRefusal = reg.before(claude, { tool: "page_click", kind: "act", tabId: 3 });
   assert.deepEqual(firstRefusal.messages, [`${NOTE_PREFIX} Never mind`], "a note sent before the Stop still reaches the agent, once");
   for (const [tool, kind, tabId] of [["page_click", "act", 3], ["page_read", "read", 3], ["tabs_list", "read", null], ["tabs_open", "act", null], ["github_comment", "act", null], ["inbox_read", "read", null]]) {
