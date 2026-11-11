@@ -497,7 +497,11 @@ async function pageAction(tabId, action, args, who, sessionId) {
   if (action === "screenshot") {
     const tab = await browser.tabs.get(tabId);
     if (isSensitive(tab.url)) throw new Error("This is a private page; screenshots are off here.");
-    return { dataUrl: await browser.tabs.captureVisibleTab(tab.windowId, { format: "png" }) };
+    if (tab.discarded) throw new Error("This tab is unloaded (Zen unloads tabs it hasn't shown for a while); open or reload it first.");
+    // captureTab draws this tab itself, also when it's in the background or in
+    // another space. captureVisibleTab would grab whatever the window shows,
+    // which may be a different tab (and a private one).
+    return { dataUrl: await browser.tabs.captureTab(tabId, { format: "png" }) };
   }
   return agent(tabId, action, args, who, sessionId);
 }
@@ -1165,7 +1169,7 @@ async function forward(msg) {
       const sensitive = isSensitive(tab.url);
       msg.page = { tabId: tab.id, url: tab.url, title: tab.title };
       if (msg.includePage && !sensitive) msg.page.text = (await readTab(tab.id)).text;
-      if (msg.attachScreenshot && !sensitive) msg.page.screenshot = await browser.tabs.captureVisibleTab(tab.windowId, { format: "png" }).catch(() => undefined);
+      if (msg.attachScreenshot && !sensitive) msg.page.screenshot = await browser.tabs.captureTab(tab.id, { format: "png" }).catch(() => undefined);
     }
     if (msg.mentionedTabIds?.length) msg.mentionedTabs = await Promise.all(msg.mentionedTabIds.slice(0, 20).map(id => readTab(id).catch(() => null))).then(r => r.filter(Boolean));
   }
