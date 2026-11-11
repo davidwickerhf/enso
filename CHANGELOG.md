@@ -5,7 +5,10 @@ share one version number. Dates are the tag dates. Releases are published to
 <https://enso.wicker.life> by the release workflow ([docs/releasing.md](docs/releasing.md));
 the extension updates itself, the helper updates when you run the installer again.
 
-## Unreleased
+## 0.5.8.1 (11 November 2026)
+
+Direct download build (self-distributed). The listed build for Firefox Add-ons
+follows as 0.5.8 once 0.5.7 has passed review.
 
 - **Each build updates along its own channel.** Only direct-download builds are published to enso.wicker.life and its update feed; Firefox Add-ons builds update from addons.mozilla.org, so direct-download users are never moved onto the build without `page_eval`.
 

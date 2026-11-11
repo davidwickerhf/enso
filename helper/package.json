@@ -1,6 +1,6 @@
 {
   "name": "enso-helper",
-  "version": "0.5.7.1",
+  "version": "0.5.8.1",
   "private": true,
   "type": "module",
   "description": "Ensō helper: the native messaging host for the Ensō extension (Claude + your MCP servers)",
