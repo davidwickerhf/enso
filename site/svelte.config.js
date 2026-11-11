@@ -15,7 +15,7 @@ const config = {
 				'img-src': ['self', 'data:'],
 				'connect-src': ['self', 'https://analytics.wicker.life'],
 				'font-src': ['self'],
-				'frame-ancestors': ['none'],
+				'frame-ancestors': ['self', 'https://wicker.life'],
 				'base-uri': ['self'],
 				'form-action': ['self'],
 				'object-src': ['none']
