@@ -21,7 +21,7 @@
 #
 # By hand (workflow_dispatch), for an existing tag:
 #   submit-listed     the same as a tag push
-#   publish-approved  fetch the signed listed .xpi from AMO and publish it and
+#   publish-approved  fetch the signed listed .xpi from AMO and attach it (not to the site's update feed) and
 #                     the helper (no new submission)
 #   submit-unlisted   emergency: sign as unlisted (self-distributed) with
 #                     update_url pointing at enso.wicker.life, and publish.
@@ -267,7 +267,11 @@ jobs:
           esac
 
       - name: Publish the extension to enso.wicker.life
-        if: steps.signed.outputs.publish == 'true'
+        # Only self-distributed builds go on the site and into its update feed
+        # (updates.json). Listed builds update through addons.mozilla.org; putting
+        # them in the feed would move direct-download users onto the build without
+        # page_eval. Listed .xpi files still go on the GitHub release.
+        if: steps.signed.outputs.publish == 'true' && env.MODE == 'submit-unlisted'
         env:
           ENSO_RELEASE_TOKEN: ${{ secrets.ENSO_RELEASE_TOKEN }}
         run: |

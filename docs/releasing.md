@@ -50,10 +50,13 @@ new dev build (see [development.md](development.md#after-a-change)), and keep
 
 4. Watch the **Release** workflow in GitHub Actions. It submits a listed
    version to AMO and waits up to 12 minutes for the signature. If AMO signs it
-   in time, it publishes everything. If the version is queued for review, the
-   run ends green with "submitted, awaiting review" in its summary; after AMO
-   approves it (email from AMO, or `node amo/amo.mjs status <version>`), run
-   **Release** by hand with the tag and mode **publish-approved**.
+   in time, it attaches the signed file to the GitHub release; either way the
+   helper is published to the site at once. Listed builds never go on the
+   site's download or update feed. If the version is queued for review, the run
+   ends green with "submitted, awaiting review"; after approval you can run
+   **Release** with mode **publish-approved** to attach the signed file to the
+   GitHub release. For the site, release the matching four-part version
+   (e.g. 0.5.7.1) with mode **submit-unlisted**.
 5. Check the result:
 
    ```sh
@@ -89,7 +92,7 @@ Modes (`workflow_dispatch` input `mode`; a tag push is `submit-listed`):
 | Mode | What |
 |---|---|
 | `submit-listed` | Submit the tag's version as listed (skipped when AMO already has it), wait, publish if signed. |
-| `publish-approved` | No submission: check the version on AMO, download the signed `.xpi`, build the helper, publish both. Use it after a review. |
+| `publish-approved` | No submission: check the version on AMO, download the signed `.xpi` and attach it to the GitHub release; publish the helper. The listed file is not put on the site. |
 | `submit-unlisted` | Emergency only: sign as unlisted with `update_url` injected, publish. That version number is then used up on AMO. |
 
 1. **Versions.** The tag without `v` must equal the manifest and helper
@@ -155,13 +158,18 @@ pre-release Zen Chat builds. Details are in [site/docs/HOSTING.md](../site/docs/
 
 ## How installed copies update
 
-- **The extension** updates itself. Copies installed from AMO, and every copy
-  from 0.5.5 on, update from AMO like any listed add-on. Copies installed from
-  enso.wicker.life before 0.5.5 have `update_url` (the site's `/updates.json`):
-  Zen downloads the newest `.xpi` from the site, verifying the SHA-256, and
-  since that file is the listed one without `update_url`, their later updates
-  come from AMO. If a new version asks for more permissions or data
-  collection, Zen asks the user first.
+- **The extension** updates itself, each build along its own channel:
+  - **Firefox Add-ons build** (listed, three-part versions such as 0.5.7): no
+    `update_url`; Zen updates it from addons.mozilla.org.
+  - **Direct download build** (self-distributed, four-part versions such as
+    0.5.7.1): `update_url` is the site's `/updates.json`. Only self-distributed
+    builds are published to the site, so the feed never moves these users onto
+    a listed build (which has no `page_eval`).
+  - Copies installed from enso.wicker.life before 0.5.5 also follow
+    `/updates.json` and move onto the newest direct-download build.
+
+  If a new version asks for more permissions or data collection, Zen asks the
+  user first.
 - **The helper** does not update itself. Users run the installer again. The
   installer replaces `Enso/helper` in one move and keeps the data folder. The
   running helper keeps its old code until Zen is restarted.
