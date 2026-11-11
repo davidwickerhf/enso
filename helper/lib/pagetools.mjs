@@ -113,7 +113,7 @@ export const PAGE_TOOLS = [
   {
     name: "page_screenshot",
     title: "Look at the page",
-    description: "Take a screenshot of the visible part of the current tab, for layout or visual questions.",
+    description: "Take a screenshot of the visible part of a tab (its viewport), for layout or visual questions. Works on background tabs and tabs in other spaces too; the user doesn't need to be looking at it.",
     shape: {},
     kind: "read",
     async run(_args, ctx) {
