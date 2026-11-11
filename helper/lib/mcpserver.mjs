@@ -65,7 +65,8 @@ export function buildServer({ browserRequest, onReports, onAction, sessions = ag
     instructions:
       "Controls the user's Zen browser through Ensō. First call session_start with a short task (one line on what you are about to do); the user sees it in Ensō and on the page. " +
       "The user can steer you from Ensō: tool results may start with 'Message from the user (via Ensō): …'. That is the user speaking to you; follow it. " +
-      "The user can also send you screenshots from Ensō: they arrive as 'Screenshot from the user (via Ensō): …' followed by the image at the start of a tool result; call inbox_read to fetch anything waiting (notes and screenshots) when the user says they sent you something. If a result says the user paused or stopped you, respect it (session_status tells you when you may continue). " +
+      "The user can also send you screenshots from Ensō: they arrive as 'Screenshot from the user (via Ensō): …' followed by the image at the start of a tool result; call inbox_read to fetch anything waiting (notes and screenshots) when the user says they sent you something. If a result says the user paused you, wait (session_status tells you when you may continue). " +
+      "If a result says the user stopped you, the task is over: stop using the browser and tell the user. If the user then asks you to continue, call session_start with the new task: Ensō asks them to allow it (Allow / Keep stopped); call session_status to see the answer instead of retrying. session_status and session_end always work. " +
       "Use tabs_list to see the tabs in their current Zen space (allSpaces for all), page_read before acting on a page, and pass tabId to target a specific tab. " +
       "Prefer your own tab: for work that doesn't need the page the user has open, open one with tabs_open (it opens in the background and replies with its tabId; pass that tabId to every page tool) instead of acting in the user's active tab. " +
       "Zen spaces: the user keeps separate spaces (e.g. Personal and one per organisation), each with its own container and logins. Open tabs in the space that matches the task: work for an organisation goes in that organisation's space, never in Personal by default. Pass space to tabs_open, or once to session_start so your tabs go there; call spaces_list (names, containers, what each space is for) when you aren't sure which. tabs_open says where the tabs actually landed; if it says they opened in the current space with the other space's container, tell the user when that matters. " +
@@ -248,7 +249,7 @@ export function buildServer({ browserRequest, onReports, onAction, sessions = ag
       description:
         "Call this first, before other zen-browser tools: say in one short line what you are about to do in the user's browser (\"Fill in the expense form\"). " +
         "Ensō shows it to the user next to your name, on the page and in its sidebar, where they can pause you, stop you or send you a note. " +
-        "Notes arrive at the start of your next tool results as 'Message from the user (via Ensō): …'; treat them as the user speaking. Call it again when your task changes. " +
+        "Notes arrive at the start of your next tool results as 'Message from the user (via Ensō): …'; treat them as the user speaking. Call it again when your task changes. After the user stopped you, calling it asks the user to allow the new task (it doesn't resume on its own); then check session_status. " +
         "space: the Zen space this work belongs in (a name or id from spaces_list, e.g. the organisation's space for work); tabs_open then opens there by default, with that space's logins.",
       inputSchema: {
         task: z.string().min(1).max(500).describe(`One line on what you are doing (up to ${MAX_TASK_CHARS} characters are shown)`),
@@ -258,13 +259,18 @@ export function buildServer({ browserRequest, onReports, onAction, sessions = ag
     },
     async ({ task, tabId, space }) => {
       const gate = sessions.before(client, { tool: "session_start", kind: "read", tabId: tabId ?? null });
-      if (gate.refuse && sessions.status(client).stopped) return withMessages(gate.messages, { isError: true, content: [text(gate.refuse)] });
       let sp;
       if (space) {
         const r = findSpace(space);
         if (r.error) return withMessages(gate.messages, { isError: true, content: [text(`${r.error} The session wasn't started; call session_start again with a valid space, or without one.`)] });
         sp = { id: r.space.id, name: r.space.name };
       }
+      // After a Stop a new task doesn't resume on its own: Ensō asks the user (one request per agent).
+      if (gate.stopped) {
+        const r = sessions.requestRestart?.(client, { task, tabId: tabId ?? null, ...(sp ? { space: sp } : {}) });
+        return withMessages(gate.messages, { isError: true, content: [text(r?.text ?? gate.refuse)] });
+      }
+      if (gate.refuse) return withMessages(gate.messages, { isError: true, content: [text(gate.refuse)] });
       const s = sessions.start(client, { task, tabId: tabId ?? null, ...(sp ? { space: sp } : {}) });
       const warning = tabId != null ? sessions.leaseWarning?.(client, tabId) : "";
       const mySpace = sessions.spaceOf?.(client);
@@ -283,12 +289,17 @@ export function buildServer({ browserRequest, onReports, onAction, sessions = ag
     "session_status",
     {
       title: "Session status",
-      description: "Whether the user has paused or stopped you in Ensō, your current task, and any notes from the user. Poll this (every 10–30 seconds) while paused instead of retrying actions.",
+      description: "Whether the user has paused or stopped you in Ensō (and, after a Stop, whether they allowed your new task), your current task, and any notes from the user. Poll this (every 10–30 seconds) while paused or while Ensō asks the user, instead of retrying. Always works, even when stopped.",
       inputSchema: { tabId: z.number().int().optional().describe("The tab to ask about (default: all your tabs)") },
     },
     async ({ tabId }) => {
       const st = sessions.status(client, { tabId: tabId ?? null });
-      const state = st.stopped ? "stopped: the user stopped this task. Don't continue in the browser." : st.paused ? `paused by the user${st.pausedTabs.length ? ` (tab ${st.pausedTabs.join(", ")})` : ""}. Wait and check again later.` : "running: you may continue.";
+      const stoppedState = st.restart?.status === "pending"
+        ? `stopped, and Ensō is asking the user to allow your new task${st.restart.task ? ` ("${st.restart.task}")` : ""}. Don't use the browser yet; check again in a minute or so, and don't call session_start again.`
+        : st.restart?.status === "kept"
+          ? "stopped: the user chose to keep you stopped. Don't continue in the browser; tell the user. They can press Allow again on your card in Ensō's sidebar."
+          : "stopped: the user stopped this task. Don't continue in the browser; tell the user. If they ask you to continue, call session_start with the new task and Ensō will ask them to allow it.";
+      const state = st.stopped ? stoppedState : st.paused ? `paused by the user${st.pausedTabs.length ? ` (tab ${st.pausedTabs.join(", ")})` : ""}. Wait and check again later.` : "running: you may continue.";
       const lines = [`Status: ${state}`, st.task ? `Task: ${st.task}` : "Task: (none; call session_start)", ...(st.space ? [`Space: ${st.space}`] : [])];
       return withMessages(st.messages, { content: [text(lines.join("\n"))] });
     },
@@ -311,12 +322,13 @@ export function buildServer({ browserRequest, onReports, onAction, sessions = ag
     "session_end",
     {
       title: "End the session",
-      description: "Tell Ensō you are done in the browser, so it stops showing you as active (on one tab, or everywhere).",
+      description: "Tell Ensō you are done in the browser, so it stops showing you as active (on one tab, or everywhere). Always works, even when stopped.",
       inputSchema: { tabId: z.number().int().optional() },
     },
     async ({ tabId }) => {
-      const gate = sessions.before(client, { tool: "session_status", kind: "read", tabId: tabId ?? null });
+      const gate = sessions.before(client, { tool: "session_end", kind: "read", tabId: tabId ?? null }); // allowed even when stopped
       const n = sessions.endClient(client, { tabId: tabId ?? null });
+      if (sessions.isStopped?.(client)) return withMessages(gate.messages, { content: [text("Session ended. The user stopped this task in Ensō; if they ask you to continue, call session_start with the new task and Ensō will ask them to allow it.")] });
       return withMessages(gate.messages, { content: [text(n ? "Session ended. Thanks for saying so." : "No active session to end.")] });
     },
   );

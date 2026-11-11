@@ -190,7 +190,8 @@ clients can't connect.
 | Settings → Privacy & safety → Session access | The sites where a client may use your session, recently allowed first, each with × to remove it. |
 | A session-access request (page pill and agent card) | "<Client> wants to use your login on <site>" with **Allow** and **Not now**, when an agent was refused because the site isn't on the list ([session-access requests](#session-access-requests)). |
 | Activity (full page) | Every action, with the client's name, updated live. |
-| The agent card (sidebar and full page) | The agent on the active tab: task, steps, Pause/Resume, Stop, "Tell the agent…". With several agents on the tab: which one is **In control**, which is **Waiting for the tab**, **Hand over to …** and **Let both act** ([tab leases](#tab-leases-one-agent-acts-on-a-tab-at-a-time)). The Agents row lists sessions in other tabs and spaces. |
+| The agent card (sidebar and full page) | The agent on the active tab: task, steps, Pause/Resume, Stop, "Tell the agent…". With several agents on the tab: which one is **In control**, which is **Waiting for the tab**, **Hand over to …** and **Let both act** ([tab leases](#tab-leases-one-agent-acts-on-a-tab-at-a-time)). The Agents row lists sessions in other tabs and spaces, each with its state (**Working**, **Idle**, **Paused**, **Waiting for the tab**, **Stopped**), and stopped agents with **Allow again**. Its header counts them ("1 agent waiting for you · 1 stopped"); it says "working" only when an agent is. |
+| A stopped agent asking to use Zen again (top of the Agents row, the stopped card, "!" on the toolbar button) | "<Client> wants to use Zen again: <task>" with **Allow** and **Keep stopped** ([Stop](#stop-and-asking-to-continue)). |
 | Settings → Agents & screenshots → Mark the tab an agent uses | The "✦ " title prefix (default on). |
 
 MCP clients are never shown an approval: there is nobody to ask. Tools that
@@ -212,8 +213,8 @@ after two minutes without calls or on `session_end`. Tab-less calls
 | Tool | What it does | Parameters |
 |---|---|---|
 | `session_start` | Say what you're about to do, in one line, and optionally which Zen space the work belongs in. Ensō shows "<client> · <space> · <task>" on the page pill and the agent card; `tabs_open` then opens in that space by default. An unknown space is an error that lists the valid names. Call it first; call again when the task changes. | `task`, `tabId?`, `space?` |
-| `session_status` | Running, paused or stopped, the task, and any notes. Poll it while paused. | `tabId?` |
-| `session_end` | Done: Ensō stops showing the agent (on one tab, or everywhere). | `tabId?` |
+| `session_status` | Running, paused or stopped (and whether Ensō is asking the user to allow a new task), the task, and any notes. Poll it while paused or while Ensō asks. Always works, even when stopped. | `tabId?` |
+| `session_end` | Done: Ensō stops showing the agent (on one tab, or everywhere). Always works, even when stopped; it doesn't lift a stop. | `tabId?` |
 
 All three are read-only (offered to `--read-only` connections too). Agents that
 never call `session_start` still get a session, shown as "<client> is working
@@ -227,9 +228,41 @@ everything arrives with the agent's next tool call:
 | **Tell the agent…** (a note) | The next tool result of that agent, on any tab, starts with a text block `Message from the user (via Ensō): <note>`. Delivered once; the card then shows "Delivered". Until then it says "Waiting for the agent's next step". |
 | **Pause** | Calls on that tab, and actions without a tab (`tabs_open`, `tabs_close`, GitHub writes…), return the tool error "The user paused you on this tab. Wait, then call session_status or retry later; don't work around it (…)". Reads without a tab (`tabs_list`, `history_search`, GitHub reads) still pass; reading the paused tab doesn't: the user has it. Nothing waits: the call returns at once. A paused session lasts up to 30 minutes. |
 | **Resume** | The first call after it starts with "Note from Ensō: the user paused you and has now resumed. They may have changed the page meanwhile; call page_read again before your next action." |
-| **Stop** | Every further call of that agent session, including `session_start`, returns "The user stopped this task in Ensō. Don't continue in the browser; tell the user you stopped." for 30 minutes. A new agent process isn't affected. |
+| **Stop** | The task ends at once ([below](#stop-and-asking-to-continue)). Every further call except `session_status` and `session_end` returns "The user stopped this task in Ensō. Don't continue in the browser; tell the user you stopped. If they ask you to continue, call session_start with the new task: Ensō will ask them to allow it." A new agent process isn't affected. |
 
 Refused calls still carry pending notes, and show in the card as "refused".
+
+### Stop, and asking to continue
+
+**Stop** ends the agent's current task immediately: its sessions end, its tab
+leases go, and its pill, "✦ " title prefix and toolbar badge are cleared (no
+"Stopped" pill is left behind). What stays is a stop record for that agent
+(one launcher process, or one plain-http client), shown in Ensō as a stopped
+card on the tab it worked on and a **Stopped** row in the Agents row, both
+with **Allow again** and **Dismiss** (which only hides it).
+
+| The agent calls | It gets |
+|---|---|
+| Any page, tab, browser, GitHub or headless tool | The Stop text above (or, after **Keep stopped**, "The user chose to keep you stopped in Ensō. Don't continue in the browser; tell the user. If they want you to continue, they can press Allow again on your card in Ensō's sidebar."). |
+| `session_status` | "Status: stopped …", saying whether Ensō is asking the user and what they answered. |
+| `session_end` | "Session ended. The user stopped this task in Ensō; …". The stop stays. |
+| `session_start {task}` | No silent resume. Ensō records a request, "<client> wants to use Zen again: <task>", and replies "The user stopped your previous task in Ensō. Ensō has asked the user to allow this new task; call session_status to check. Don't retry in a loop." Requests are deduplicated: one per agent, later calls only update the task. |
+
+The request shows at the top of the Agents row (collapsed or expanded), in the
+stopped card when the user is on that tab, and as "!" on Ensō's toolbar button
+with the request in its tooltip.
+
+| The user | Then |
+|---|---|
+| **Allow** (on the request) | The stop ends and the requested task starts as a new session (with its space). The agent's next result starts with "Note from Ensō: the user allowed your new task (…). You may continue; call page_read before acting on a page." |
+| **Allow again** (on the stopped card or row, any time) | The same; without a request the stop just ends, and the agent is told to call `session_start`. |
+| **Keep stopped** | Refusals continue with the kept text; further `session_start` calls aren't asked about again. **Allow again** still works. |
+| Nothing | The stop and any request expire 30 minutes after the last of the Stop, the request and the user's answer. After that `session_start` works as usual, with no prompt. |
+
+Only Ensō's own pages can answer: host.mjs handles `agents.allow`,
+`agents.keep` and `agents.hide`, which background.js accepts only from "ui"
+ports of Ensō's extension pages. No MCP tool, method or argument, and no web
+page, can lift a stop.
 
 ## Tab leases: one agent acts on a tab at a time
 
@@ -534,9 +567,8 @@ is done twice.
 Every tab an agent opens with `tabs_open` is marked "opened by <client> for
 <task>" (lib/agenttabs.mjs). When the agent has no live session left
 (`session_end`, **Stop**, or two minutes idle), its lease goes at once, its
-pill and "✦ " title prefix go from every tab (after **Stop** the pill first
-reads "Stopped" until the session times out, two minutes later, or the user
-dismisses it), and the tabs it didn't close become leftovers:
+pill and "✦ " title prefix go from every tab (after **Stop** at once too), and
+the tabs it didn't close become leftovers:
 
 | | |
 |---|---|
@@ -589,7 +621,10 @@ In short:
 - Call `session_start` with a one-line task first.
 - Treat a leading `Message from the user (via Ensō): …` block in a tool result
   as the user speaking. If a call says you are paused, poll `session_status`
-  instead of trying other tabs or tools; if stopped, stop and say so.
+  instead of trying other tabs or tools. If stopped, stop and tell the user;
+  if they ask you to continue, call `session_start` with the new task: Ensō
+  asks them to allow it, and `session_status` tells you the answer.
+  `session_status` and `session_end` always work.
 - Start with `tabs_list` (current space) and `page_read`; pass `tabId` to act on
   a specific tab instead of the active one.
 - Prefer your own tab: open one with `tabs_open` (background) and pass its
@@ -641,7 +676,7 @@ In short:
 | New tools don't show up after an update | The client cached the list. Restart the client; the launcher refreshes `mcp-tools-cache.json` on the next `tools/list` with Zen open. |
 | Two Zen windows or helpers | Only the first helper gets port 47823; the other logs "MCP server not started". Quit Zen fully and reopen. |
 | "The user paused you on this tab" | The user pressed Pause on the agent card. The agent should wait and call `session_status`; Resume lifts it. |
-| "The user stopped this task in Ensō" | The user pressed Stop. It lasts 30 minutes for that agent session; a new agent session (restart the client) isn't affected. |
+| "The user stopped this task in Ensō" | The user pressed Stop. If the user wants the agent to continue, the agent calls `session_start` with the new task and Ensō asks the user (**Allow** / **Keep stopped**); the user can also press **Allow again** on the stopped card. There is no need to reconnect `/mcp` or restart the client. The stop expires after 30 minutes without action. |
 | The pill doesn't open the sidebar | The page may block Ensō's frame; the pill then says "Press ⌘E for Ensō" (Ctrl+E on Linux and Windows). |
 | The page title keeps "✦ " | It is removed when the session ends (two minutes after the agent's last call). Turn it off in Settings → Agents & screenshots → Mark the tab an agent uses. |
 | Codex doesn't see it | Check `CODEX_HOME`; `enso mcp install --client codex` edits `$CODEX_HOME/config.toml` when it is set. |

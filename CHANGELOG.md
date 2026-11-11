@@ -84,6 +84,19 @@ Agents can give pages files, wait for slow work, and send large payloads.
   Ensō's own frame with a trusted click, and private sites never prompt.
   Settings → Session access lists recently allowed sites first, with when and
   for which agent.
+- **Stop ends the task, and continuing is one click.** Stop now ends an agent's
+  task at once: its tabs are let go and its pill, title mark and badge go
+  (no "Stopped" pill left for two minutes). Further actions are refused, but
+  `session_status` and `session_end` always work. When the same agent calls
+  `session_start` again, Ensō asks "<agent> wants to use Zen again: <task>"
+  at the top of the Agents row (and with "!" on the toolbar button), with
+  **Allow** and **Keep stopped**; the stopped card and row also offer **Allow
+  again** at any time. Before, every call (even `session_end`) was refused for
+  30 minutes and the agent had to ask you to reconnect it. Only Ensō's own pages
+  can allow; no MCP call can. The Agents row also shows each agent's state
+  (Working, Idle, Paused, Waiting for the tab, Stopped), and its header only
+  says "working" when an agent is.
+
 - **Agent instructions** (the MCP server's and Ensō's own): use `page_upload` for
   files and never shrink or edit a user's file to fit a limit; use `page_wait`;
   a timeout isn't a failure, so check before retrying.

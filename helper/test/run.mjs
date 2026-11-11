@@ -11,7 +11,7 @@
 //                              Keychain; skip with ENSO_SKIP_KEYCHAIN=1), and any OS with
 //                              ENSO_TEST_REAL_SECRETS=1 (libsecret, Credential Manager)
 //   mcp *                      always (launcher, scopes, client registration)
-//   agents                     always (agent sessions, steering, the live push to the UI, screenshots to agents)
+//   agents                     always (agent sessions, steering, Stop and asking to use Zen again, the live push to the UI, screenshots to agents)
 //   leases                     always (tab leases between agent sessions, hand-over and shared mode, exact attribution)
 //   access                     always (session-access requests: the refusal, dedup, Allow / Not now from Ensō, expiry, no MCP path to allow)
 //   agenttabs                  always (tabs agents open and leave: marks, the user's use, auto-close with a fake clock, ask/keep, reopen, presence after session end and restarts)

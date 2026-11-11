@@ -18,6 +18,10 @@
 // Codex elsewhere; access: Claude Code was refused session access on app.dnsdesk.example and
 // asks in its card with Allow / Not now, and Codex, on another tab, asks for
 // deploy.northwind.example.com above the Agents row).
+// ?agents=stopped: Claude Code was stopped on the active tab (the stopped card with "Allow again"),
+// Codex idle elsewhere; restart: the stopped Claude Code asks to use Zen again, at the top of the
+// Agents row (active tab elsewhere); restart-card: the same request in the stopped card;
+// stopped-list: the Agents row with a stopped, an idle and a working agent (Stop moves an agent there).
 // Send screenshot: ?shot=sheet | picker | agent | fallback opens the send sheet with a
 // fake capture; ?t3=off | down | revoked | fallback sets the T3 Code connection;
 // ?links=1 adds linked threads (Settings → Agents & screenshots).
@@ -737,6 +741,8 @@ Want me to draft the reply to Jonas, or open the [Vercel deployment](https://ver
   const step = (sec, tool, title, target, extra = {}) => ({ id: nid("st"), at: ago(sec), tool, title, target, ok: true, irreversible: false, ...extra });
   let agents = [];
   let agentAccess = []; // agents' session-access requests (?agents=access)
+  let stoppedAgents = []; // agents the user stopped, and their requests to use Zen again (?agents=stopped, restart)
+  const stoppedFrom = (a, extra = {}) => ({ id: `st-${a.id}`, client: a.client, clientName: a.clientName, task: a.task, space: a.space ?? null, tabId: a.tabId, url: a.url, title: a.title, t3ThreadId: null, lastStep: a.actions.at(-1) ?? null, stoppedAt: iso(now()), expiresAt: iso(now() + 30 * MIN), request: null, agentId: null, ...extra });
   // Tabs agents left open and "Recently closed by Ensō" (?agents=leftovers)
   let leftovers = [];
   let recentlyClosed = [];
@@ -773,7 +779,7 @@ Want me to draft the reply to Jonas, or open the [Vercel deployment](https://ver
     if (agentPreset === "paused") Object.assign(docs, { paused: true, running: false, notes: [{ id: "n1", text: "Use the second dataset, not the pilot one.", at: ago(20), deliveredAt: null }] });
     if (agentPreset === "delivered") docs.notes = [{ id: "n1", text: "Use the second dataset, not the pilot one.", at: ago(60), deliveredAt: ago(41) }, { id: "n2", text: "Keep it under 300 words.", at: ago(6), deliveredAt: null }];
     if (agentPreset === "idle") Object.assign(docs, { running: false, actions: [step(5, "session_start", "Start a session", "")], startedAt: ago(5), lastAt: ago(5) });
-    if (agentPreset === "stopped") Object.assign(docs, { running: false, stopped: true });
+    if (/^(stopped|restart)/.test(agentPreset)) Object.assign(docs, { task: "Find the DPA options in the Lumen admin console", url: "https://admin.lumen.example/organization/privacy", title: "Privacy · Admin · Lumen", actions: [step(300, "session_start", "Start a session", ""), step(240, "page_read", "Read the page", ""), step(200, "page_click", "Click", 'button "Data processing agreement"')] });
     if (agentPreset === "space") Object.assign(docs, { space: "Northwind", task: "Check the deploy log of the staging site", url: "https://deploy.northwind.example.com/apps/atlas/logs", title: "atlas-staging · Deploy log", actions: [step(60, "session_start", "Start a session", ""), step(52, "tabs_open", "Open tabs", "https://deploy.northwind.example.com/apps/atlas/logs"), step(30, "page_read", "Read the page", ""), step(4, "page_click", "Click", 'button "Show older lines"')] });
     if (agentPreset === "t3") Object.assign(docs, { client: "Claude Code", task: "Fix the chart legend overlap on the launch dashboard", t3ThreadId: "th-legend", t3: { threadId: "th-legend", title: "Launch dashboard: legend overlaps the chart", projectTitle: "atlas-web", openable: true } });
     const docs2 = {
@@ -792,6 +798,15 @@ Want me to draft the reply to Jonas, or open the [Vercel deployment](https://ver
       Object.assign(codex, { control: "holder", holderId: codex.id });
       agents = [docs, docs2, codex];
     } else agents = agentPreset === "list" ? [docs, codex, cursor] : agentPreset === "idle" || agentPreset === "t3" || agentPreset === "space" ? [docs] : [docs, codex];
+    if (/^(stopped|restart)/.test(agentPreset)) {
+      // docs was stopped 4 minutes ago: its session is gone; a stop record remains.
+      const rec = stoppedFrom(docs, { stoppedAt: ago(240), expiresAt: iso(now() + 26 * MIN) });
+      if (agentPreset.startsWith("restart")) rec.request = { task: "Download the signed DPA as PDF", space: null, at: ago(20), status: "pending", decidedAt: null };
+      stoppedAgents = [rec];
+      codex.running = false;
+      agents = agentPreset === "stopped-list" ? [codex, cursor] : [codex];
+      if (agentPreset === "restart" || agentPreset === "stopped-list") activeTabId = 11;
+    }
     if (agentPreset === "access") {
       Object.assign(docs, { task: "Check the DNS records of the staging domain", actions: [step(40, "session_start", "Start a session", ""), step(6, "session_fetch", "Request with the user's session", "GET https://app.dnsdesk.example/api/v1/zones/", { ok: false, refused: true, error: "https://app.dnsdesk.example isn't on Ensō's session-access list" })] });
       agentAccess = [
@@ -983,7 +998,7 @@ Want me to draft the reply to Jonas, or open the [Vercel deployment](https://ver
     }
   }
 
-  const sendAgents = () => out({ type: "agents", sessions: agents, connected: connectedAgents(), access: agentAccess, agentTabs: agentTabsState() });
+  const sendAgents = () => out({ type: "agents", sessions: agents, connected: connectedAgents(), access: agentAccess, stopped: stoppedAgents, agentTabs: agentTabsState() });
   const patchAgent = (id, patch) => { agents = agents.map(a => (a.id === id ? { ...a, ...patch } : a)); sendAgents(); };
 
   function handle(msg) {
@@ -1077,8 +1092,30 @@ Want me to draft the reply to Jonas, or open the [Vercel deployment](https://ver
       case "agents.resume":
         patchAgent(msg.id, { paused: false });
         return;
-      case "agents.stop":
-        patchAgent(msg.id, { stopped: true, paused: false, running: false });
+      case "agents.stop": {
+        // Stop ends the task: the session goes, a stop record stays (lib/agentsessions.mjs stop).
+        const a = agents.find(x => x.id === msg.id);
+        if (!a) return;
+        agents = agents.filter(x => x.client !== a.client || x.clientName !== a.clientName);
+        stoppedAgents = [stoppedFrom(a), ...stoppedAgents];
+        sendAgents();
+        return;
+      }
+      case "agents.allow": {
+        const r = stoppedAgents.find(x => x.id === msg.id);
+        if (!r) return;
+        stoppedAgents = stoppedAgents.filter(x => x !== r);
+        if (r.request?.task) agents = [{ id: nid("ag"), client: r.client, clientName: r.clientName, task: r.request.task, tabId: r.tabId, url: r.url, title: r.title, startedAt: iso(now()), lastAt: iso(now()), endsAt: iso(now() + 120_000), running: false, paused: false, stopped: false, explicit: true, idleMs: 0, actions: [step(0, "session_start", "Start a session", "")], notes: [] }, ...agents];
+        sendAgents();
+        return;
+      }
+      case "agents.keep":
+        stoppedAgents = stoppedAgents.map(x => (x.id === msg.id && x.request ? { ...x, request: { ...x.request, status: "kept", decidedAt: iso(now()) } } : x));
+        sendAgents();
+        return;
+      case "agents.hide":
+        stoppedAgents = stoppedAgents.filter(x => x.id !== msg.id);
+        sendAgents();
         return;
       case "agents.dismiss":
         agents = agents.filter(a => a.id !== msg.id);
@@ -1132,7 +1169,7 @@ Want me to draft the reply to Jonas, or open the [Vercel deployment](https://ver
         return;
       }
       case "hello":
-        out({ type: "state", settings, engines, servers, connections: connectionsList(), conversations: summaries(), activeConversationId: [...turns.keys()][0] ?? null, dashboard: onboarding && !onboardingDone ? null : dashboard, profile: profileState(), paths: PATHS, skills: SKILLS, reports: REPORTS.map(({ id, title, createdAt }) => ({ id, title, createdAt })), spaces: SPACES, sensitiveHosts: ["*bank*", "*health*", "*patient*", "*.paypal.com"], agents, connectedAgents: connectedAgents(), agentAccess, agentTabs: agentTabsState() });
+        out({ type: "state", settings, engines, servers, connections: connectionsList(), conversations: summaries(), activeConversationId: [...turns.keys()][0] ?? null, dashboard: onboarding && !onboardingDone ? null : dashboard, profile: profileState(), paths: PATHS, skills: SKILLS, reports: REPORTS.map(({ id, title, createdAt }) => ({ id, title, createdAt })), spaces: SPACES, sensitiveHosts: ["*bank*", "*health*", "*patient*", "*.paypal.com"], agents, connectedAgents: connectedAgents(), agentAccess, stoppedAgents, agentTabs: agentTabsState() });
         return;
       case "tabs.list":
         out({ type: "tabs", tabs: TABS
