@@ -13,17 +13,9 @@ concurrency:
 
 jobs:
   site:
-    runs-on: anvil-2cpu
-    services:
-      postgres:
-        image: postgres:17-alpine
-        env:
-          POSTGRES_USER: enso
-          POSTGRES_HOST_AUTH_METHOD: trust
-          POSTGRES_DB: enso_test
-        ports: ['5432:5432']
-        options: >-
-          --health-cmd "pg_isready -U enso" --health-interval 5s --health-timeout 5s --health-retries 10
+    # Anvil's runners, except for pull requests from forks: those run on GitHub's, so code from outside the
+    # repository never runs on Anvil's server.
+    runs-on: ${{ github.event.pull_request.head.repo.fork && 'ubuntu-latest' || 'anvil-2cpu' }}
     defaults:
       run:
         working-directory: site
@@ -33,6 +25,20 @@ jobs:
       BETTER_AUTH_SECRET: ci-only-secret-ci-only-secret-ci-only-secret
     steps:
       - uses: actions/checkout@v4
+      # Anvil runners have no Docker daemon, so a `services:` container can't start there. Postgres 17
+      # from the PostgreSQL apt repository, in the job itself, on localhost:5432 as before.
+      - name: Start Postgres 17
+        run: |
+          sudo apt-get update -qq
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends postgresql-common
+          sudo /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends postgresql-17
+          sudo sed -i -E 's/(scram-sha-256|md5|peer)$/trust/' /etc/postgresql/17/main/pg_hba.conf
+          # GitHub's images (fork pull requests run there) have another cluster: keep 5432 for this one.
+          pg_lsclusters -h | awk '$1 != "17" {print $1, $2}' | while read -r v c; do sudo pg_dropcluster --stop "$v" "$c"; done
+          sudo pg_conftool 17 main set port 5432
+          sudo pg_ctlcluster 17 main start
+          sudo -u postgres psql -v ON_ERROR_STOP=1 -q -c "create role enso login superuser" -c "create database enso_test owner enso"
       - uses: pnpm/action-setup@v4
         with:
           package_json_file: site/package.json
@@ -47,7 +53,13 @@ jobs:
       - name: Typecheck
         run: pnpm check
       - name: Test
-        run: pnpm test
+        run: pnpm test --reporter=default --reporter=junit --outputFile.junit=junit.xml
+      - uses: actions/upload-artifact@v4
+        if: ${{ !cancelled() }}
+        with:
+          name: junit-site
+          path: site/junit.xml
+          if-no-files-found: warn
       - name: Build
         run: pnpm build
       - name: Installer syntax

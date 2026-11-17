@@ -83,7 +83,9 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, ubuntu-24.04-arm, windows-latest, windows-11-arm]
-    runs-on: ${{ matrix.os == 'ubuntu-latest' && 'anvil-2cpu' || matrix.os }}
+    # Linux x64 on Anvil's runners, except for pull requests from forks, which stay on GitHub's so code from
+    # outside the repository never runs on Anvil's server. Arm and Windows keep their GitHub runners.
+    runs-on: ${{ matrix.os == 'ubuntu-latest' && !github.event.pull_request.head.repo.fork && 'anvil-2cpu' || matrix.os }}
     steps:
       - uses: actions/checkout@v4
 
