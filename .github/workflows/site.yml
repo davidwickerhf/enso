@@ -13,7 +13,7 @@ concurrency:
 
 jobs:
   site:
-    runs-on: ubuntu-latest
+    runs-on: anvil-2cpu
     services:
       postgres:
         image: postgres:17-alpine
