@@ -99,9 +99,11 @@ jobs:
         working-directory: helper
         run: npm ci --omit=optional --no-audit --no-fund
 
-      - name: Keyring for libsecret (Linux)
+      # rsync and xz-utils: the installer test packs the helper and unpacks Node; GitHub's images have them, Anvil's
+      # runner image (GitHub's minimal actions-runner) doesn't.
+      - name: Keyring for libsecret, packing tools (Linux)
         if: runner.os == 'Linux'
-        run: sudo apt-get update -qq && sudo apt-get install -y -qq libsecret-tools gnome-keyring dbus
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq libsecret-tools gnome-keyring dbus rsync xz-utils
 
       - name: Helper tests (Linux, with a throwaway keyring)
         if: runner.os == 'Linux'
