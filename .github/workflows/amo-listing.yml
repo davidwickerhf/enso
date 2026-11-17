@@ -31,7 +31,7 @@ concurrency:
 
 jobs:
   listing:
-    runs-on: ubuntu-latest
+    runs-on: anvil-2cpu
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
