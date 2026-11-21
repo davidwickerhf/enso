@@ -2,18 +2,52 @@ name: CI
 
 on:
   pull_request:
-    paths-ignore: ['site/**', '.github/workflows/site.yml']
+  # main, and the batches Anvil's merge queue pushes to anvil/queue/<n> (ci-ok on the batch head decides the merge).
   push:
-    branches: [main]
-    paths-ignore: ['site/**', '.github/workflows/site.yml']
+    branches: [main, "anvil/queue/**"]
 
 permissions:
   contents: read
 
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
+  # What a pull request touches: the site (site/, the old Site workflow's paths) or the rest (extension, helper,
+  # scripts), so each side runs only the jobs it ran before, now in one workflow with one ci-ok. Pushes run everything.
+  changes:
+    name: changes
+    runs-on: anvil-2cpu
+    timeout-minutes: 5
+    outputs:
+      site: ${{ steps.diff.outputs.site }}
+      app: ${{ steps.diff.outputs.app }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - id: diff
+        env:
+          EVENT: ${{ github.event_name }}
+        run: |
+          if [ "$EVENT" != pull_request ]; then
+            echo "site=true" >> "$GITHUB_OUTPUT"; echo "app=true" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          # A pull request's checkout is its merge commit: HEAD^1..HEAD is exactly its change.
+          files="$(git diff --name-only HEAD^1 HEAD)"
+          echo "$files"
+          site=false; app=false
+          if echo "$files" | grep -qE '^(site/|\.github/workflows/ci\.yml$)'; then site=true; fi
+          if echo "$files" | grep -qvE '^site/'; then app=true; fi
+          echo "site=$site" >> "$GITHUB_OUTPUT"; echo "app=$app" >> "$GITHUB_OUTPUT"
+
   check:
     # macOS: the full set (lint, AMO metadata, tarball), and the Keychain tests
     # use the runner's login keychain. Linux and Windows: the helper-tests job.
+    # GitHub-hosted, outside ci-ok (see ci-ok).
+    needs: changes
+    if: needs.changes.outputs.app == 'true'
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
@@ -78,14 +112,74 @@ jobs:
     # The helper on Linux and Windows (x64 and arm64). Secrets go to the real
     # store: a throwaway GNOME Keyring on Linux (libsecret through secret-tool),
     # the runner's Credential Manager on Windows; test items are removed again.
+    # Linux x64 on Anvil's runners, except for pull requests from forks, which stay on GitHub's so code from outside
+    # the repository never runs on Anvil's server. Arm and Windows keep their GitHub runners. Linux x64 is its own
+    # job (helper-tests-linux, below, the same steps) so ci-ok can gate on it without the GitHub-hosted legs.
     name: helper tests (${{ matrix.os }})
+    needs: changes
+    if: needs.changes.outputs.app == 'true'
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, ubuntu-24.04-arm, windows-latest, windows-11-arm]
-    # Linux x64 on Anvil's runners, except for pull requests from forks, which stay on GitHub's so code from
-    # outside the repository never runs on Anvil's server. Arm and Windows keep their GitHub runners.
-    runs-on: ${{ matrix.os == 'ubuntu-latest' && !github.event.pull_request.head.repo.fork && 'anvil-2cpu' || matrix.os }}
+        os: [ubuntu-24.04-arm, windows-latest, windows-11-arm]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: helper/package-lock.json
+
+      - name: Install helper dependencies
+        working-directory: helper
+        run: npm ci --omit=optional --no-audit --no-fund
+
+      # rsync and xz-utils: the installer test packs the helper and unpacks Node; GitHub's images have them, Anvil's
+      # runner image (GitHub's minimal actions-runner) doesn't.
+      - name: Keyring for libsecret, packing tools (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq libsecret-tools gnome-keyring dbus rsync xz-utils
+
+      - name: Helper tests (Linux, with a throwaway keyring)
+        if: runner.os == 'Linux'
+        working-directory: helper
+        env:
+          ENSO_TEST_REAL_SECRETS: '1'
+        run: |
+          dbus-run-session -- bash -c 'echo -n ci | gnome-keyring-daemon --unlock --components=secrets >/dev/null; sleep 1; npm test'
+
+      - name: Helper tests (Windows, Credential Manager)
+        if: runner.os == 'Windows'
+        working-directory: helper
+        env:
+          ENSO_TEST_REAL_SECRETS: '1'
+        run: npm test
+
+      - name: Installer end to end (Linux)
+        # install.sh in a throwaway HOME with the real helper tarball, then `enso
+        # doctor` starts the installed run.sh the way Zen does and needs its
+        # answer to hello. Also Ensō's own Node, checked against the pinned hash.
+        if: runner.os == 'Linux'
+        run: |
+          set -euo pipefail
+          scripts/pack-helper.sh 0.0.0-ci "$RUNNER_TEMP/dist"
+          a=x64; [ "$(uname -m)" = aarch64 ] && a=arm64
+          curl -fsSL -o "$RUNNER_TEMP/node.tar.xz" "https://nodejs.org/dist/v24.22.2/node-v24.22.2-linux-$a.tar.xz"
+          (cd helper && ENSO_TEST_PRIVATE_NODE=1 ENSO_TEST_NODE_TARBALL="$RUNNER_TEMP/node.tar.xz" node test/install.test.mjs)
+          H="$(mktemp -d)"
+          HOME="$H" ENSO_HELPER_URL="file://$RUNNER_TEMP/dist/enso-helper-0.0.0-ci.tar.gz" ENSO_NO_OPEN=1 ENSO_NODE=system bash scripts/install.sh
+          HOME="$H" "$H/.local/bin/enso" doctor | tee "$RUNNER_TEMP/doctor.txt" || true
+          grep -q "✓ Helper .*answered hello" "$RUNNER_TEMP/doctor.txt"
+          grep -q "✓ Zen/Firefox manifest" "$RUNNER_TEMP/doctor.txt"
+          rm -rf "$H"
+
+  helper-tests-linux:
+    name: helper tests (ubuntu-latest)
+    needs: changes
+    if: needs.changes.outputs.app == 'true'
+    runs-on: ${{ !github.event.pull_request.head.repo.fork && 'anvil-2cpu' || 'ubuntu-latest' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -145,6 +239,8 @@ jobs:
     # (registry key, manifest, run.cmd answering hello), a second run (same
     # result), and a run while a helper started through run.cmd is running.
     name: install.ps1 (${{ matrix.os }})
+    needs: changes
+    if: needs.changes.outputs.app == 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -211,3 +307,81 @@ jobs:
           Write-Host 'ok - update while the helper runs'
           $p.StandardInput.Close(); if (-not $p.WaitForExit(10000)) { $p.Kill() }
           Get-ChildItem (Join-Path $env:LOCALAPPDATA 'Enso\Logs') | Select-Object Name, Length
+
+  # enso.wicker.life (site/), formerly the Site workflow.
+  site:
+    name: site
+    needs: changes
+    if: needs.changes.outputs.site == 'true'
+    # Anvil's runners, except for pull requests from forks: those run on GitHub's, so code from outside the
+    # repository never runs on Anvil's server.
+    runs-on: ${{ github.event.pull_request.head.repo.fork && 'ubuntu-latest' || 'anvil-2cpu' }}
+    defaults:
+      run:
+        working-directory: site
+    env:
+      TEST_DATABASE_URL: postgres://enso@localhost:5432/enso_test
+      DATABASE_URL: postgres://enso@localhost:5432/enso_test
+      BETTER_AUTH_SECRET: ci-only-secret-ci-only-secret-ci-only-secret
+    steps:
+      - uses: actions/checkout@v4
+      # Anvil runners have no Docker daemon, so a `services:` container can't start there. Postgres 17
+      # from the PostgreSQL apt repository, in the job itself, on localhost:5432 as before.
+      - name: Start Postgres 17
+        run: |
+          sudo apt-get update -qq
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends postgresql-common
+          sudo /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends postgresql-17
+          sudo sed -i -E 's/(scram-sha-256|md5|peer)$/trust/' /etc/postgresql/17/main/pg_hba.conf
+          # GitHub's images (fork pull requests run there) have another cluster: keep 5432 for this one.
+          pg_lsclusters -h | awk '$1 != "17" {print $1, $2}' | while read -r v c; do sudo pg_dropcluster --stop "$v" "$c"; done
+          sudo pg_conftool 17 main set port 5432
+          sudo pg_ctlcluster 17 main start
+          sudo -u postgres psql -v ON_ERROR_STOP=1 -q -c "create role enso login superuser" -c "create database enso_test owner enso"
+      - uses: pnpm/action-setup@v4
+        with:
+          package_json_file: site/package.json
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: site/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+      - name: Lint
+        run: pnpm lint
+      - name: Typecheck
+        run: pnpm check
+      - name: Test
+        run: pnpm test --reporter=default --reporter=junit --outputFile.junit=junit.xml
+      - uses: actions/upload-artifact@v4
+        if: ${{ !cancelled() }}
+        with:
+          name: junit-site
+          path: site/junit.xml
+          if-no-files-found: warn
+      - name: Build
+        run: pnpm build
+      - name: Installer syntax
+        run: bash -n static/install.sh
+
+  # The one check the merge queue and branch protection need: fails when any job failed or was cancelled, passes when
+  # they all succeeded or were skipped. Gates on the jobs on Anvil's runners. The GitHub-hosted ones (check on macOS,
+  # helper tests on arm and Windows, install.ps1) keep reporting their own checks but don't hold the merge queue:
+  # GitHub hasn't been starting the macOS job for this account, and GitHub-hosted jobs stop when the account's hosted
+  # minutes run out.
+  ci-ok:
+    name: ci-ok
+    needs: [changes, helper-tests-linux, site]
+    if: always()
+    runs-on: anvil-2cpu
+    timeout-minutes: 2
+    steps:
+      - env:
+          RESULTS: ${{ toJSON(needs.*.result) }}
+        run: |
+          echo "$RESULTS"
+          if echo "$RESULTS" | grep -qE '"(failure|cancelled)"'; then
+            echo "::error::a CI job failed or was cancelled"
+            exit 1
+          fi
