@@ -32,6 +32,9 @@ const USAGE = `Usage:
   enso t3 connect                              give Ensō a T3 Code token (orchestration read + operate, 30 days)
   enso t3 status                               is T3 Code reachable, and does Ensō's token work
   enso t3 disconnect                           revoke the token and delete it from the Keychain
+  enso runner enroll [--url <anvil-url>]       enroll this laptop as an Anvil browser runner (keyring required)
+  enso runner status                           show Anvil laptop runner enrollment and ceiling status
+  enso runner disconnect                       revoke the Anvil runner token and delete it from the keyring
   enso setup [--json]                          what's set up and what isn't (the same checks as Ensō → Settings → Setup)
   enso update                                  download and run the installer again (updates the helper; quit and reopen Zen after)
   enso doctor                                  check why Ensō's helper doesn't start (manifests, Node, a test start, the MCP port,
@@ -183,9 +186,102 @@ async function updateCommand() {
   return r.ok ? 0 : 1;
 }
 
+/** `enso runner enroll | status | disconnect`: never prints device_code, token or signing_key. */
+async function runnerCommand(sub, rest = []) {
+  const { readFileSync } = await import("node:fs");
+  const { config } = await import("../lib/config.mjs");
+  const { getSettings } = await import("../lib/store.mjs");
+  const { resolveAnvilConfig } = await import("../lib/anvil-policy.mjs");
+  const { createAnvilAuth } = await import("../lib/anvil-auth.mjs");
+  const { openUrl } = await import("../lib/platform.mjs");
+
+  const cfg = resolveAnvilConfig(config, getSettings());
+  let url = cfg.url;
+  for (let i = 0; i < rest.length; i++) {
+    if (rest[i] === "--url" && rest[i + 1]) url = rest[++i];
+    else if (rest[i].startsWith("--url=")) url = rest[i].slice(6);
+  }
+  const version = (() => {
+    for (const f of ["../VERSION", "../package.json"]) {
+      try {
+        const raw = readFileSync(new URL(f, import.meta.url), "utf8");
+        return f.endsWith("VERSION") ? raw.trim() : JSON.parse(raw).version;
+      } catch {}
+    }
+    return "0.5.8.1";
+  })();
+  const auth = createAnvilAuth({ defaultUrl: url, version });
+
+  switch (sub) {
+    case "enroll": {
+      const started = await auth.startEnroll({ url });
+      console.log("");
+      console.log("  Anvil laptop browser runner enrollment");
+      console.log(`  Code:  ${started.user_code}`);
+      console.log(`  Link:  ${started.verification_uri_complete}`);
+      console.log("");
+      console.log("Open the link signed in to Anvil, confirm the code matches, and approve with your passkey.");
+      if (process.env.ENSO_NO_OPEN !== "1") {
+        try { openUrl(started.verification_uri_complete); } catch {}
+      }
+      let interval = started.interval;
+      const deadline = Date.now() + (started.expires_in || 600) * 1000;
+      while (Date.now() < deadline) {
+        await new Promise(r => setTimeout(r, interval * 1000));
+        const res = await auth.pollEnrollOnce({ url: started.url, deviceCode: started.device_code });
+        if (res.status === "pending" || res.status === "slow_down") {
+          interval = res.interval;
+          continue;
+        }
+        if (res.status === "approved") {
+          console.log(`Enrolled as ${res.enrollment.runner.name} (profile ${res.enrollment.profile}).`);
+          console.log(`Credentials stored in ${auth.keyring.location()}.`);
+          console.log("Keep Zen open with Ensō running to stay online for Anvil.");
+          return 0;
+        }
+        if (res.status === "denied") {
+          console.error("Enrollment was denied in Anvil.");
+          return 1;
+        }
+        console.error("Enrollment code expired. Run `enso runner enroll` to start again.");
+        return 1;
+      }
+      console.error("Enrollment timed out. Run `enso runner enroll` to start again.");
+      return 1;
+    }
+    case "disconnect": {
+      const r = await auth.disconnect();
+      console.log(r.revokedOnServer ? "Disconnected from Anvil and removed runner credentials from the keyring." : "Removed runner credentials from the keyring (Anvil was not reachable to revoke on the server).");
+      return 0;
+    }
+    case "status":
+    case undefined: {
+      const meta = auth.loadEnrollment();
+      const secure = auth.keyring.isSecure();
+      console.log(`Keyring:   ${secure ? `${auth.keyring.backendName()} (${auth.keyring.location()})` : "unavailable (plaintext fallback refused for Anvil)"}`);
+      if (!meta || meta.revoked) {
+        console.log(`Status:    ${meta?.revoked ? meta.revoked_message || "Disconnected (revoked)" : "not enrolled (run `enso runner enroll`)"}`);
+      } else {
+        console.log(`Status:    enrolled`);
+        console.log(`Runner:    ${meta.runner?.name ?? "?"} (id ${meta.runner?.id ?? "?"})`);
+        console.log(`Profile:   ${meta.profile ?? "?"}`);
+        console.log(`Anvil:     ${meta.url}`);
+      }
+      console.log(`Control:   ${cfg.external_control}`);
+      console.log(`Sites:     ${cfg.allowed_sites.length ? cfg.allowed_sites.join(", ") : "(none — add anvil.allowed_sites in config.local.json)"}`);
+      console.log(`Updates:   ${cfg.updates}`);
+      return 0;
+    }
+    default:
+      console.log(USAGE);
+      return 2;
+  }
+}
+
 async function main(argv) {
   const [cmd, sub, ...rest] = argv;
   if (cmd === "t3") return t3Command(sub);
+  if (cmd === "runner") return runnerCommand(sub, rest);
   if (cmd === "setup") return setupCommand([sub, ...rest].filter(Boolean));
   if (cmd === "update") return updateCommand();
   if (cmd === "doctor") {

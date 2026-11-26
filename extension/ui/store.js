@@ -75,6 +75,8 @@ export function createStore({ waitMs = WAIT_MS } = {}) {
     // The screenshot send sheet (views/send.js): capture → targets → send.
     shot: null,              // { image, mode, tab, consoleErrors, capturing, error, targets, target, picker, sending, includePage, includeErrors, message, remember }
     t3: { status: null, busy: null, done: null }, // T3 Code connection (Settings), from the helper's `t3` messages
+    anvil: { status: null, busy: null, done: null }, // Anvil laptop runner (Settings → Anvil), from the helper's `anvil` messages
+    anvilSteps: [],          // Pending/recently-answered Anvil step approvals (sidebar)
     // The native helper as background.js sees it (`helper.status`): connecting | connected | missing | failed | stopped | restarting.
     helper: { state: "connecting", reason: null, at: 0, everConnected: false, lastError: null, failures: 0, connectedAt: null },
     platform: null,          // runtime.getPlatformInfo().os ("mac", "linux", "win"…); supported ones: ui/platform.js SUPPORTED_OSES
@@ -252,6 +254,8 @@ export function createStore({ waitMs = WAIT_MS } = {}) {
         if (Array.isArray(msg.agentAccess)) { s.agentAccess = msg.agentAccess; emit("agents"); }
         if (Array.isArray(msg.stoppedAgents)) { s.stoppedAgents = msg.stoppedAgents; emit("agents"); }
         if (msg.agentTabs) { s.agentTabs = msg.agentTabs; emit("agents"); }
+        if (Array.isArray(msg.anvilSteps)) { s.anvilSteps = msg.anvilSteps; emit("agents"); }
+        if (msg.anvil) { s.anvil = { ...s.anvil, status: msg.anvil }; emit("anvil"); }
         if (Array.isArray(msg.connectedAgents)) s.connectedAgents = msg.connectedAgents;
         if (first && s.settings) s.ui.includePage = s.settings.includePageByDefault !== false;
         emit("state", "settings", "servers", "conversations", "dashboard", "ui", "skills", "reports", "banner", "profile");
@@ -404,6 +408,14 @@ export function createStore({ waitMs = WAIT_MS } = {}) {
         s.t3 = { status: msg.status ?? s.t3.status, busy: null, done: msg.done ?? null };
         emit("t3");
         return;
+      case "anvil":
+        s.anvil = { status: msg.status ?? s.anvil.status, busy: msg.done ? null : s.anvil.busy, done: msg.done ?? s.anvil.done };
+        emit("anvil");
+        return;
+      case "anvil.step.answered":
+        if (!msg.ok && msg.error) showToast(msg.error, "bad");
+        emit("agents");
+        return;
       case "helper.status": {
         const was = s.helper.state;
         s.helper = { state: msg.state, reason: msg.reason ?? null, at: msg.at ?? Date.now(), everConnected: s.helper.everConnected || msg.state === "connected", lastError: msg.lastError ?? s.helper.lastError ?? null, failures: msg.failures ?? 0, connectedAt: msg.connectedAt ?? null };
@@ -438,6 +450,7 @@ export function createStore({ waitMs = WAIT_MS } = {}) {
         if (Array.isArray(msg.access)) s.agentAccess = msg.access;
         if (Array.isArray(msg.stopped)) s.stoppedAgents = msg.stopped;
         if (msg.agentTabs) s.agentTabs = msg.agentTabs;
+        if (Array.isArray(msg.anvilSteps)) s.anvilSteps = msg.anvilSteps;
         // Drop local "sending" notes the helper now knows about.
         for (const [id, n] of s.agentNotes) {
           const sess = s.agents.find(x => x.id === n.sessionId);
@@ -884,6 +897,16 @@ export function createStore({ waitMs = WAIT_MS } = {}) {
     t3Connect() { s.t3 = { ...s.t3, busy: "connect", done: null }; emit("t3"); send({ type: "t3.connect" }); },
     t3Disconnect() { s.t3 = { ...s.t3, busy: "disconnect", done: null }; emit("t3"); send({ type: "t3.disconnect" }); },
     openT3(threadId) { send({ type: "t3.open", threadId }); },
+    anvilStatus() { send({ type: "anvil.status" }); },
+    anvilEnroll(url) { s.anvil = { ...s.anvil, busy: "enroll", done: null }; emit("anvil"); send({ type: "anvil.enroll.start", ...(url ? { url } : {}) }); },
+    anvilCancelEnroll() { s.anvil = { ...s.anvil, busy: null, done: null }; emit("anvil"); send({ type: "anvil.enroll.cancel" }); },
+    anvilDisconnect() { s.anvil = { ...s.anvil, busy: "disconnect", done: null }; emit("anvil"); send({ type: "anvil.disconnect" }); },
+    anvilCheckUpdate() { send({ type: "anvil.update.check" }); },
+    anvilAnswerStep(stepId, approve) {
+      s.anvilSteps = s.anvilSteps.map(x => (x.stepId === stepId && x.status === "pending" ? { ...x, status: approve ? "approved" : "denied" } : x));
+      emit("agents");
+      send({ type: "anvil.step.answer", stepId, approve: !!approve });
+    },
     dismissToast() { s.toast = null; emit("toast"); },
     // First-run guide: ask background.js to try the helper again now.
     helperRetry() { send({ type: "helper.retry" }); },

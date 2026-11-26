@@ -244,6 +244,42 @@ function accessItem(r, actions) {
       h("button", { type: "button", class: "btn small primary", dataset: { fk: `access-allow-${r.id}` }, title: `Add ${r.origin} to your session-access list`, onclick: () => actions.allowAccess(r.id) }, "Allow")) : null);
 }
 
+const STEP_REASON_LABEL = {
+  irreversible: "Irreversible",
+  off_site: "Off-site",
+  session_access: "Session access",
+  unrequested: "Unrequested",
+};
+
+/** One Anvil supervised-session step approval in the sidebar (LAPTOP-RUNNER.md §7.4). */
+function anvilStepItem(st, actions) {
+  const host = hostOf(st.url);
+  const done = st.status !== "pending";
+  const reasonLabel = STEP_REASON_LABEL[st.reason] ?? st.reason;
+  const statusDetail = st.status === "approved"
+    ? `Approved${st.decidedBy ? ` by ${st.decidedBy}` : ""}. The agent can retry this step once.`
+    : st.status === "denied"
+      ? `Denied${st.decidedBy ? ` by ${st.decidedBy}` : ""}.`
+      : st.status === "expired"
+        ? "Timed out (counts as denied)."
+        : st.status === "already_decided"
+          ? "Already answered elsewhere."
+          : [reasonLabel, host || null, `Step #${st.stepId}`].filter(Boolean).join(" · ");
+  return h("div", {
+    class: ["agent-access", done && `answered ${st.status === "approved" ? "granted" : "dismissed"}`],
+    role: "group",
+    dataset: { anvilStep: String(st.stepId) },
+    aria: { label: st.description },
+  },
+    h("span", { class: "agent-access-icon", aria: { hidden: "true" } }, icon(st.status === "approved" ? "check" : done ? "x" : "shield")),
+    h("div", { class: "agent-access-text" },
+      h("strong", { class: "agent-access-title" }, st.description, !done ? h("span", { class: "tag warn-tag anvil-step-reason" }, reasonLabel) : null),
+      h("span", { class: "agent-access-detail" }, statusDetail)),
+    !done ? h("div", { class: "agent-access-actions" },
+      h("button", { type: "button", class: "btn small ghost", dataset: { fk: `anvil-deny-${st.stepId}` }, onclick: () => actions.anvilAnswerStep(st.stepId, false) }, "Deny"),
+      h("button", { type: "button", class: "btn small primary", dataset: { fk: `anvil-approve-${st.stepId}` }, onclick: () => actions.anvilAnswerStep(st.stepId, true) }, "Approve")) : null);
+}
+
 // The same shades as the page (pageagent.js SHADES): each session keeps the
 // first one free on its tab, oldest first, for as long as it lives.
 export const SHADES = ["#d9643a", "#2f7f86", "#8a4f9e", "#b0802a", "#4a6db0", "#a8455a"];
@@ -350,17 +386,19 @@ export function createAgentsPanel(store) {
         lv.share === "on" ? h("button", { type: "button", class: "btn small ghost", dataset: { fk: "share-on" }, title: "Every agent on this tab may act on it at once", onclick: () => actions.shareTab(tabId, true) }, here.filter(x => !x.stopped).length > 2 ? "Let all act" : "Let both act") : null,
         lv.share === "off" ? h("button", { type: "button", class: "btn small", dataset: { fk: "share-off" }, title: "Back to one agent at a time: the last one to act keeps the tab", onclick: () => actions.shareTab(tabId, false) }, "One at a time") : null);
     }
-    // Session-access requests of this agent (any site): Allow / Not now.
+    // Session-access requests & Anvil step approvals of this agent: Allow / Approve / Deny.
     const mine = s.agentAccess.filter(r => (r.sessionIds ?? [r.sessionId]).includes(a.id));
-    const asig = JSON.stringify(mine.map(r => [r.id, r.status, r.told]));
+    const mySteps = (s.anvilSteps ?? []).filter(st => st.sessionId === a.id);
+    const asig = JSON.stringify([mine.map(r => [r.id, r.status, r.told]), mySteps.map(st => [st.stepId, st.status, st.decidedBy])]);
     if (asig !== c.accessSig) {
       const focused = c.accessHost.contains(document.activeElement) ? document.activeElement.dataset.fk : null;
       c.accessSig = asig;
-      clear(c.accessHost, mine.map(r => accessItem(r, actions)));
+      clear(c.accessHost, [...mySteps.map(st => anvilStepItem(st, actions)), ...mine.map(r => accessItem(r, actions))]);
       if (focused) (c.accessHost.querySelector(`[data-fk="${CSS.escape(focused)}"]`) ?? c.root).focus({ preventScroll: true });
     }
-    c.accessHost.hidden = !mine.length;
-    c.task.textContent = a.task || (a.explicit ? "" : "Working in Zen (no task given)");
+    c.accessHost.hidden = !mine.length && !mySteps.length;
+    const budgetText = a.remote && Number.isFinite(a.stepBudget) ? ` (${a.stepsUsed ?? 0}/${a.stepBudget} steps)` : "";
+    c.task.textContent = (a.task ? `${a.task}${budgetText}` : (a.explicit ? "" : "Working in Zen (no task given)"));
     c.task.classList.toggle("muted", !a.task);
     // A T3 Code agent: the thread it runs in (screenshots of this tab go there).
     c.t3Line.hidden = !a.t3;
@@ -593,16 +631,17 @@ export function createAgentsPanel(store) {
       clear(listHost, list);
       if (focused) listHost.querySelector(`[data-fk="${CSS.escape(focused)}"]`)?.focus();
     }
-    // Requests not shown in the card (their agent isn't on this tab).
+    // Requests & Anvil step approvals not shown in the card (their agent isn't on this tab).
     const elsewhere = s.agentAccess.filter(r => !(r.sessionIds ?? [r.sessionId]).some(id => hereIds.includes(id)));
-    const asig = JSON.stringify(elsewhere.map(r => [r.id, r.status, r.told]));
+    const elsewhereSteps = (s.anvilSteps ?? []).filter(st => !hereIds.includes(st.sessionId));
+    const asig = JSON.stringify([elsewhere.map(r => [r.id, r.status, r.told]), elsewhereSteps.map(st => [st.stepId, st.status, st.decidedBy])]);
     if (asig !== accessSig) {
       const focused = accessHost.contains(document.activeElement) ? document.activeElement.dataset.fk : null;
       accessSig = asig;
-      clear(accessHost, elsewhere.map(r => accessItem(r, actions)));
+      clear(accessHost, [...elsewhereSteps.map(st => anvilStepItem(st, actions)), ...elsewhere.map(r => accessItem(r, actions))]);
       if (focused) accessHost.querySelector(`[data-fk="${CSS.escape(focused)}"]`)?.focus();
     }
-    accessHost.hidden = !elsewhere.length;
+    accessHost.hidden = !elsewhere.length && !elsewhereSteps.length;
     // Tabs agents left open, and the ones Ensō closed.
     const at = s.agentTabs ?? {};
     const lsig = JSON.stringify([leftOpen, closedOpen, at.mode, (at.leftovers ?? []).map(l => [l.tabId, l.title, l.url, l.task, l.skipped, l.closesAt && Math.round((Date.parse(l.closesAt) - Date.now()) / 60_000)]), (at.recentlyClosed ?? []).map(c => c.id)]);
@@ -618,7 +657,7 @@ export function createAgentsPanel(store) {
     cardHost.hidden = !card;
     stack.hidden = !card;
     listHost.hidden = !list;
-    el.hidden = !card && !stoppedHere && !list && !elsewhere.length && !left;
+    el.hidden = !card && !stoppedHere && !list && !elsewhere.length && !elsewhereSteps.length && !left;
     if (s.agents.length && !ticker) ticker = setInterval(tick, 1000);
     if (!s.agents.length && ticker) { clearInterval(ticker); ticker = null; }
     const stoppedShown = (s.stoppedAgents ?? []).length > 0;

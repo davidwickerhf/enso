@@ -210,7 +210,9 @@
     Object.assign(text.style, { overflow: "hidden", textOverflow: "ellipsis", minWidth: 0 });
     const state = document.createElement("span");
     Object.assign(state.style, { flex: "none", fontWeight: "600", opacity: "0.9" });
-    box.append(dot, text, state);
+    const controls = document.createElement("span");
+    Object.assign(controls.style, { display: "none", alignItems: "center", gap: "4px", marginLeft: "4px", flex: "none" });
+    box.append(dot, text, state, controls);
     // Each agent with its task and state, under the pill while it is expanded.
     const list = document.createElement("div");
     list.setAttribute("role", "list");
@@ -253,7 +255,7 @@
     wrap.append(box, access, list, frame);
     root.append(wrap);
     document.documentElement.appendChild(host);
-    pill = { host, wrap, box, text, state, dot, list, access, frame, ready: false, pulse: null, rows: [], accessRows: [], accessSig: "" };
+    pill = { host, wrap, box, text, state, dot, controls, controlButtons: [], list, access, frame, ready: false, pulse: null, rows: [], accessRows: [], accessSig: "" };
     return pill;
   }
 
@@ -350,11 +352,21 @@
     });
   }
 
-  /** Tell pill.html where the request rows are, so a click there doesn't open the sidebar. */
+  /** Tell pill.html where the request rows and inline Pause/Stop controls are, so clicks there don't open the sidebar. */
   function postZones(p) {
     try {
-      const top = p.wrap.getBoundingClientRect().top;
-      const zones = accessReqs.length ? p.accessRows.map(r => { const b = r.el.getBoundingClientRect(); return { top: b.top - top, bottom: b.bottom - top }; }) : [];
+      const box = p.wrap.getBoundingClientRect();
+      const zones = [];
+      if (accessReqs.length) {
+        for (const r of p.accessRows) {
+          const b = r.el.getBoundingClientRect();
+          zones.push({ top: b.top - box.top, bottom: b.bottom - box.top });
+        }
+      }
+      for (const c of p.controlButtons ?? []) {
+        const b = c.el.getBoundingClientRect();
+        zones.push({ top: b.top - box.top - 2, bottom: b.bottom - box.top + 2, left: b.left - box.left - 2, right: b.right - box.left + 2 });
+      }
       p.frame.contentWindow?.postMessage({ ensoPillZones: zones }, "*");
     } catch {}
   }
@@ -371,6 +383,49 @@
       }
     }
     return null;
+  }
+
+  /** Inline remote session control button (Pause / Resume / Stop) at (x, y), or null. */
+  function controlAt(x, y) {
+    const p = pill;
+    if (!p || !p.controlButtons?.length) return null;
+    const box = p.wrap.getBoundingClientRect();
+    for (const b of p.controlButtons) {
+      const r = b.el.getBoundingClientRect();
+      if (x >= r.left - box.left - 2 && x <= r.right - box.left + 2 && y >= r.top - box.top - 2 && y <= r.bottom - box.top + 2) {
+        return { id: b.id, action: b.action };
+      }
+    }
+    return null;
+  }
+
+  function renderRemoteControls(p) {
+    const remote = sessions.length === 1 && sessions[0].remote && !sessions[0].stopped ? sessions[0] : null;
+    p.controls.replaceChildren();
+    p.controlButtons = [];
+    if (!remote) {
+      p.controls.style.display = "none";
+      return;
+    }
+    p.controls.style.display = "inline-flex";
+    const mk = (action, label) => {
+      const btn = document.createElement("span");
+      btn.textContent = label;
+      btn.setAttribute("data-pill-control", action);
+      Object.assign(btn.style, {
+        fontSize: "11px",
+        fontWeight: "650",
+        padding: "2px 8px",
+        borderRadius: "999px",
+        background: action === "stop" ? "rgba(0,0,0,.32)" : "rgba(255,255,255,.22)",
+        color: "white",
+        cursor: "pointer",
+      });
+      p.controls.append(btn);
+      p.controlButtons.push({ id: remote.id, action, el: btn });
+    };
+    mk(remote.paused ? "resume" : "pause", remote.paused ? "Resume" : "Pause");
+    mk("stop", "Stop");
   }
 
   function renderList(p) {
@@ -438,6 +493,7 @@
       p.pulse.cancel();
       p.pulse = null;
     }
+    renderRemoteControls(p);
     renderAccess(p);
     renderList(p);
     postZones(p);
@@ -464,6 +520,7 @@
     running: !!x?.running,
     paused: !!x?.paused,
     stopped: !!x?.stopped,
+    remote: !!x?.remote,
     control: x?.control === "holder" || x?.control === "shared" || x?.control === "waiting" ? x.control : null, // its part in the tab lease
   });
 
@@ -1026,11 +1083,12 @@
     /** A click in pill.html at `y` px from its top: which agent it was on (and keep the list open a moment). */
     // A click on an access request's Allow / Not now also says which (only background.js asks, for a trusted click in pill.html).
     pill_pick({ x, y }) {
-      if (!pill) return { sessionId: null, access: null };
-      const access = accessAt(Number(x) || 0, Number(y) || 0);
+      if (!pill) return { sessionId: null, access: null, control: null };
+      const control = controlAt(Number(x) || 0, Number(y) || 0);
+      const access = control ? null : accessAt(Number(x) || 0, Number(y) || 0);
       const sessionId = pickAt(Number(y) || 0);
-      if (sessions.length > 1 && !access) setExpanded(true, 5000);
-      return { sessionId, access };
+      if (sessions.length > 1 && !access && !control) setExpanded(true, 5000);
+      return { sessionId, access, control };
     },
     /** What the pill shows (its shadow root is closed to the page): for diagnostics and the tests. */
     pill_state() {
@@ -1063,7 +1121,176 @@
     fetch: sessionFetch,
     query,
     inspect,
+    anvil_snapshot: anvilSnapshot,
+    describe_ref: describeRef,
+    focused_field: focusedField,
+    outline_ref: outlineRef,
+    has_sensitive_field: hasSensitiveField,
   };
+
+  // ---------- Anvil supervised session helpers (compact snapshot, classifier facts, outlines) ----------
+
+  const ANVIL_CONTAINERS = new Set(["main", "nav", "header", "footer", "aside", "section", "article", "form", "dialog", "ul", "ol", "table", "fieldset"]);
+  const ANVIL_TEXT_TAGS = new Set(["h1", "h2", "h3", "h4", "h5", "h6", "p", "li", "dt", "dd", "th", "td", "label", "legend", "figcaption", "blockquote"]);
+  const ANVIL_PAYMENT_RE = /cc-|card|cvc|cvv|iban/i;
+  const ANVIL_SENSITIVE_FIELD_RE = /pass(word|code|phrase)?\b|secret|token|api[ _-]?key|private key|client secret|\bpin\b|\botp\b|one[- ]time|verification code|2fa|cvc|cvv|security code|card number|iban/i;
+  const ANVIL_DESTRUCTIVE_RE = /\b(danger|destructive|delete|critical)\b/i;
+
+  function anvilRoleOf(el) {
+    const r = el.getAttribute("role");
+    if (r) return r.toLowerCase();
+    const tag = el.tagName.toLowerCase();
+    if (/^h[1-6]$/.test(tag)) return "heading";
+    if (tag === "a" && el.hasAttribute("href")) return "link";
+    if (tag === "button") return "button";
+    if (tag === "select") return "combobox";
+    if (tag === "textarea") return "textbox";
+    if (tag === "input") {
+      const t = String(el.type || "text").toLowerCase();
+      if (t === "checkbox") return "checkbox";
+      if (t === "radio") return "radio";
+      if (t === "submit" || t === "button" || t === "reset" || t === "image") return "button";
+      if (t === "search") return "searchbox";
+      if (t === "range") return "slider";
+      return "textbox";
+    }
+    if (el.isContentEditable) return "textbox";
+    return "text";
+  }
+
+  function anvilSnapshot() {
+    refs = new Map();
+    const nodes = [];
+    const passwords = [...document.querySelectorAll('input[type="password"]')].map(i => i.value).filter(Boolean).slice(0, 20);
+    let interactiveCount = 0;
+    const seenInteractive = new Set();
+
+    const walk = (el, depth) => {
+      if (!el || el.nodeType !== 1 || nodes.length >= 800) return;
+      if (el.hasAttribute("data-enso-pill") || el.hasAttribute("data-enso-flash") || el.hasAttribute("data-enso-region")) return;
+      const tag = el.tagName.toLowerCase();
+      if (["script", "style", "noscript", "template", "svg", "head"].includes(tag)) return;
+      if (el.getAttribute("aria-hidden") === "true") return;
+      const cs = getComputedStyle(el);
+      if (cs.display === "none" || cs.visibility === "hidden" || cs.opacity === "0") return;
+
+      const isInteractive = el.matches(INTERACTIVE) && visible(el);
+      if (isInteractive && interactiveCount < 400) {
+        seenInteractive.add(el);
+        const ref = ++interactiveCount;
+        refs.set(ref, el);
+        const role = anvilRoleOf(el);
+        const pwField = isPassword(el);
+        const node = {
+          ref,
+          role,
+          name: accessibleName(el),
+          interactive: true,
+          depth,
+          password: pwField,
+        };
+        if (!pwField && ["textbox", "searchbox", "combobox", "slider", "spinbutton"].includes(role)) {
+          node.value = clean(el.tagName === "SELECT" ? (el.selectedOptions?.[0]?.text ?? el.value) : (el.value ?? el.innerText ?? ""));
+        }
+        if (role === "checkbox" || role === "radio" || role === "switch") {
+          node.checked = el.indeterminate ? "mixed" : !!(el.checked ?? (el.getAttribute("aria-checked") === "true"));
+        }
+        if (el.disabled || el.getAttribute("aria-disabled") === "true") node.disabled = true;
+        if (el.getAttribute("aria-expanded") === "true") node.expanded = true;
+        nodes.push(node);
+        return; // don't duplicate inner text of buttons/links
+      }
+
+      if (/^h[1-6]$/.test(tag) || el.getAttribute("role") === "heading") {
+        const txt = clean(el.innerText ?? el.textContent ?? "");
+        if (txt) nodes.push({ role: "heading", name: txt, interactive: false, depth });
+        return;
+      }
+
+      const nextDepth = ANVIL_CONTAINERS.has(tag) || ["dialog", "navigation", "main", "form", "region", "list", "menu"].includes(el.getAttribute("role") || "")
+        ? Math.min(depth + 1, 10)
+        : depth;
+
+      if (ANVIL_TEXT_TAGS.has(tag) && !el.querySelector(INTERACTIVE)) {
+        const txt = clean(el.innerText ?? el.textContent ?? "");
+        if (txt) nodes.push({ role: "text", name: txt, interactive: false, depth });
+        return;
+      }
+
+      for (const child of el.children) walk(child, nextDepth);
+    };
+
+    if (document.body) walk(document.body, 0);
+    return { url: location.href, title: document.title, nodes, passwords };
+  }
+
+  function describeRef({ ref }) {
+    const el = refs.get(Number(ref));
+    if (!el || !el.isConnected) return { gone: true };
+    const attr = n => el.getAttribute(n) || "";
+    const tag = el.tagName.toLowerCase();
+    const type = (attr("type") || (tag === "button" ? "submit" : "")).toLowerCase();
+    const form = el.form || el.closest("form");
+    const fields = form ? [...form.querySelectorAll("input")] : [];
+    const isPayment = i => ANVIL_PAYMENT_RE.test(`${i.getAttribute("autocomplete") || ""} ${i.name || ""} ${i.id || ""}`);
+    const link = el.closest("a[href]");
+    const marks = `${attr("class")} ${attr("data-variant")} ${attr("data-intent")} ${attr("data-destructive")} ${attr("data-anvil-destructive")} ${attr("aria-description")}`;
+    return {
+      gone: false,
+      role: anvilRoleOf(el),
+      name: accessibleName(el),
+      tag,
+      type,
+      autocomplete: attr("autocomplete").toLowerCase(),
+      href: link ? link.href : null,
+      download: !!(link && link.hasAttribute("download")),
+      in_form: !!form,
+      submits: !!form && ((tag === "button" && type === "submit") || (tag === "input" && (type === "submit" || type === "image"))),
+      form_has_password: fields.some(i => String(i.type).toLowerCase() === "password"),
+      form_has_payment: fields.some(isPayment),
+      payment_field: tag === "input" && isPayment(el),
+      password_field: isPassword(el),
+      destructive: ANVIL_DESTRUCTIVE_RE.test(marks) || attr("data-anvil-destructive") === "true",
+    };
+  }
+
+  function focusedField() {
+    let el = document.activeElement;
+    while (el?.shadowRoot?.activeElement) el = el.shadowRoot.activeElement;
+    if (!el || el === document.body || el === document.documentElement) return { none: true };
+    if (el.tagName === "IFRAME" || el.tagName === "FRAME") return { frame: true };
+    return { password: isPassword(el), role: anvilRoleOf(el), name: accessibleName(el) };
+  }
+
+  function outlineRef({ ref, on }) {
+    const el = refs.get(Number(ref));
+    if (!el || !el.isConnected) return { ok: false };
+    if (on) {
+      el.scrollIntoView({ block: "center", inline: "nearest" });
+      el.dataset.ensoAnvilOutline = el.style.outline || "";
+      el.dataset.ensoAnvilOutlineOffset = el.style.outlineOffset || "";
+      el.style.outline = "3px solid #e5484d";
+      el.style.outlineOffset = "2px";
+    } else {
+      el.style.outline = el.dataset.ensoAnvilOutline ?? "";
+      el.style.outlineOffset = el.dataset.ensoAnvilOutlineOffset ?? "";
+      delete el.dataset.ensoAnvilOutline;
+      delete el.dataset.ensoAnvilOutlineOffset;
+    }
+    return { ok: true };
+  }
+
+  function hasSensitiveField() {
+    for (const el of document.querySelectorAll("input, textarea")) {
+      if (!visible(el)) continue;
+      const val = String(el.value ?? "").trim();
+      if (!val) continue;
+      if (isPassword(el)) return { sensitive: true, reason: "password" };
+      const label = `${accessibleName(el)} ${el.getAttribute("autocomplete") || ""} ${el.name || ""} ${el.id || ""}`;
+      if (ANVIL_SENSITIVE_FIELD_RE.test(label) || looksSecret(val)) return { sensitive: true, reason: "credential" };
+    }
+    return { sensitive: false };
+  }
 
   // ---------- developer tools ----------
 

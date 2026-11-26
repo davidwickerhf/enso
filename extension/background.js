@@ -484,8 +484,9 @@ async function pageAction(tabId, action, args, who, sessionId) {
   if (action === "console") return consoleRead(tabId, args);
   if (action === "storage") return storageRead(tabId, args);
   if (action === "navigate") {
-    if (!isWeb(args.url)) throw new Error("Only http(s) URLs can be opened.");
+    if (!isWeb(args.url) && args.url !== "about:blank") throw new Error("Only http(s) URLs can be opened.");
     await browser.tabs.update(tabId, { url: args.url });
+    if (args.url === "about:blank") return { url: "about:blank", title: "" };
     return waitForLoad(tabId, clampMs(args.timeoutMs, 40_000));
   }
   if (action === "back") {
@@ -593,6 +594,25 @@ async function browserAction(action, args) {
     }
     case "tabs_open":
       return openTabs(args);
+    case "tabs_open_session": {
+      const cur = await activeTab();
+      const tab = await browser.tabs.create({
+        url: "about:blank",
+        active: false,
+        ...(cur?.cookieStoreId ? { cookieStoreId: cur.cookieStoreId } : {}),
+        ...(cur?.windowId != null ? { windowId: cur.windowId } : {}),
+      });
+      openedAt.set(tab.id, Date.now());
+      let groupId = null;
+      if (browser.tabs.group) {
+        try {
+          groupId = await browser.tabs.group({ tabIds: [tab.id] });
+          const title = String(args.groupTitle || args.task || "Anvil session").slice(0, 60);
+          await browser.tabGroups?.update?.(groupId, { title, color: "orange" });
+        } catch {}
+      }
+      return { tabId: tab.id, windowId: tab.windowId, cookieStoreId: tab.cookieStoreId ?? null, groupId };
+    }
     case "tabs_close_leftovers":
       return closeLeftovers(args);
     case "tabs_reopen": {
@@ -711,7 +731,7 @@ function syncGlobalBadge() {
 // `access`: requests for this tab's site, shown as rows with Allow / Not now under the pill.
 function presenceFor(list, access = []) {
   return {
-    agents: list.map(s => ({ id: s.id, label: s.client, task: s.task, space: s.space ?? "", startedAt: s.startedAt ?? "", running: !!s.running, paused: !!s.paused, stopped: !!s.stopped, control: s.control ?? null })),
+    agents: list.map(s => ({ id: s.id, label: s.client, task: s.task, space: s.space ?? "", startedAt: s.startedAt ?? "", running: !!s.running, paused: !!s.paused, stopped: !!s.stopped, remote: !!s.remote, control: s.control ?? null })),
     titlePrefix: titlePrefixOn,
     ...(access.length ? { access: access.map(r => ({ id: r.id, label: r.client, origin: r.origin, status: r.status })) } : {}),
   };
@@ -881,10 +901,11 @@ async function pillClicked(tab, opened, sessionId = null) {
   if (!open) browser.tabs.sendMessage(tab.id, { enso: true, action: "pill_hint", args: { text: `Press ${await openShortcut()} for Ensō` } }, { frameId: 0 }).catch(() => {});
 }
 // With several agents on the tab, the row clicked in the expanded pill picks the card;
-// a click on an access request's Allow / Not now names the request and the choice.
+// a click on an access request's Allow / Not now names the request and the choice;
+// a click on a remote session's Pause / Resume / Stop button names the session and action.
 async function pillPick(tabId, x, y) {
   const r = await browser.tabs.sendMessage(tabId, { enso: true, action: "pill_pick", args: { x, y } }, { frameId: 0 }).catch(() => null);
-  return r?.ok ? { sessionId: r.result?.sessionId ?? null, access: r.result?.access ?? null } : { sessionId: null, access: null };
+  return r?.ok ? { sessionId: r.result?.sessionId ?? null, access: r.result?.access ?? null, control: r.result?.control ?? null } : { sessionId: null, access: null, control: null };
 }
 
 /**
@@ -913,6 +934,15 @@ browser.runtime.onMessage.addListener((msg, sender) => {
         // Allow / Not now only from a real user click (pill.js checks event.isTrusted).
         if (pick.access && msg.trusted === true && (await pillAccess(sender.tab, pick.access))) return;
         if (pick.access) return; // a click on the request row that didn't count: do nothing rather than open the sidebar
+        // Remote session Pause / Resume / Stop buttons on the pill (trusted clicks only).
+        if (pick.control && msg.trusted === true) {
+          const action = pick.control.action;
+          if (["pause", "resume", "stop"].includes(action) && typeof pick.control.id === "string") {
+            connectNative()?.postMessage({ type: `agents.${action}`, id: pick.control.id, via: "pill" });
+          }
+          return;
+        }
+        if (pick.control) return;
         pillClicked(sender.tab, !!msg.opened, pick.sessionId);
       });
   } else if (msg?.ensoPillFallback && sender.frameId === 0) {
@@ -1036,7 +1066,12 @@ function broadcast(msg) {
 const CHANNEL = globalThis.ENSO_CHANNEL ?? "dev";
 const PAGE_EVAL = CHANNEL !== "listed";
 const PAGE_EVAL_UNAVAILABLE = "page_eval is not available in the Firefox Add-ons build of Ensō. Use page_read, devtools_console, devtools_network or page_storage instead.";
-const extensionHello = () => ({ type: "extension.hello", version: browser.runtime.getManifest().version, channel: CHANNEL, capabilities: { pageEval: PAGE_EVAL } });
+let browserInfoCache = null;
+browser.runtime.getBrowserInfo?.().then(info => {
+  browserInfoCache = info ? { name: info.name, version: info.version } : null;
+  if (native && browserInfoCache) native.postMessage(extensionHello());
+}).catch(() => {});
+const extensionHello = () => ({ type: "extension.hello", version: browser.runtime.getManifest().version, channel: CHANNEL, ...(browserInfoCache ? { browser: browserInfoCache } : {}), capabilities: { pageEval: PAGE_EVAL } });
 
 let helper = { state: "connecting", reason: null, at: Date.now(), lastError: null, failures: 0, connectedAt: null };
 let helperGotMessage = false;

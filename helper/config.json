@@ -76,5 +76,14 @@
     "my.gov.au",
     "*.ird.govt.nz"
   ],
-  "spaceHints": {}
+  "spaceHints": {},
+  "anvil": {
+    "url": "https://anvil.wicker.life",
+    "allowed_sites": [],
+    "external_control": "full",
+    "deny_tools": ["page_eval", "page_query", "page_inspect", "page_upload"],
+    "session_fetch": "get_only",
+    "max_sessions": 2,
+    "updates": "auto"
+  }
 }
