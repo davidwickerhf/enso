@@ -13,7 +13,8 @@
 //   node test/anvil-runner.test.mjs
 
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
@@ -42,7 +43,7 @@ const {
 const { createAnvilAuth, REVOKED_MESSAGE } = await import("../lib/anvil-auth.mjs");
 const { backoffDelayMs, channelWsUrl, createAnvilChannel } = await import("../lib/anvil-channel.mjs");
 const { createAnvilSessionManager, createSessionRefTable } = await import("../lib/anvil-sessions.mjs");
-const { createAnvilUpdater, inUpdateWindow, msUntilWindow } = await import("../lib/anvil-updater.mjs");
+const { createAnvilUpdater, inUpdateWindow, installVerifiedArtifact, msUntilWindow } = await import("../lib/anvil-updater.mjs");
 const { createAnvilRunner } = await import("../lib/anvil-runner.mjs");
 const { resetBackend } = await import("../lib/secrets.mjs");
 
@@ -817,6 +818,209 @@ try {
     assert.ok(st.ceiling.denyTools.includes("page_eval"));
     runner.stop();
     console.log("ok - anvil runner coordinator state");
+  }
+
+  // =========================================================================
+  // 8. Regression checks: verified artifact install, redirected-page ceiling,
+  //    and concurrent session.start capacity reservation
+  // =========================================================================
+  {
+    // 8a. Verified artifact install (supports pins & rollbacks without hitting site installer)
+    const instData = path.join(root, "install-data");
+    const installedHelper = path.join(instData, "helper");
+    mkdirSync(installedHelper, { recursive: true });
+    writeFileSync(path.join(installedHelper, "host.mjs"), "// old 0.6.0\n");
+    writeFileSync(path.join(installedHelper, "VERSION"), "0.6.0\n");
+    writeFileSync(path.join(installedHelper, "run.sh"), "#!/bin/sh\necho keep-me\n");
+
+    const buildArchive = (ver, outFile) => {
+      const srcRoot = path.join(root, `pkg-${ver}-${Date.now()}`);
+      mkdirSync(path.join(srcRoot, "helper"), { recursive: true });
+      writeFileSync(path.join(srcRoot, "helper", "host.mjs"), `// version ${ver}\n`);
+      writeFileSync(path.join(srcRoot, "helper", "VERSION"), `${ver}\n`);
+      execFileSync("tar", ["-czf", outFile, "-C", srcRoot, "helper"]);
+      rmSync(srcRoot, { recursive: true, force: true });
+      return sha256Hex(readFileSync(outFile));
+    };
+
+    const tarPath = path.join(root, "enso-0.6.1.tar.gz");
+    const tarSha = buildArchive("0.6.1", tarPath);
+
+    // Refuses dev checkout (helperDir != <dataDir>/helper)
+    assert.throws(
+      () => installVerifiedArtifact({ version: "0.6.1", sha256: tarSha, filePath: tarPath }, { dataDir: instData, helperDir: path.join(root, "checkout", "helper") }),
+      /checkout/i,
+    );
+    // Refuses SHA-256 mismatch
+    assert.throws(
+      () => installVerifiedArtifact({ version: "0.6.1", sha256: "0".repeat(64), filePath: tarPath }, { dataDir: instData, helperDir: installedHelper }),
+      /sha256 mismatch/i,
+    );
+    // Refuses archive whose embedded version does not match manifest target.version
+    assert.throws(
+      () => installVerifiedArtifact({ version: "0.6.2", sha256: tarSha, filePath: tarPath }, { dataDir: instData, helperDir: installedHelper }),
+      /version mismatch/i,
+    );
+    // Installs exact verified artifact and preserves run.sh
+    const instRes = installVerifiedArtifact({ version: "0.6.1", sha256: tarSha, filePath: tarPath }, { dataDir: instData, helperDir: installedHelper });
+    assert.equal(instRes.installedVersion, "0.6.1");
+    assert.equal(readFileSync(path.join(installedHelper, "VERSION"), "utf8").trim(), "0.6.1");
+    assert.match(readFileSync(path.join(installedHelper, "host.mjs"), "utf8"), /0\.6\.1/);
+    assert.match(readFileSync(path.join(installedHelper, "run.sh"), "utf8"), /keep-me/);
+
+    // 8b. Redirect to outside.test (outside allowed_sites) or off-site (outside s.sites)
+    const testKey = Buffer.alloc(32, 0x55).toString("base64url");
+    const redirectCreds = {
+      url: "https://anvil.test",
+      token: "anvr_testtoken",
+      signingKey: testKey,
+      runner: { id: 17, name: "laptop-alice" },
+      profile: "laptop:alice",
+      owner: "alice",
+    };
+    const nowMs = 1795130000_000;
+    const exp = Math.floor(nowMs / 1000) + 300;
+    const mkSigned = (session, seq, kind, body) => ({
+      kind,
+      session,
+      seq,
+      body,
+      expires_at: exp,
+      sig: signLaptopMessage(testKey, { kind, session, seq, body, runnerId: 17, expiresAt: exp }),
+    });
+
+    const redirectResults = [];
+    let currentRedirectUrl = "about:blank";
+    let snapshotCalls = 0;
+    let openResolvers = [];
+    const mgr2 = createAnvilSessionManager({
+      getCredentials: async () => redirectCreds,
+      getAnvilConfig: () => resolveAnvilConfig({ anvil: { allowed_sites: ["allowed.test", "second.test"], max_sessions: 1 } }, { externalControl: "full" }),
+      callChannel: async (method, body) => {
+        redirectResults.push({ method, body });
+        return { status: 200, body: { ok: true } };
+      },
+      browserRequest: async (_kind, action, args) => {
+        if (action === "tabs_open_session") {
+          return new Promise(resolve => openResolvers.push(() => resolve({ tabId: 800 + openResolvers.length, groupId: 20 })));
+        }
+        if (action === "navigate") {
+          if (args.url === "https://allowed.test/go-outside") {
+            currentRedirectUrl = "https://outside.test/secret";
+            return { url: currentRedirectUrl, title: "Outside" };
+          }
+          if (args.url === "https://allowed.test/go-second") {
+            currentRedirectUrl = "https://second.test/page";
+            return { url: currentRedirectUrl, title: "Second" };
+          }
+          currentRedirectUrl = args.url;
+          return { url: currentRedirectUrl, title: "Allowed" };
+        }
+        if (action === "anvil_snapshot") {
+          snapshotCalls++;
+          return { url: currentRedirectUrl, title: "Leaked", nodes: [{ role: "button", name: "Steal", interactive: true, ref: 1 }], passwords: [] };
+        }
+        return {};
+      },
+      now: () => nowMs,
+      settleMs: 0,
+    });
+
+    // 8c. Concurrent session.start capacity check (max_sessions: 1)
+    const sidA = "aaaa1111-1111-4111-8111-111111111111";
+    const sidB = "bbbb2222-2222-4222-8222-222222222222";
+    const startBody = {
+      profile: "laptop:alice",
+      principal: "user:alice",
+      on_behalf_of: "alice",
+      task: "Check",
+      sites: ["allowed.test"],
+      step_budget: 10,
+      ttl_s: 600,
+      approval: { request_id: 1, approved_by: "alice" },
+    };
+    const pA = mgr2.handleEvent("session.start", mkSigned(sidA, 1, "session.start", startBody));
+    const pB = mgr2.handleEvent("session.start", mkSigned(sidB, 1, "session.start", startBody));
+    // Wait a tick so both enter handleStart before tabs_open_session resolves
+    await new Promise(r => setTimeout(r, 10));
+    assert.equal(openResolvers.length, 1, "only one tabs_open_session should be invoked when max_sessions=1");
+    openResolvers[0]();
+    const [rA, rB] = await Promise.all([pA, pB]);
+    assert.equal(rA.started, true);
+    assert.equal(rB.started, false);
+    assert.equal(rB.code, "busy");
+    assert.equal(mgr2.activeCount(), 1);
+
+    // Redirect outside local allowed_sites ceiling -> denied_by_ceiling and bounced to about:blank
+    const navOutArgs = { url: "https://allowed.test/go-outside" };
+    await mgr2.handleEvent("browser.call", mkSigned(sidA, 2, "browser.call", {
+      call_id: "11111111-1111-4111-8111-111111111111",
+      tool: "browser_navigate",
+      args: navOutArgs,
+      call_hash: callHash(sidA, "browser_navigate", navOutArgs),
+    }));
+    const navOutRes = redirectResults.filter(r => r.method === "browser.result").at(-1).body;
+    assert.equal(navOutRes.ok, false);
+    assert.equal(navOutRes.error.code, "denied_by_ceiling");
+    assert.equal(currentRedirectUrl, "about:blank");
+
+    // Redirect to host inside ceiling but outside session sites -> off_site, and subsequent snapshot & click refused
+    const navOffArgs = { url: "https://allowed.test/go-second" };
+    await mgr2.handleEvent("browser.call", mkSigned(sidA, 3, "browser.call", {
+      call_id: "22222222-2222-4222-8222-222222222222",
+      tool: "browser_navigate",
+      args: navOffArgs,
+      call_hash: callHash(sidA, "browser_navigate", navOffArgs),
+    }));
+    const navOffRes = redirectResults.filter(r => r.method === "browser.result").at(-1).body;
+    assert.equal(navOffRes.ok, false);
+    assert.equal(navOffRes.error.code, "off_site");
+
+    const beforeSnaps = snapshotCalls;
+    await mgr2.handleEvent("browser.call", mkSigned(sidA, 4, "browser.call", {
+      call_id: "33333333-3333-4333-8333-333333333333",
+      tool: "browser_snapshot",
+      args: {},
+      call_hash: callHash(sidA, "browser_snapshot", {}),
+    }));
+    const snapOffRes = redirectResults.filter(r => r.method === "browser.result").at(-1).body;
+    assert.equal(snapOffRes.ok, false);
+    assert.equal(snapOffRes.error.code, "off_site");
+    assert.equal(snapshotCalls, beforeSnaps, "must not snapshot an off-site page");
+
+    const clickOffArgs = { ref: "@e1" };
+    await mgr2.handleEvent("browser.call", mkSigned(sidA, 5, "browser.call", {
+      call_id: "44444444-4444-4444-8444-444444444444",
+      tool: "browser_click",
+      args: clickOffArgs,
+      call_hash: callHash(sidA, "browser_click", clickOffArgs),
+    }));
+    const clickOffRes = redirectResults.filter(r => r.method === "browser.result").at(-1).body;
+    assert.equal(clickOffRes.ok, false);
+    assert.equal(clickOffRes.error.code, "off_site");
+
+    // Client-side JS navigation to outside.test discovered during snapshot -> denied_by_ceiling & no content leaked
+    const navAllowedArgs = { url: "https://allowed.test/ok" };
+    await mgr2.handleEvent("browser.call", mkSigned(sidA, 6, "browser.call", {
+      call_id: "55555555-5555-4555-8555-555555555555",
+      tool: "browser_navigate",
+      args: navAllowedArgs,
+      call_hash: callHash(sidA, "browser_navigate", navAllowedArgs),
+    }));
+    currentRedirectUrl = "https://outside.test/hijack";
+    await mgr2.handleEvent("browser.call", mkSigned(sidA, 7, "browser.call", {
+      call_id: "66666666-6666-4666-8666-666666666666",
+      tool: "browser_snapshot",
+      args: {},
+      call_hash: callHash(sidA, "browser_snapshot", {}),
+    }));
+    const snapHijackRes = redirectResults.filter(r => r.method === "browser.result").at(-1).body;
+    assert.equal(snapHijackRes.ok, false);
+    assert.equal(snapHijackRes.error.code, "denied_by_ceiling");
+    assert.equal(currentRedirectUrl, "about:blank");
+
+    await mgr2.closeAll("test end");
+    console.log("ok - regressions: verified artifact install, redirected-page authorization, concurrent max_sessions");
   }
 
   console.log("\nall anvil-runner tests passed");

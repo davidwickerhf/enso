@@ -15,6 +15,7 @@ import { pageActionNeedsApproval } from "./lib/pagetools.mjs";
 import { BrowserTimeoutError, requestBudget } from "./lib/timeouts.mjs";
 import { browserVersion, extensionInfo, setExtensionInfo, unavailableTools } from "./lib/extinfo.mjs";
 import { createAnvilRunner } from "./lib/anvil-runner.mjs";
+import { installVerifiedArtifact } from "./lib/anvil-updater.mjs";
 import { turnContext } from "./lib/prompt.mjs";
 import { deleteSkill, expandSkill, listSkills, saveSkill } from "./lib/skills.mjs";
 import { convertAttachment } from "./lib/attachments.mjs";
@@ -612,13 +613,10 @@ const anvilRunner = createAnvilRunner({
   extensionConnected: () => !!extensionInfo(),
   browserRequest,
   agentSessions,
-  installArtifact: async () => {
-    const res = await setup.run("helper.update");
-    if (!res.ok) throw new Error(res.error || "Installer failed");
-    if (res.restart) {
-      send({ type: "helper.restarting" });
-      setTimeout(() => process.exit(0), 300);
-    }
+  installArtifact: async item => {
+    installVerifiedArtifact(item, { dataDir: store.DATA, helperDir: path.dirname(fileURLToPath(import.meta.url)) });
+    send({ type: "helper.restarting" });
+    setTimeout(() => process.exit(0), 300).unref?.();
   },
   onStateChange: anvil => send({ type: "anvil", status: anvil }),
   onSessionsChange: () => { void pushAgents(); },

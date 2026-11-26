@@ -3,7 +3,8 @@
 // (from manifest.target/held), pin, disabled/local updates: "off", and the nightly
 // local-time window while no remote session is active, and reports hello.update state.
 
-import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { chmodSync, copyFileSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { normalizeAnvilUrl } from "./anvil-auth.mjs";
 import { sha256Hex } from "./anvil-crypto.mjs";
@@ -50,6 +51,122 @@ function isAllowedDownloadUrl(raw) {
     return u.protocol === "https:" || local;
   } catch {
     return false;
+  }
+}
+
+function readArchiveVersion(dir) {
+  const vf = path.join(dir, "VERSION");
+  if (existsSync(vf)) {
+    const v = readFileSync(vf, "utf8").trim();
+    if (v) return v;
+  }
+  const pf = path.join(dir, "package.json");
+  if (existsSync(pf)) {
+    try {
+      const v = String(JSON.parse(readFileSync(pf, "utf8"))?.version ?? "").trim();
+      if (v) return v;
+    } catch {}
+  }
+  return null;
+}
+
+function extractArchive(archivePath, destDir, exec = execFileSync) {
+  const head = readFileSync(archivePath).subarray(0, 4);
+  const isZip = head.length >= 2 && head[0] === 0x50 && head[1] === 0x4b;
+  if (isZip) {
+    // Windows & macOS bsdtar unpack .zip natively; Linux prefers unzip with tar fallback.
+    if (process.platform === "linux") {
+      try {
+        exec("unzip", ["-q", "-o", archivePath, "-d", destDir], { stdio: "pipe" });
+        return;
+      } catch {
+        exec("tar", ["-xf", archivePath, "-C", destDir], { stdio: "pipe" });
+        return;
+      }
+    }
+    exec("tar", ["-xf", archivePath, "-C", destDir], { stdio: "pipe" });
+    return;
+  }
+  exec("tar", ["-xzf", archivePath, "-C", destDir], { stdio: "pipe" });
+}
+
+/**
+ * Installs a SHA-256-verified release artifact into `<dataDir>/helper` without
+ * hitting the public installer or site URL (so pins and rollbacks install the
+ * exact verified archive). Preserves `run.sh` / `run.cmd` and verifies the
+ * extracted version matches `item.version`.
+ */
+export function installVerifiedArtifact(item, { dataDir = defaultDataDir(), helperDir, exec = execFileSync } = {}) {
+  if (!item?.filePath || !item?.sha256 || !item?.version) {
+    throw new Error("Missing verified artifact metadata.");
+  }
+  const targetDir = path.resolve(path.join(dataDir, "helper"));
+  const runningDir = helperDir ? path.resolve(helperDir) : targetDir;
+  if (existsSync(path.join(runningDir, "..", ".git")) || runningDir !== targetDir) {
+    throw new Error("This helper runs from a checkout (scripts/dev.sh). Update it with git pull, then reopen Zen.");
+  }
+
+  // Re-verify the staged file's SHA-256 immediately before unpacking.
+  const actualSha = sha256Hex(readFileSync(item.filePath));
+  if (actualSha !== String(item.sha256).toLowerCase()) {
+    throw new Error("sha256 mismatch on staged artifact");
+  }
+
+  const stageRoot = path.join(dataDir, "updates", `unpack-${process.pid}-${Date.now()}`);
+  const helperNew = path.join(dataDir, "helper.new");
+  const helperOld = path.join(dataDir, "helper.old");
+  mkdirSync(stageRoot, { recursive: true });
+  try {
+    extractArchive(item.filePath, stageRoot, exec);
+    const src = existsSync(path.join(stageRoot, "helper", "host.mjs"))
+      ? path.join(stageRoot, "helper")
+      : stageRoot;
+    if (!existsSync(path.join(src, "host.mjs"))) {
+      throw new Error("The release archive does not contain host.mjs.");
+    }
+    const foundVersion = readArchiveVersion(src);
+    if (foundVersion !== item.version) {
+      throw new Error(`Archive version mismatch: expected ${item.version}, got ${foundVersion || "unknown"}.`);
+    }
+    if (!existsSync(path.join(src, "VERSION"))) {
+      writeFileSync(path.join(src, "VERSION"), `${item.version}\n`);
+    }
+    // Preserve native-messaging launcher scripts so Zen keeps using the same Node binary.
+    for (const launcher of ["run.sh", "run.cmd"]) {
+      const existing = path.join(targetDir, launcher);
+      if (existsSync(existing)) {
+        const dst = path.join(src, launcher);
+        copyFileSync(existing, dst);
+        if (launcher === "run.sh") {
+          try { chmodSync(dst, 0o755); } catch {}
+        }
+      }
+    }
+
+    rmSync(helperNew, { recursive: true, force: true });
+    rmSync(helperOld, { recursive: true, force: true });
+    renameSync(src, helperNew);
+
+    const hadOld = existsSync(targetDir);
+    if (hadOld) renameSync(targetDir, helperOld);
+    try {
+      renameSync(helperNew, targetDir);
+    } catch (err) {
+      if (hadOld && existsSync(helperOld) && !existsSync(targetDir)) {
+        try { renameSync(helperOld, targetDir); } catch {}
+      }
+      throw err;
+    }
+    rmSync(helperOld, { recursive: true, force: true });
+
+    const installedVersion = readArchiveVersion(targetDir);
+    if (installedVersion !== item.version) {
+      throw new Error(`Installed version verification failed: expected ${item.version}, got ${installedVersion || "unknown"}.`);
+    }
+    return { installedVersion };
+  } finally {
+    rmSync(stageRoot, { recursive: true, force: true });
+    rmSync(helperNew, { recursive: true, force: true });
   }
 }
 

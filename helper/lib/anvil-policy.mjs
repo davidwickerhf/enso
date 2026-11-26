@@ -219,6 +219,28 @@ function decide(asks, granted) {
 }
 
 /**
+ * Validates whether a live tab URL is authorized by the private-site floor,
+ * the local allowed_sites ceiling, and the session's active site list.
+ */
+export function checkPageAuthorized(url, sites = [], allowedSites = null) {
+  if (!url || url === "about:blank") return { ok: true };
+  const host = hostOf(url);
+  if (!host || !/^https?:/i.test(String(url))) {
+    return { ok: false, code: "off_site", message: "The tab is not on an authorized site." };
+  }
+  if (floorRefusal(host)) {
+    return { ok: false, code: "private_site", message: `${floorRefusal(host)}.` };
+  }
+  if (Array.isArray(allowedSites) && !hostAllowed(host, allowedSites)) {
+    return { ok: false, code: "denied_by_ceiling", message: `${host} is outside Ensō's local allowed_sites ceiling.` };
+  }
+  if (!hostAllowed(host, sites)) {
+    return { ok: false, code: "off_site", message: `${host} is outside the session's sites.` };
+  }
+  return { ok: true };
+}
+
+/**
  * Classifies one acting call before execution.
  * Returns { action: "allow" } | { action: "ask", reason, description } | { action: "refuse", code, message }.
  * A grant turns "ask" into "allow" for that single call, and NEVER lifts a refusal.
@@ -250,6 +272,12 @@ export function classifyStep({ tool, args = {}, url = "", target = null, sites =
   }
 
   if (tool !== "browser_click" && tool !== "browser_type") return { action: "allow" };
+  if (page && Array.isArray(allowedSites) && !hostAllowed(page, allowedSites)) {
+    return refuse("denied_by_ceiling", `${page} is outside Ensō's local allowed_sites ceiling.`);
+  }
+  if (page && !hostAllowed(page, sites)) {
+    return refuse("off_site", `${page} is outside the session's sites.`);
+  }
   if (!target) {
     return decide([["irreversible", `${tool === "browser_click" ? "Click" : "Type"} at the cursor${on} (can't tell what it does)`]], granted);
   }

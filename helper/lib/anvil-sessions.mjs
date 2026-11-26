@@ -8,6 +8,7 @@ import { callHash, LAPTOP_MESSAGE_KINDS, scrubSecrets, verifyLaptopEvent } from 
 import {
   ACTING_TOOLS,
   checkCeilingForTool,
+  checkPageAuthorized,
   classifyStep,
   floorRefusal,
   hostAllowed,
@@ -172,6 +173,7 @@ export function createAnvilSessionManager({
   log = () => {},
 } = {}) {
   const sessions = new Map(); // sessionId -> session object
+  const startingSessions = new Set(); // reserved capacity slots while opening dedicated tabs
   const lastSeq = new Map(); // sessionId -> last accepted seq
   const chains = new Map(); // sessionId -> serialized promise tail
   const pendingSteps = new Map(); // stepId -> { stepId, sessionId, tabId, tool, reason, description, url, deadline, status, decidedBy, at, callHash }
@@ -254,8 +256,9 @@ export function createAnvilSessionManager({
    */
   async function captureAndUploadShot(s, creds, seq, { outlinePageRef = null } = {}) {
     if (s.quiet || s.tabId == null) return null;
-    if (s.url && isPrivateSite(s.url)) return null;
     if (!s.url || !/^https?:/i.test(s.url)) return null;
+    const cfg = getAnvilConfig();
+    if (!checkPageAuthorized(s.url, s.sites, cfg.allowed_sites).ok) return null;
     try {
       // Never capture a tab showing a filled password or credential field.
       const sensitive = await browserRequest("page.request", "has_sensitive_field", {}, s.tabId, "Anvil", s.uiId).catch(() => null);
@@ -316,7 +319,7 @@ export function createAnvilSessionManager({
       return { started: false, code, reason };
     };
 
-    if (sessions.has(id)) return { started: true, duplicate: true };
+    if (sessions.has(id) || startingSessions.has(id)) return { started: true, duplicate: true };
     if (b.principal !== `user:${creds.owner}` || b.profile !== `laptop:${creds.owner}`) {
       return refuseStart("denied_by_ceiling", `Laptop runner only serves laptop:${creds.owner} for user:${creds.owner}.`);
     }
@@ -327,7 +330,7 @@ export function createAnvilSessionManager({
     if (!effectiveSites.length) {
       return refuseStart("denied_by_ceiling", "None of the requested sites are allowed by Ensō's local allowed_sites ceiling.");
     }
-    if (sessions.size >= cfg.max_sessions) {
+    if (sessions.size + startingSessions.size >= cfg.max_sessions) {
       return refuseStart("busy", `Ensō already runs the maximum ${cfg.max_sessions} concurrent remote sessions.`);
     }
 
@@ -335,68 +338,75 @@ export function createAnvilSessionManager({
     const stepBudget = Math.max(1, Math.min(200, Math.round(Number(b.step_budget) || 30)));
     const ttlS = Math.max(60, Math.min(7200, Math.round(Number(b.ttl_s) || 1800)));
 
+    // Reserve a session slot synchronously before awaiting tab creation so concurrent starts
+    // for distinct session IDs cannot both pass the max_sessions capacity check.
+    startingSessions.add(id);
     let opened;
     try {
-      opened = await browserRequest("browser.request", "tabs_open_session", {
-        task,
-        groupTitle: task ? `Anvil · ${task.slice(0, 40)}` : "Anvil session",
-      }, null);
-    } catch (err) {
-      return refuseStart("page_error", `Could not open a dedicated session tab: ${String(err?.message ?? err).slice(0, 120)}`);
-    }
-
-    const tabId = Number(opened?.tabId);
-    if (!Number.isInteger(tabId)) {
-      return refuseStart("page_error", "Extension did not return a tab id for the session.");
-    }
-
-    const startedAt = new Date(now()).toISOString();
-    const s = {
-      id,
-      uiId: `anvil:${id}`,
-      profile: b.profile,
-      owner: creds.owner,
-      onBehalfOf: String(b.on_behalf_of ?? creds.owner),
-      task,
-      sites: effectiveSites,
-      stepBudget,
-      stepsUsed: 0,
-      ttlS,
-      startedAt,
-      endsAt: now() + ttlS * 1000,
-      tabId,
-      tabIds: new Set([tabId]),
-      groupId: Number.isInteger(opened?.groupId) ? opened.groupId : null,
-      url: "about:blank",
-      title: "",
-      paused: false,
-      running: 0,
-      quiet: false,
-      refs: createSessionRefTable(),
-      approvedGrants: new Map(), // stepId -> callHash
-      usedGrants: new Set(), // stepId
-      actions: [],
-      notes: [],
-      timer: null,
-    };
-
-    s.timer = setTimeout(() => {
-      void (async () => {
-        if (await closeSession(id, "time_limit")) {
-          await sendEnded(id, "Session reached its time limit", false);
-        }
-      })();
-    }, ttlS * 1000);
-    s.timer.unref?.();
-
-    sessions.set(id, s);
-    if (agentSessions) {
       try {
-        agentSessions.claim(agentClientFor(s), [tabId]);
-      } catch {}
+        opened = await browserRequest("browser.request", "tabs_open_session", {
+          task,
+          groupTitle: task ? `Anvil · ${task.slice(0, 40)}` : "Anvil session",
+        }, null);
+      } catch (err) {
+        return refuseStart("page_error", `Could not open a dedicated session tab: ${String(err?.message ?? err).slice(0, 120)}`);
+      }
+
+      const tabId = Number(opened?.tabId);
+      if (!Number.isInteger(tabId)) {
+        return refuseStart("page_error", "Extension did not return a tab id for the session.");
+      }
+
+      const startedAt = new Date(now()).toISOString();
+      const s = {
+        id,
+        uiId: `anvil:${id}`,
+        profile: b.profile,
+        owner: creds.owner,
+        onBehalfOf: String(b.on_behalf_of ?? creds.owner),
+        task,
+        sites: effectiveSites,
+        stepBudget,
+        stepsUsed: 0,
+        ttlS,
+        startedAt,
+        endsAt: now() + ttlS * 1000,
+        tabId,
+        tabIds: new Set([tabId]),
+        groupId: Number.isInteger(opened?.groupId) ? opened.groupId : null,
+        url: "about:blank",
+        title: "",
+        paused: false,
+        running: 0,
+        quiet: false,
+        refs: createSessionRefTable(),
+        approvedGrants: new Map(), // stepId -> callHash
+        usedGrants: new Set(), // stepId
+        actions: [],
+        notes: [],
+        timer: null,
+      };
+
+      s.timer = setTimeout(() => {
+        void (async () => {
+          if (await closeSession(id, "time_limit")) {
+            await sendEnded(id, "Session reached its time limit", false);
+          }
+        })();
+      }, ttlS * 1000);
+      s.timer.unref?.();
+
+      sessions.set(id, s);
+      if (agentSessions) {
+        try {
+          agentSessions.claim(agentClientFor(s), [tabId]);
+        } catch {}
+      }
+      changed();
+      return { started: true, tabId, sites: effectiveSites };
+    } finally {
+      startingSessions.delete(id);
     }
-    changed();
-    return { started: true, tabId, sites: effectiveSites };
   }
 
   async function handleStop(m) {
@@ -529,22 +539,33 @@ export function createAnvilSessionManager({
       }
     }
 
+    const enforcePageUrl = async (url, label) => {
+      const auth = checkPageAuthorized(url, s.sites, cfg.allowed_sites);
+      if (auth.ok) return null;
+      s.refs = createSessionRefTable();
+      if (auth.code === "private_site" || auth.code === "denied_by_ceiling") {
+        s.url = "about:blank";
+        await browserRequest("page.request", "navigate", { url: "about:blank" }, s.tabId, "Anvil", s.uiId).catch(() => {});
+      } else {
+        s.url = String(url || s.url);
+      }
+      return answer(errBody(auth.code, label ? `${label}: ${auth.message}` : auth.message));
+    };
+
     s.running++;
     changed();
     try {
       // ---- browser_snapshot ----
       if (tool === "browser_snapshot") {
-        if (s.url && isPrivateSite(s.url)) {
-          return answer(errBody("private_site", floorRefusal(s.url) || "Private site is off-limits."));
-        }
         if (!s.url || s.url === "about:blank") {
           return answer({ ok: true, result: { url: "about:blank", title: "", snapshot: "" }, url: "about:blank" });
         }
+        const pre = await enforcePageUrl(s.url);
+        if (pre) return pre;
         const snap = await browserRequest("page.request", "anvil_snapshot", {}, s.tabId, "Anvil", s.uiId);
         const pageUrl = String(snap?.url ?? s.url);
-        if (isPrivateSite(pageUrl)) {
-          return answer(errBody("private_site", floorRefusal(pageUrl) || "Private site is off-limits."));
-        }
+        const post = await enforcePageUrl(pageUrl);
+        if (post) return post;
         s.url = pageUrl;
         s.title = String(snap?.title ?? "");
         const rendered = s.refs.render(snap?.nodes ?? [], { passwords: snap?.passwords ?? [] });
@@ -562,9 +583,8 @@ export function createAnvilSessionManager({
 
       // ---- browser_screenshot ----
       if (tool === "browser_screenshot") {
-        if (s.url && isPrivateSite(s.url)) {
-          return answer(errBody("private_site", floorRefusal(s.url) || "Private site is off-limits."));
-        }
+        const pre = await enforcePageUrl(s.url);
+        if (pre) return pre;
         const shotId = await captureAndUploadShot(s, creds, m.seq);
         if (!shotId) {
           return answer(errBody("page_error", s.quiet ? "Screenshots are paused while a credential field holds a value." : "Could not capture or upload a screenshot."));
@@ -579,6 +599,11 @@ export function createAnvilSessionManager({
       }
 
       // ---- Acting tools: browser_navigate, browser_click, browser_type ----
+      if (tool === "browser_click" || tool === "browser_type") {
+        const pre = await enforcePageUrl(s.url);
+        if (pre) return pre;
+      }
+
       const grantId = b.grant?.step_id;
       const granted = Number.isSafeInteger(grantId) && !s.usedGrants.has(grantId) && s.approvedGrants.get(grantId) === computedHash;
 
@@ -670,34 +695,18 @@ export function createAnvilSessionManager({
         s.quiet = false;
         const navRes = await browserRequest("page.request", "navigate", { url: args.url }, s.tabId, "Anvil", s.uiId);
         const landedUrl = String(navRes?.url ?? args.url);
-        const landedHost = hostOf(landedUrl);
-        if (landedHost && isPrivateSite(landedHost)) {
-          s.url = "about:blank";
-          await browserRequest("page.request", "navigate", { url: "about:blank" }, s.tabId, "Anvil", s.uiId).catch(() => {});
-          return answer(errBody("private_site", floorRefusal(landedHost) || "Redirected to a private site."));
-        }
-        if (landedHost && !hostAllowed(landedHost, s.sites)) {
-          s.url = landedUrl;
-          return answer(errBody("off_site", `Navigation redirected to ${landedHost}, which is outside the session's sites.`));
-        }
+        const bad = await enforcePageUrl(landedUrl, "Navigation redirected");
+        if (bad) return bad;
         s.url = landedUrl;
         s.title = String(navRes?.title ?? "");
-        summary = `Opened ${landedHost || hostOf(args.url)}`;
+        summary = `Opened ${hostOf(landedUrl) || hostOf(args.url)}`;
       } else if (tool === "browser_click") {
         pageTool = "page_click";
         const clickRes = await browserRequest("page.request", "click", { ref: refEntry.pageRef }, s.tabId, "Anvil", s.uiId);
         if (settleMs > 0) await new Promise(r => setTimeout(r, settleMs));
         const afterUrl = String(clickRes?.url ?? s.url);
-        const afterHost = hostOf(afterUrl);
-        if (afterHost && isPrivateSite(afterHost)) {
-          s.url = "about:blank";
-          await browserRequest("page.request", "navigate", { url: "about:blank" }, s.tabId, "Anvil", s.uiId).catch(() => {});
-          return answer(errBody("private_site", floorRefusal(afterHost) || "Click navigated to a private site."));
-        }
-        if (afterHost && !hostAllowed(afterHost, s.sites)) {
-          s.url = afterUrl;
-          return answer(errBody("off_site", `Click navigated to ${afterHost}, which is outside the session's sites.`));
-        }
+        const bad = await enforcePageUrl(afterUrl, "Click navigated");
+        if (bad) return bad;
         s.url = afterUrl;
         s.title = String(clickRes?.title ?? s.title);
         const what = `${targetFacts?.role ?? "element"}${targetFacts?.name ? ` "${targetFacts.name.slice(0, 60)}"` : ""}`;
@@ -711,7 +720,10 @@ export function createAnvilSessionManager({
           s.quiet = true;
         }
         if (settleMs > 0) await new Promise(r => setTimeout(r, settleMs));
-        s.url = String(typeRes?.url ?? s.url);
+        const afterUrl = String(typeRes?.url ?? s.url);
+        const bad = await enforcePageUrl(afterUrl, "Typing navigated");
+        if (bad) return bad;
+        s.url = afterUrl;
         s.title = String(typeRes?.title ?? s.title);
         const what = `${targetFacts?.role ?? "element"}${targetFacts?.name ? ` "${targetFacts.name.slice(0, 60)}"` : ""}`;
         summary = `Typed ${text.length} characters into ${what}${args.submit ? " and pressed Enter" : ""}`;
@@ -939,7 +951,7 @@ export function createAnvilSessionManager({
     reconcileSteps,
     closeAll,
     hasSession: id => !!findByAnyId(id),
-    activeCount: () => sessions.size,
+    activeCount: () => sessions.size + startingSessions.size,
     uiSessions,
     uiPendingSteps,
     peek: id => findByAnyId(id),
