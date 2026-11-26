@@ -14,7 +14,7 @@
 
 import assert from "node:assert/strict";
 import { execFileSync, spawn } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -1235,9 +1235,10 @@ try {
     assert.equal(validateSitePattern("myaccount.google.com").code, "private_site");
     assert.equal(validateSitePattern("mybank.example.com").code, "private_site");
 
-    // Seed config.local.json with unrelated keys to verify they are preserved
+    // Seed config.local.json with unrelated keys and restrictive 0600 permissions to verify both are preserved
     mkdirSync(path.dirname(LOCAL_CONFIG), { recursive: true });
     writeFileSync(LOCAL_CONFIG, `${JSON.stringify({ defaults: { effort: "high" }, spaceHints: { Work: "Keep me" } }, null, 2)}\n`);
+    if (process.platform !== "win32") chmodSync(LOCAL_CONFIG, 0o600);
     reloadConfigIfChanged();
 
     const sockets = [];
@@ -1346,6 +1347,9 @@ try {
     assert.deepEqual(disk1.anvil.allowed_sites, ["vercel.com"]);
     assert.equal(disk1.defaults.effort, "high", "unrelated keys preserved");
     assert.equal(disk1.spaceHints.Work, "Keep me", "unrelated keys preserved");
+    if (process.platform !== "win32") {
+      assert.equal(statSync(LOCAL_CONFIG).mode & 0o777, 0o600, "config.local.json keeps 0600 permissions");
+    }
     assert.ok(!hellos().at(-1).problems.includes("no allowed_sites in config"), "hello cleared problem without restart");
     assert.deepEqual(runner.uiState().ceiling.allowedSites, ["vercel.com"]);
 

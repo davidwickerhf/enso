@@ -15,7 +15,7 @@
 //
 // Edits take effect when the helper restarts (quit and reopen Zen).
 
-import { existsSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { DATA } from "./store.mjs";
@@ -116,8 +116,13 @@ export function updateLocalConfig(updater, localFile = LOCAL_CONFIG) {
   const next = typeof updater === "function" ? updater(current) : { ...current, ...(isObject(updater) ? updater : {}) };
   if (!isObject(next)) throw new Error("Local config must be a JSON object.");
   mkdirSync(path.dirname(localFile), { recursive: true });
+  const existingMode = (() => {
+    try { return statSync(localFile).mode & 0o777; } catch { return null; }
+  })();
+  const mode = existingMode !== null ? (existingMode & 0o600) || 0o600 : 0o600;
   const tmp = `${localFile}.${process.pid}.tmp`;
-  writeFileSync(tmp, `${JSON.stringify(next, null, 2)}\n`, "utf8");
+  writeFileSync(tmp, `${JSON.stringify(next, null, 2)}\n`, { encoding: "utf8", mode });
+  try { chmodSync(tmp, mode); } catch {}
   renameSync(tmp, localFile);
   if (path.resolve(localFile) === path.resolve(LOCAL_CONFIG)) reloadConfig();
   return next;
