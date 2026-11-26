@@ -4,7 +4,7 @@
 
 import { createAnvilAuth, REVOKED_MESSAGE } from "./anvil-auth.mjs";
 import { createAnvilChannel } from "./anvil-channel.mjs";
-import { REMOTE_TOOLS, resolveAnvilConfig } from "./anvil-policy.mjs";
+import { PRIVATE_SITE_FLOOR, REMOTE_TOOLS, resolveAnvilConfig } from "./anvil-policy.mjs";
 import { createAnvilSessionManager } from "./anvil-sessions.mjs";
 import { createAnvilUpdater } from "./anvil-updater.mjs";
 import { dataDir as defaultDataDir } from "./platform.mjs";
@@ -65,7 +65,7 @@ export function createAnvilRunner({
     const problems = [];
     if (!auth.keyring.isSecure()) problems.push("no system keyring");
     if (!extensionConnected()) problems.push("extension not connected");
-    if (!cfg.allowed_sites.length) problems.push("no allowed_sites in config");
+    if (!cfg.allow_approved_sites && !cfg.allowed_sites.length) problems.push("no allowed_sites in config");
     const zen = zenVersion();
     return {
       version: String(helperVersion() || "0.5.8.1").slice(0, 40),
@@ -264,6 +264,8 @@ export function createAnvilRunner({
       update: up,
       ceiling: {
         allowedSites: cfg.allowed_sites,
+        allowApprovedSites: cfg.allow_approved_sites,
+        privateSiteFloor: [...PRIVATE_SITE_FLOOR],
         externalControl: cfg.external_control,
         denyTools: [...cfg.deny_tools],
         sessionFetch: cfg.session_fetch,
@@ -286,6 +288,7 @@ export function createAnvilRunner({
     cancelEnroll,
     disconnect,
     notifyConfigChanged,
+    buildHello,
     uiState,
   };
 }

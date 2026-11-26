@@ -1,6 +1,7 @@
 // Local ceiling, private-site floor, and step classifier for Anvil laptop browser sessions.
 // Enforced locally in Ensō regardless of what Anvil says (defence in depth).
 
+import { LOCAL_CONFIG, updateLocalConfig } from "./config.mjs";
 import { isSensitiveHost } from "./safety.mjs";
 
 export const REMOTE_TOOLS = Object.freeze([
@@ -61,10 +62,11 @@ export function hostAllowed(host, patterns = []) {
   return patterns.some(p => siteMatches(host, p));
 }
 
-/** Whether a site pattern (exact or *.domain) is covered by a ceiling list. */
-export function withinCeiling(site, ceiling = []) {
+/** Whether a site pattern (exact or *.domain) is covered by a ceiling list (or allowApprovedSites). */
+export function withinCeiling(site, ceiling = [], { allowApprovedSites = false } = {}) {
   const s = String(site ?? "").trim().toLowerCase().replace(/\.+$/, "");
-  if (!SITE_PATTERN.test(s)) return false;
+  if (!SITE_PATTERN.test(s) || isPrivateSite(s)) return false;
+  if (allowApprovedSites === true) return true;
   if (s.startsWith("*.")) {
     const base = s.slice(2);
     return ceiling.some(c => {
@@ -95,16 +97,61 @@ export function isPrivateSite(hostOrUrl) {
 }
 
 /**
- * Computes effective sites = requestedSites ∩ localAllowedSites, minus private-site floor.
- * An empty localAllowedSites always yields [].
+ * Validates and normalizes a user-supplied site entry (hostname, *.domain, or http(s) URL)
+ * for `anvil.allowed_sites`. Always refuses private-site floor hosts.
  */
-export function intersectSites(requestedSites = [], localAllowedSites = []) {
+export function validateSitePattern(raw) {
+  let s = String(raw ?? "").trim().toLowerCase();
+  if (!s) {
+    return { ok: false, code: "invalid_site", error: "Enter a hostname like vercel.com or *.vercel.com." };
+  }
+  if (/^[a-z][a-z0-9+.-]*:\/\//i.test(s)) {
+    if (!/^https?:\/\//i.test(s)) {
+      return { ok: false, code: "invalid_site", error: "Only http(s) hostnames or *.domain patterns are allowed." };
+    }
+    try {
+      const u = new URL(s);
+      if (u.username || u.password) {
+        return { ok: false, code: "invalid_site", error: "Enter a hostname without credentials, like vercel.com." };
+      }
+      s = u.hostname.toLowerCase();
+    } catch {
+      return { ok: false, code: "invalid_site", error: "Enter a valid hostname like vercel.com or *.vercel.com." };
+    }
+  }
+  s = s.replace(/\.+$/, "");
+  if (!SITE_PATTERN.test(s)) {
+    return { ok: false, code: "invalid_site", error: "Enter a hostname like vercel.com or a subdomain wildcard like *.vercel.com." };
+  }
+  const refusal = floorRefusal(s);
+  if (refusal) {
+    return { ok: false, code: "private_site", error: `${refusal}.` };
+  }
+  return { ok: true, site: s };
+}
+
+/**
+ * Computes effective sites = requestedSites ∩ localAllowedSites, minus private-site floor.
+ * When `allowApprovedSites` is true, every valid non-private requested site is accepted
+ * (private-site floor hosts are still ALWAYS stripped).
+ * When `allowApprovedSites` is false, an empty localAllowedSites always yields [].
+ */
+export function intersectSites(requestedSites = [], localAllowedSites = [], { allowApprovedSites = false } = {}) {
+  const out = new Set();
+  if (allowApprovedSites === true) {
+    for (const raw of Array.isArray(requestedSites) ? requestedSites : []) {
+      const req = String(raw ?? "").trim().toLowerCase().replace(/\.+$/, "");
+      if (!SITE_PATTERN.test(req) || isPrivateSite(req)) continue;
+      out.add(req);
+    }
+    return [...out];
+  }
+
   const ceiling = (Array.isArray(localAllowedSites) ? localAllowedSites : [])
     .map(s => String(s ?? "").trim().toLowerCase().replace(/\.+$/, ""))
     .filter(s => SITE_PATTERN.test(s) && !isPrivateSite(s));
   if (!ceiling.length) return [];
 
-  const out = new Set();
   for (const raw of Array.isArray(requestedSites) ? requestedSites : []) {
     const req = String(raw ?? "").trim().toLowerCase().replace(/\.+$/, "");
     if (!SITE_PATTERN.test(req) || isPrivateSite(req)) continue;
@@ -127,6 +174,7 @@ export function resolveAnvilConfig(config = {}, settings = {}) {
   const allowed_sites = (Array.isArray(raw.allowed_sites) ? raw.allowed_sites : [])
     .map(s => String(s ?? "").trim().toLowerCase().replace(/\.+$/, ""))
     .filter(s => SITE_PATTERN.test(s) && !isPrivateSite(s));
+  const allow_approved_sites = raw.allow_approved_sites === true;
   const localControl = ["full", "read", "off"].includes(raw.external_control) ? raw.external_control : "full";
   const userControl = ["full", "read", "off"].includes(settings?.externalControl) ? settings.externalControl : "full";
   const external_control = CONTROL_RANK[localControl] <= CONTROL_RANK[userControl] ? localControl : userControl;
@@ -139,12 +187,121 @@ export function resolveAnvilConfig(config = {}, settings = {}) {
   return {
     url,
     allowed_sites,
+    allow_approved_sites,
     external_control,
     local_external_control: localControl,
     deny_tools,
     session_fetch,
     max_sessions,
     updates,
+  };
+}
+
+/**
+ * Persists changes to `anvil.allowed_sites` and/or `anvil.allow_approved_sites` in
+ * `config.local.json` (preserving all other keys) and hot-reloads live config.
+ */
+export function updateAnvilLocalCeiling(patch = {}, { localConfigPath = LOCAL_CONFIG } = {}) {
+  const added = [];
+  const alreadyPresent = [];
+  const removed = [];
+  const notFound = [];
+
+  const toAdd = [];
+  if (patch.addSite !== undefined) toAdd.push(patch.addSite);
+  if (Array.isArray(patch.addSites)) toAdd.push(...patch.addSites);
+  const validatedAdd = [];
+  for (const raw of toAdd) {
+    const v = validateSitePattern(raw);
+    if (!v.ok) {
+      const err = new Error(v.error);
+      err.code = v.code;
+      throw err;
+    }
+    validatedAdd.push(v.site);
+  }
+
+  let validatedReplace = null;
+  if (Array.isArray(patch.allowedSites)) {
+    validatedReplace = [];
+    for (const raw of patch.allowedSites) {
+      const v = validateSitePattern(raw);
+      if (!v.ok) {
+        const err = new Error(v.error);
+        err.code = v.code;
+        throw err;
+      }
+      if (!validatedReplace.includes(v.site)) validatedReplace.push(v.site);
+    }
+  }
+
+  const toRemove = [];
+  if (patch.removeSite !== undefined) toRemove.push(patch.removeSite);
+  if (Array.isArray(patch.removeSites)) toRemove.push(...patch.removeSites);
+  const normalizedRemove = toRemove
+    .map(raw => {
+      let s = String(raw ?? "").trim().toLowerCase();
+      if (/^https?:\/\//i.test(s)) {
+        try { s = new URL(s).hostname.toLowerCase(); } catch {}
+      }
+      return s.replace(/\.+$/, "");
+    })
+    .filter(Boolean);
+
+  if (patch.allowApprovedSites !== undefined && typeof patch.allowApprovedSites !== "boolean") {
+    throw new Error("allowApprovedSites must be a boolean.");
+  }
+
+  const nextLocal = updateLocalConfig(cur => {
+    const curAnvil = cur.anvil && typeof cur.anvil === "object" && !Array.isArray(cur.anvil) ? cur.anvil : {};
+    const nextAnvil = { ...curAnvil };
+
+    if (validatedReplace !== null || validatedAdd.length || normalizedRemove.length) {
+      let sites = validatedReplace !== null
+        ? [...validatedReplace]
+        : (Array.isArray(curAnvil.allowed_sites) ? curAnvil.allowed_sites : [])
+            .map(s => String(s ?? "").trim().toLowerCase().replace(/\.+$/, ""))
+            .filter((s, i, arr) => SITE_PATTERN.test(s) && !isPrivateSite(s) && arr.indexOf(s) === i);
+
+      for (const s of validatedAdd) {
+        if (sites.includes(s)) alreadyPresent.push(s);
+        else {
+          sites.push(s);
+          added.push(s);
+        }
+      }
+      if (normalizedRemove.length) {
+        const removeSet = new Set(normalizedRemove);
+        const kept = [];
+        const seenRemoved = new Set();
+        for (const s of sites) {
+          if (removeSet.has(s)) seenRemoved.add(s);
+          else kept.push(s);
+        }
+        sites = kept;
+        for (const r of normalizedRemove) {
+          if (seenRemoved.has(r)) removed.push(r);
+          else notFound.push(r);
+        }
+      }
+      nextAnvil.allowed_sites = sites;
+    }
+
+    if (typeof patch.allowApprovedSites === "boolean") {
+      nextAnvil.allow_approved_sites = patch.allowApprovedSites;
+    }
+
+    return { ...cur, anvil: nextAnvil };
+  }, localConfigPath);
+
+  return {
+    local: nextLocal,
+    allowed_sites: Array.isArray(nextLocal.anvil?.allowed_sites) ? nextLocal.anvil.allowed_sites : [],
+    allow_approved_sites: nextLocal.anvil?.allow_approved_sites === true,
+    added,
+    alreadyPresent,
+    removed,
+    notFound,
   };
 }
 

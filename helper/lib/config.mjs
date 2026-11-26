@@ -15,7 +15,7 @@
 //
 // Edits take effect when the helper restarts (quit and reopen Zen).
 
-import { existsSync, readFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { DATA } from "./store.mjs";
@@ -45,18 +45,85 @@ function readJson(file) {
   return JSON.parse(readFileSync(file, "utf8"));
 }
 
-export let configError = null;
-
-function load() {
-  const base = readJson(SHIPPED_CONFIG);
-  if (!existsSync(LOCAL_CONFIG)) return base;
+function statSignature(file) {
   try {
-    return mergeConfig(base, readJson(LOCAL_CONFIG));
+    const st = statSync(file);
+    return `${st.mtimeMs}:${st.size}:${st.ino}`;
+  } catch {
+    return null;
+  }
+}
+
+export let configError = null;
+let lastLocalStat = null;
+
+export function loadConfig(localFile = LOCAL_CONFIG) {
+  const base = readJson(SHIPPED_CONFIG);
+  const track = path.resolve(localFile) === path.resolve(LOCAL_CONFIG);
+  if (track) lastLocalStat = statSignature(localFile);
+  if (!existsSync(localFile)) {
+    if (track) configError = null;
+    return base;
+  }
+  try {
+    const merged = mergeConfig(base, readJson(localFile));
+    if (track) configError = null;
+    return merged;
   } catch (err) {
-    configError = `Ignored ${LOCAL_CONFIG}: ${err.message}`;
-    process.stderr.write(`[enso] ${configError}\n`);
+    const msg = `Ignored ${localFile}: ${err.message}`;
+    if (track) configError = msg;
+    process.stderr.write(`[enso] ${msg}\n`);
     return base;
   }
 }
 
-export const config = load();
+export const config = loadConfig();
+
+/** Re-reads config.json + config.local.json and updates the exported `config` object in place. */
+export function reloadConfig() {
+  const next = loadConfig(LOCAL_CONFIG);
+  for (const k of Object.keys(config)) delete config[k];
+  Object.assign(config, next);
+  return config;
+}
+
+/** Reloads `config` in place if `config.local.json` changed on disk since the last load. */
+export function reloadConfigIfChanged() {
+  const sig = statSignature(LOCAL_CONFIG);
+  if (sig === lastLocalStat) return { config, changed: false };
+  reloadConfig();
+  return { config, changed: true };
+}
+
+/** Reads `config.local.json` (or `{}` when absent). Throws on malformed JSON so edits never clobber a broken file. */
+export function readLocalConfig(localFile = LOCAL_CONFIG) {
+  if (!existsSync(localFile)) return {};
+  let parsed;
+  try {
+    parsed = readJson(localFile);
+  } catch (err) {
+    throw new Error(`Could not parse ${path.basename(localFile)}: ${err.message}`);
+  }
+  if (!isObject(parsed)) {
+    throw new Error(`${path.basename(localFile)} must contain a JSON object.`);
+  }
+  return parsed;
+}
+
+/** Atomically updates `config.local.json` and hot-reloads `config` when targeting `LOCAL_CONFIG`. */
+export function updateLocalConfig(updater, localFile = LOCAL_CONFIG) {
+  const current = readLocalConfig(localFile);
+  const next = typeof updater === "function" ? updater(current) : { ...current, ...(isObject(updater) ? updater : {}) };
+  if (!isObject(next)) throw new Error("Local config must be a JSON object.");
+  mkdirSync(path.dirname(localFile), { recursive: true });
+  const existingMode = (() => {
+    try { return statSync(localFile).mode & 0o777; } catch { return null; }
+  })();
+  const mode = existingMode !== null ? (existingMode & 0o600) || 0o600 : 0o600;
+  const tmp = `${localFile}.${process.pid}.tmp`;
+  writeFileSync(tmp, `${JSON.stringify(next, null, 2)}\n`, { encoding: "utf8", mode });
+  try { chmodSync(tmp, mode); } catch {}
+  renameSync(tmp, localFile);
+  if (path.resolve(localFile) === path.resolve(LOCAL_CONFIG)) reloadConfig();
+  return next;
+}

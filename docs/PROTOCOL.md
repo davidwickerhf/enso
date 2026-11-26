@@ -821,8 +821,9 @@ The helper can enroll Zen with Anvil as a personal laptop browser runner
 (`anvil-laptop-v1`, serving `laptop:<owner>`):
 
 - **UI → host:** `anvil.status`, `anvil.enroll.start { url?, open? }`,
-  `anvil.enroll.cancel`, `anvil.disconnect`, `anvil.step.answer { stepId, approve }`,
-  `anvil.update.check`. Only Ensō's own extension pages (`ui` port) can send these.
+  `anvil.enroll.cancel`, `anvil.disconnect`, `anvil.ceiling.update { addSite?, addSites?, removeSite?, removeSites?, allowedSites?, allowApprovedSites? }`,
+  `anvil.step.answer { stepId, approve }`, `anvil.update.check`. Only Ensō's own
+  extension pages (`ui` port) can send these.
 - **Host → UI:** `anvil { status, done? }` (included in `state.anvil`), and
   `anvilSteps` (pending and recently decided step approvals, included in `state`
   and `agents`). Remote Anvil sessions appear in `agents.sessions` with
@@ -833,4 +834,6 @@ The helper can enroll Zen with Anvil as a personal laptop browser runner
   keyring (macOS Keychain, Linux `libsecret`, Windows Credential Manager);
   plaintext `secrets.json` fallback is refused. Non-secret metadata lives in
   `<data>/anvil.json`. Local limits live in `config.json` / `config.local.json`
-  under `anvil` (`page_eval` and the private-site floor are always enforced).
+  under `anvil` (`allowed_sites`, `allow_approved_sites`, etc.) and hot-reload
+  without restarting Zen (`page_eval` and the private-site floor are always
+  enforced).

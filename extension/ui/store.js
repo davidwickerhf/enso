@@ -902,6 +902,7 @@ export function createStore({ waitMs = WAIT_MS } = {}) {
     anvilCancelEnroll() { s.anvil = { ...s.anvil, busy: null, done: null }; emit("anvil"); send({ type: "anvil.enroll.cancel" }); },
     anvilDisconnect() { s.anvil = { ...s.anvil, busy: "disconnect", done: null }; emit("anvil"); send({ type: "anvil.disconnect" }); },
     anvilCheckUpdate() { send({ type: "anvil.update.check" }); },
+    anvilUpdateCeiling(patch) { s.anvil = { ...s.anvil, done: null }; send({ type: "anvil.ceiling.update", ...(patch ?? {}) }); },
     anvilAnswerStep(stepId, approve) {
       s.anvilSteps = s.anvilSteps.map(x => (x.stepId === stepId && x.status === "pending" ? { ...x, status: approve ? "approved" : "denied" } : x));
       emit("agents");

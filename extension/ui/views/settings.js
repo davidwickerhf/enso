@@ -484,6 +484,28 @@ export function createSettings(store, ctx) {
     const g = q => q.replace(/[.+^${}()|[\]\\]/g, "\\$&").replace(/\*/g, ".*");
     return new RegExp(p.startsWith("*.") ? `^(.*\\.)?${g(p.slice(2))}$` : `^${g(p)}$`, "i").test(new URL(origin).hostname);
   });
+  const ANVIL_SITE_RE = /^(?=.{1,253}$)(\*\.)?([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/;
+  function validateAnvilSite(raw, floor = []) {
+    let v = String(raw ?? "").trim().toLowerCase();
+    if (!v) return { ok: false, error: "Enter a hostname like vercel.com or *.vercel.com." };
+    if (/^[a-z][a-z0-9+.-]*:\/\//i.test(v)) {
+      if (!/^https?:\/\//i.test(v)) return { ok: false, error: "Only http(s) hostnames or *.domain patterns are allowed." };
+      try {
+        const u = new URL(v);
+        if (u.username || u.password) return { ok: false, error: "Enter a hostname without credentials, like vercel.com." };
+        v = u.hostname.toLowerCase();
+      } catch {
+        return { ok: false, error: "Enter a valid hostname like vercel.com or *.vercel.com." };
+      }
+    }
+    v = v.replace(/\.+$/, "");
+    if (!ANVIL_SITE_RE.test(v)) return { ok: false, error: "Enter a hostname like vercel.com or a subdomain wildcard like *.vercel.com." };
+    const bare = v.replace(/^\*\./, "");
+    const hit = floor.find(d => bare === d || bare.endsWith(`.${d}`));
+    if (hit) return { ok: false, error: `${bare} is on the private-site floor (${hit}): no browser session may open it.` };
+    if (isSensitive(`https://${bare}`)) return { ok: false, error: `${bare} is on Ensō's private-site floor: no browser session may open it.` };
+    return { ok: true, site: v };
+  }
 
   renderers.anvil = () => {
     const anv = s.anvil?.status;
@@ -584,6 +606,38 @@ export function createSettings(store, ctx) {
                   ? "Automatic updates are switched off in Anvil."
                   : `Up to date. Nightly window: ${up.window?.start ?? "03:00"}–${up.window?.end ?? "05:00"} local time.`;
 
+    const allowedSites = Array.isArray(ceil.allowedSites) ? ceil.allowedSites : [];
+    const allowApproved = !!ceil.allowApprovedSites;
+    const privateFloor = Array.isArray(ceil.privateSiteFloor) ? ceil.privateSiteFloor : [];
+    const ceilingErrText = done && !done.ok && done.action === "ceiling" ? done.error : "";
+    const siteInput = h("input", {
+      type: "text",
+      class: "input mono",
+      placeholder: "vercel.com or *.vercel.com",
+      aria: { label: "Site or wildcard pattern to allow" },
+      spellcheck: "false",
+      autocomplete: "off",
+      oninput: () => { siteErr.hidden = true; },
+    });
+    const siteErr = h("p", { class: "form-error", role: "alert", hidden: !ceilingErrText }, ceilingErrText);
+    const addAllowedSite = () => {
+      const v = validateAnvilSite(siteInput.value, privateFloor);
+      if (!v.ok) {
+        siteErr.textContent = v.error;
+        siteErr.hidden = false;
+        return;
+      }
+      if (allowedSites.includes(v.site)) {
+        siteErr.textContent = `${v.site} is already allowed.`;
+        siteErr.hidden = false;
+        return;
+      }
+      siteErr.hidden = true;
+      siteInput.value = "";
+      actions.anvilUpdateCeiling({ addSite: v.site });
+      flashSaved();
+    };
+
     return [
       group("Laptop runner",
         row({
@@ -591,7 +645,7 @@ export function createSettings(store, ctx) {
           keys: "anvil laptop runner connect disconnect enroll revoke status",
           desc: [
             h("span", { class: ["t3-state", connBadge[0]] }, h("i"), connBadge[1]),
-            done && !done.ok ? h("span", { class: "form-error", role: "alert" }, ` ${done.error}`) : null,
+            done && !done.ok && done.action !== "ceiling" ? h("span", { class: "form-error", role: "alert" }, ` ${done.error}`) : null,
             !kr.secure
               ? h("span", { class: "form-error", role: "alert" }, " No system keyring is available. Anvil enrollment refuses plaintext file storage; install and unlock a system keyring first.")
               : !anv.enrolled
@@ -611,12 +665,35 @@ export function createSettings(store, ctx) {
           : null,
         enrollBlock),
       group("Local ceiling",
+        switchRow(
+          "Allow any non-private site I approve in Anvil",
+          "Accept each session's passkey-approved sites without listing them below. Private sites (banking, health, tax, password managers, government) and page_eval are still always refused, and sessions stay confined to their approved sites.",
+          allowApproved,
+          v => { actions.anvilUpdateCeiling({ allowApprovedSites: v }); flashSaved(); },
+          { keys: "anvil allow approved sites passkey ceiling any non-private" },
+        ),
         row({
           label: "Allowed sites",
-          keys: "anvil allowed sites ceiling allowlist",
-          desc: ceil.allowedSites?.length
-            ? ceil.allowedSites.join(", ")
-            : "None configured. Remote sessions cannot open any site until you list anvil.allowed_sites in config.local.json. Private sites are always refused.",
+          stacked: true,
+          keys: "anvil allowed sites ceiling allowlist wildcard domain add remove",
+          desc: allowApproved
+            ? "Optional while “Allow any non-private site I approve in Anvil” is on. Entries listed here are kept for when you switch that off. Private sites are always refused."
+            : allowedSites.length
+              ? "Remote sessions can only open sites matching this list (and approved in Anvil). Changes apply immediately; private sites are always refused."
+              : "Add a hostname (vercel.com) or subdomain wildcard (*.vercel.com), or turn on the switch above. Changes apply immediately; private sites are always refused.",
+          control: [
+            allowedSites.length
+              ? h("ul", { class: "tool-list", aria: { label: "Allowed sites" } }, allowedSites.map(site => h("li", { dataset: { site } },
+                  h("code", null, site),
+                  iconButton("x", `Remove ${site}`, () => { actions.anvilUpdateCeiling({ removeSite: site }); flashSaved(); }, { class: "small" }))))
+              : h("p", { class: "hint" }, allowApproved
+                  ? "No sites listed. Sessions use the non-private sites you passkey-approve in Anvil."
+                  : "None configured yet. Remote sessions cannot open any site until you add one here or enable the switch above."),
+            h("form", { class: "form-actions", onsubmit: ev => { ev.preventDefault(); addAllowedSite(); } },
+              siteInput,
+              h("button", { type: "submit", class: "btn small" }, icon("plus"), "Add")),
+            siteErr,
+          ],
         }),
         row({
           label: "Remote control & limits",

@@ -13,10 +13,12 @@
 //   node test/anvil-runner.test.mjs
 
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { execFileSync, spawn } from "node:child_process";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
+import { dataDirFor, isolatedEnv, stopAndRemove } from "./env.mjs";
 
 const root = mkdtempSync(path.join(tmpdir(), "enso-anvil-"));
 process.env.ENSO_DATA = path.join(root, "data");
@@ -39,7 +41,10 @@ const {
   intersectSites,
   resolveAnvilConfig,
   siteMatches,
+  updateAnvilLocalCeiling,
+  validateSitePattern,
 } = await import("../lib/anvil-policy.mjs");
+const { config, LOCAL_CONFIG, reloadConfigIfChanged } = await import("../lib/config.mjs");
 const { createAnvilAuth, REVOKED_MESSAGE } = await import("../lib/anvil-auth.mjs");
 const { backoffDelayMs, channelWsUrl, createAnvilChannel } = await import("../lib/anvil-channel.mjs");
 const { createAnvilSessionManager, createSessionRefTable } = await import("../lib/anvil-sessions.mjs");
@@ -1021,6 +1026,477 @@ try {
 
     await mgr2.closeAll("test end");
     console.log("ok - regressions: verified artifact install, redirected-page authorization, concurrent max_sessions");
+  }
+
+  // =========================================================================
+  // 9. allow_approved_sites: accepts non-private session sites, STILL blocks
+  //    private-site floor, page_eval, and off-session redirects/navigations
+  // =========================================================================
+  {
+    assert.equal(resolveAnvilConfig({}).allow_approved_sites, false, "allow_approved_sites defaults to false");
+    assert.equal(resolveAnvilConfig({ anvil: { allow_approved_sites: "true" } }).allow_approved_sites, false, "non-boolean is rejected");
+    const approvedCfg = resolveAnvilConfig({ anvil: { allowed_sites: [], allow_approved_sites: true, deny_tools: [] } });
+    assert.equal(approvedCfg.allow_approved_sites, true);
+    assert.ok(approvedCfg.deny_tools.has("page_eval"), "page_eval is ALWAYS denied even when allow_approved_sites is true");
+    assert.equal(checkCeilingForTool("page_eval", approvedCfg).code, "denied_by_ceiling");
+
+    assert.deepEqual(
+      intersectSites(["vercel.com", "*.vercel.com", "paypal.com", "ing.nl", "myaccount.google.com"], [], { allowApprovedSites: true }),
+      ["vercel.com", "*.vercel.com"],
+      "allow_approved_sites accepts non-private sites and strips private-site floor hosts",
+    );
+    assert.deepEqual(
+      intersectSites(["paypal.com", "mijn.belastingdienst.nl"], [], { allowApprovedSites: true }),
+      [],
+      "allow_approved_sites refuses sessions with only private sites",
+    );
+
+    const testKey = Buffer.alloc(32, 0x66).toString("base64url");
+    const creds = {
+      url: "https://anvil.test",
+      token: "anvr_approved_tok",
+      signingKey: testKey,
+      runner: { id: 18, name: "laptop-alice" },
+      profile: "laptop:alice",
+      owner: "alice",
+    };
+    const nowMs = 1795140000_000;
+    const exp = Math.floor(nowMs / 1000) + 300;
+    const mkSigned = (session, seq, kind, body) => ({
+      kind,
+      session,
+      seq,
+      body,
+      expires_at: exp,
+      sig: signLaptopMessage(testKey, { kind, session, seq, body, runnerId: 18, expiresAt: exp }),
+    });
+
+    const calls = [];
+    let tabUrl = "about:blank";
+    let snapCount = 0;
+    const mgr = createAnvilSessionManager({
+      getCredentials: async () => creds,
+      getAnvilConfig: () => resolveAnvilConfig({ anvil: { allowed_sites: [], allow_approved_sites: true, max_sessions: 2 } }, { externalControl: "full" }),
+      callChannel: async (method, body) => {
+        calls.push({ method, body });
+        if (method === "step.request") return { status: 200, body: { step_id: 901, deadline: "2026-11-26T22:00:00.000Z" } };
+        return { status: 200, body: { ok: true } };
+      },
+      browserRequest: async (_kind, action, args) => {
+        if (action === "tabs_open_session") return { tabId: 910, groupId: 30 };
+        if (action === "tabs_close") return {};
+        if (action === "navigate") {
+          if (args.url === "https://docs.example.test/to-offsite") {
+            tabUrl = "https://unapproved.example.test/page";
+            return { url: tabUrl, title: "Unapproved" };
+          }
+          if (args.url === "https://docs.example.test/to-bank") {
+            tabUrl = "https://ing.nl/login";
+            return { url: tabUrl, title: "ING" };
+          }
+          tabUrl = args.url;
+          return { url: tabUrl, title: "Docs" };
+        }
+        if (action === "anvil_snapshot") {
+          snapCount++;
+          return { url: tabUrl, title: "Docs", nodes: [{ role: "button", name: "Next", interactive: true, ref: 1 }], passwords: [] };
+        }
+        if (action === "has_sensitive_field") return { sensitive: false };
+        if (action === "screenshot") return { dataUrl: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=" };
+        return {};
+      },
+      now: () => nowMs,
+      settleMs: 0,
+    });
+
+    // 9a. Session with only private sites is refused even with allow_approved_sites: true
+    const privSid = "cccc1111-1111-4111-8111-111111111111";
+    const privStart = await mgr.handleEvent("session.start", mkSigned(privSid, 1, "session.start", {
+      profile: "laptop:alice",
+      principal: "user:alice",
+      on_behalf_of: "alice",
+      task: "Bank",
+      sites: ["paypal.com", "ing.nl"],
+      step_budget: 5,
+      ttl_s: 600,
+    }));
+    assert.equal(privStart.started, false);
+    assert.equal(privStart.code, "private_site");
+
+    // 9b. Session with mixed non-private + private sites starts with ONLY non-private sites
+    const sid = "dddd2222-2222-4222-8222-222222222222";
+    const startRes = await mgr.handleEvent("session.start", mkSigned(sid, 1, "session.start", {
+      profile: "laptop:alice",
+      principal: "user:alice",
+      on_behalf_of: "alice",
+      task: "Check docs",
+      sites: ["docs.example.test", "paypal.com", "myaccount.google.com"],
+      step_budget: 10,
+      ttl_s: 600,
+    }));
+    assert.equal(startRes.started, true);
+    assert.deepEqual(startRes.sites, ["docs.example.test"]);
+
+    // 9c. Navigating to approved non-private session site succeeds
+    const okNav = { url: "https://docs.example.test/start" };
+    const okRes = await mgr.handleEvent("browser.call", mkSigned(sid, 2, "browser.call", {
+      call_id: "a1111111-1111-4111-8111-111111111111",
+      tool: "browser_navigate",
+      args: okNav,
+      call_hash: callHash(sid, "browser_navigate", okNav),
+    }));
+    assert.equal(okRes.ok, true);
+
+    // 9d. Direct navigation to private-site floor host is ALWAYS refused (private_site)
+    const bankNav = { url: "https://paypal.com/myaccount" };
+    const bankRes = await mgr.handleEvent("browser.call", mkSigned(sid, 3, "browser.call", {
+      call_id: "a2222222-2222-4222-8222-222222222222",
+      tool: "browser_navigate",
+      args: bankNav,
+      call_hash: callHash(sid, "browser_navigate", bankNav),
+    }));
+    assert.equal(bankRes.ok, false);
+    assert.equal(bankRes.error.code, "private_site");
+
+    // 9e. Direct navigation to unapproved non-private host is NOT allowed (asks off_site)
+    const offNav = { url: "https://unapproved.example.test/home" };
+    const offNavRes = await mgr.handleEvent("browser.call", mkSigned(sid, 4, "browser.call", {
+      call_id: "a3333333-3333-4333-8333-333333333333",
+      tool: "browser_navigate",
+      args: offNav,
+      call_hash: callHash(sid, "browser_navigate", offNav),
+    }));
+    assert.equal(offNavRes.ok, false);
+    assert.equal(offNavRes.error.code, "step_approval_pending");
+    assert.equal(calls.filter(c => c.method === "step.request").at(-1).body.reason, "off_site");
+
+    // 9f. Redirect to off-session site -> off_site & subsequent snapshot blocked
+    const redirOff = { url: "https://docs.example.test/to-offsite" };
+    const redirOffRes = await mgr.handleEvent("browser.call", mkSigned(sid, 5, "browser.call", {
+      call_id: "a4444444-4444-4444-8444-444444444444",
+      tool: "browser_navigate",
+      args: redirOff,
+      call_hash: callHash(sid, "browser_navigate", redirOff),
+    }));
+    assert.equal(redirOffRes.ok, false);
+    assert.equal(redirOffRes.error.code, "off_site");
+
+    const snapsBefore = snapCount;
+    const snapBlocked = await mgr.handleEvent("browser.call", mkSigned(sid, 6, "browser.call", {
+      call_id: "a5555555-5555-4555-8555-555555555555",
+      tool: "browser_snapshot",
+      args: {},
+      call_hash: callHash(sid, "browser_snapshot", {}),
+    }));
+    assert.equal(snapBlocked.ok, false);
+    assert.equal(snapBlocked.error.code, "off_site");
+    assert.equal(snapCount, snapsBefore);
+
+    // 9g. Redirect to private-site floor host -> private_site & bounced to about:blank
+    const redirBank = { url: "https://docs.example.test/to-bank" };
+    const redirBankRes = await mgr.handleEvent("browser.call", mkSigned(sid, 7, "browser.call", {
+      call_id: "a6666666-6666-4666-8666-666666666666",
+      tool: "browser_navigate",
+      args: redirBank,
+      call_hash: callHash(sid, "browser_navigate", redirBank),
+    }));
+    assert.equal(redirBankRes.ok, false);
+    assert.equal(redirBankRes.error.code, "private_site");
+    assert.equal(tabUrl, "about:blank");
+
+    // 9h. session.allow accepts non-private host without allowed_sites, STILL refuses private sites
+    const allowRes = await mgr.handleEvent("session.allow", mkSigned(sid, 8, "session.allow", {
+      sites: ["extra.example.test", "digid.nl", "ing.nl"],
+      step_id: 902,
+    }));
+    assert.deepEqual(allowRes.allowed, ["extra.example.test"]);
+    assert.ok(mgr.peek(sid).sites.includes("extra.example.test"));
+    assert.ok(!mgr.peek(sid).sites.includes("digid.nl"));
+
+    await mgr.closeAll("test end");
+    console.log("ok - allow_approved_sites: accepts non-private session sites, still enforces private-site floor, page_eval, and off_site");
+  }
+
+  // =========================================================================
+  // 10. Live allowed_sites add/remove, allow_approved_sites toggle, config.local.json
+  //     hot-reload, updated hello emission, and CLI subcommands
+  // =========================================================================
+  {
+    // Validation rules
+    assert.deepEqual(validateSitePattern("  Vercel.COM. "), { ok: true, site: "vercel.com" });
+    assert.deepEqual(validateSitePattern("*.Vercel.COM"), { ok: true, site: "*.vercel.com" });
+    assert.deepEqual(validateSitePattern("https://app.vercel.com/projects"), { ok: true, site: "app.vercel.com" });
+    assert.equal(validateSitePattern("*.com").ok, false);
+    assert.equal(validateSitePattern("localhost").ok, false);
+    assert.equal(validateSitePattern("127.0.0.1").ok, false);
+    assert.equal(validateSitePattern("ftp://example.com").ok, false);
+    assert.equal(validateSitePattern("paypal.com").code, "private_site");
+    assert.equal(validateSitePattern("*.ing.nl").code, "private_site");
+    assert.equal(validateSitePattern("myaccount.google.com").code, "private_site");
+    assert.equal(validateSitePattern("mybank.example.com").code, "private_site");
+
+    // Seed config.local.json with unrelated keys and restrictive 0600 permissions to verify both are preserved
+    mkdirSync(path.dirname(LOCAL_CONFIG), { recursive: true });
+    writeFileSync(LOCAL_CONFIG, `${JSON.stringify({ defaults: { effort: "high" }, spaceHints: { Work: "Keep me" } }, null, 2)}\n`);
+    if (process.platform !== "win32") chmodSync(LOCAL_CONFIG, 0o600);
+    reloadConfigIfChanged();
+
+    const sockets = [];
+    class LiveFakeWS {
+      constructor(url) {
+        this.url = url;
+        this.readyState = 0;
+        this.sent = [];
+        sockets.push(this);
+        queueMicrotask(() => {
+          this.readyState = 1;
+          this.onopen?.();
+        });
+      }
+      send(data) {
+        const frame = JSON.parse(data);
+        this.sent.push(frame);
+        if (frame.t === "call") {
+          const body = frame.method === "hello" ? { ok: true, hello_every_s: 30, active_sessions: [] } : { ok: true };
+          queueMicrotask(() => {
+            this.onmessage?.({ data: JSON.stringify({ t: "reply", id: frame.id, status: 200, body }) });
+          });
+        }
+      }
+      close(code = 1000, reason = "") {
+        this.readyState = 3;
+        this.onclose?.({ code, reason });
+      }
+    }
+
+    const kr = memoryKeyring({ secure: true });
+    const liveKey = Buffer.alloc(32, 0x77).toString("base64url");
+    await kr.save({ token: "anvr_livetok1234567890", signingKey: liveKey });
+    const liveDataDir = path.join(root, "live-runner");
+    mkdirSync(liveDataDir, { recursive: true });
+    writeFileSync(
+      path.join(liveDataDir, "anvil.json"),
+      JSON.stringify({
+        url: "https://anvil.test",
+        runner: { id: 55, name: "laptop-live" },
+        profile: "laptop:alice",
+        owner: "alice",
+        channel: { ticket_path: "/api/browser-runners/channel-ticket", path: "/api/browser-runners/channel" },
+      }),
+    );
+
+    const states = [];
+    const runner = createAnvilRunner({
+      dataDir: liveDataDir,
+      getConfig: () => {
+        reloadConfigIfChanged();
+        return config;
+      },
+      getSettings: () => ({ externalControl: "full" }),
+      helperVersion: () => "0.5.9.2",
+      zenVersion: () => "1.17.3b",
+      extensionConnected: () => true,
+      keyring: kr,
+      browserRequest: async (_kind, action) => (action === "tabs_open_session" ? { tabId: 950, groupId: 40 } : {}),
+      fetchImpl: async url => {
+        if (String(url).includes("channel-ticket")) return { ok: true, status: 200, json: async () => ({ ticket: "anvc_live1", path: "/api/browser-runners/channel" }) };
+        return { ok: false, status: 404, json: async () => ({}) };
+      },
+      WebSocketImpl: LiveFakeWS,
+      onStateChange: st => states.push(st),
+    });
+
+    runner.start();
+    await new Promise(r => setTimeout(r, 30));
+    assert.equal(sockets.length, 1);
+    const hellos = () => sockets[0].sent.filter(f => f.method === "hello").map(f => f.body);
+    assert.ok(hellos().at(-1).problems.includes("no allowed_sites in config"), "initial hello reports missing allowed_sites");
+
+    // Helper signs a session.start against the live runner
+    let liveSeq = 0;
+    const signLive = (session, kind, body) => {
+      liveSeq++;
+      const expires_at = Math.floor(Date.now() / 1000) + 120;
+      return { kind, session, seq: liveSeq, body, expires_at, sig: signLaptopMessage(liveKey, { kind, session, seq: liveSeq, body, runnerId: 55, expiresAt: expires_at }) };
+    };
+    const startReq = (session, sites) => runner.sessions.handleEvent("session.start", signLive(session, "session.start", {
+      profile: "laptop:alice",
+      principal: "user:alice",
+      on_behalf_of: "alice",
+      task: "Live config test",
+      sites,
+      step_budget: 5,
+      ttl_s: 600,
+    }));
+
+    // Before adding any site, session.start is denied_by_ceiling
+    const deniedBefore = await startReq("e1111111-1111-4111-8111-111111111111", ["vercel.com"]);
+    assert.equal(deniedBefore.started, false);
+    assert.equal(deniedBefore.code, "denied_by_ceiling");
+
+    // Refuses adding private-site floor host without modifying config.local.json
+    assert.throws(() => updateAnvilLocalCeiling({ addSite: "paypal.com" }), /private-site floor/i);
+
+    // Live add site -> writes config.local.json, preserves other keys, emits updated hello without problem, session now succeeds!
+    const addRes = updateAnvilLocalCeiling({ addSite: "vercel.com" });
+    assert.deepEqual(addRes.allowed_sites, ["vercel.com"]);
+    runner.notifyConfigChanged();
+    await new Promise(r => setTimeout(r, 15));
+
+    const disk1 = JSON.parse(readFileSync(LOCAL_CONFIG, "utf8"));
+    assert.deepEqual(disk1.anvil.allowed_sites, ["vercel.com"]);
+    assert.equal(disk1.defaults.effort, "high", "unrelated keys preserved");
+    assert.equal(disk1.spaceHints.Work, "Keep me", "unrelated keys preserved");
+    if (process.platform !== "win32") {
+      assert.equal(statSync(LOCAL_CONFIG).mode & 0o777, 0o600, "config.local.json keeps 0600 permissions");
+    }
+    assert.ok(!hellos().at(-1).problems.includes("no allowed_sites in config"), "hello cleared problem without restart");
+    assert.deepEqual(runner.uiState().ceiling.allowedSites, ["vercel.com"]);
+
+    const okAfterAdd = await startReq("e2222222-2222-4222-8222-222222222222", ["vercel.com"]);
+    assert.equal(okAfterAdd.started, true);
+    await runner.sessions.closeAll("cleanup");
+
+    // Live remove site -> problem returns and session is denied again
+    updateAnvilLocalCeiling({ removeSite: "vercel.com" });
+    runner.notifyConfigChanged();
+    await new Promise(r => setTimeout(r, 15));
+    assert.deepEqual(runner.uiState().ceiling.allowedSites, []);
+    assert.ok(hellos().at(-1).problems.includes("no allowed_sites in config"));
+    const deniedAfterRemove = await startReq("e3333333-3333-4333-8333-333333333333", ["vercel.com"]);
+    assert.equal(deniedAfterRemove.started, false);
+    assert.equal(deniedAfterRemove.code, "denied_by_ceiling");
+
+    // Live toggle allow_approved_sites: true -> writes config.local.json, clears hello problem even with empty allowed_sites, accepts non-private site!
+    updateAnvilLocalCeiling({ allowApprovedSites: true });
+    runner.notifyConfigChanged();
+    await new Promise(r => setTimeout(r, 15));
+    const disk2 = JSON.parse(readFileSync(LOCAL_CONFIG, "utf8"));
+    assert.equal(disk2.anvil.allow_approved_sites, true);
+    assert.equal(runner.uiState().ceiling.allowApprovedSites, true);
+    assert.ok(!hellos().at(-1).problems.includes("no allowed_sites in config"), "allow_approved_sites clears no allowed_sites problem");
+
+    const okAfterToggle = await startReq("e4444444-4444-4444-8444-444444444444", ["any-non-private.example.test"]);
+    assert.equal(okAfterToggle.started, true);
+    await runner.sessions.closeAll("cleanup");
+
+    // CLI subcommands: enso runner allow / disallow / allow-approved / status
+    const cli = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../bin/enso.mjs");
+    const runCli = args => execFileSync(process.execPath, [cli, ...args], { env: { ...process.env, ENSO_DATA: process.env.ENSO_DATA }, encoding: "utf8", stdio: "pipe" });
+
+    // Disable allow_approved_sites via CLI, then allow & disallow sites via CLI
+    const offOut = runCli(["runner", "allow-approved", "off"]);
+    assert.match(offOut, /Approved:\s+off/);
+    const allowOut = runCli(["runner", "allow", "github.com", "*.github.com"]);
+    assert.match(allowOut, /Allowed:\s+github\.com, \*\.github\.com/);
+    const statusOut = runCli(["runner", "status"]);
+    assert.match(statusOut, /Sites:\s+github\.com, \*\.github\.com/);
+    assert.match(statusOut, /Approved:\s+off/);
+
+    // Running helper picks up external CLI edit on disk without restart!
+    assert.deepEqual(runner.uiState().ceiling.allowedSites, ["github.com", "*.github.com"]);
+    assert.equal(runner.uiState().ceiling.allowApprovedSites, false);
+    const okFromCli = await startReq("e5555555-5555-4555-8555-555555555555", ["github.com"]);
+    assert.equal(okFromCli.started, true);
+    await runner.sessions.closeAll("cleanup");
+
+    // CLI refuses private-site floor host
+    assert.throws(() => runCli(["runner", "allow", "ing.nl"]), err => /private-site floor/i.test(String(err.stderr || err.message)));
+
+    // CLI disallow removes site
+    const disallowOut = runCli(["runner", "disallow", "github.com"]);
+    assert.match(disallowOut, /Removed:\s+github\.com/);
+    assert.deepEqual(runner.uiState().ceiling.allowedSites, ["*.github.com"]);
+
+    runner.stop();
+    console.log("ok - live allowed_sites & allow_approved_sites updates, hot-reload, hello update, and CLI subcommands");
+  }
+
+  // =========================================================================
+  // 11. End-to-end host.mjs native-messaging round-trip for anvil.ceiling.update
+  // =========================================================================
+  {
+    const here = path.dirname(fileURLToPath(import.meta.url));
+    const home = realpathSync(mkdtempSync(path.join(tmpdir(), "enso-anvil-host-")));
+    const data = dataDirFor(home);
+    const port = 48100 + Math.floor(Math.random() * 800);
+    const env = isolatedEnv(home, { ENSO_MCP_PORT: String(port), ENSO_DOCTOR: "1" });
+    const host = spawn(process.execPath, [path.join(here, "../host.mjs")], { env, cwd: home, stdio: ["pipe", "pipe", "pipe"] });
+    let stderr = "";
+    host.stderr.on("data", d => (stderr += d));
+    const inbox = [];
+    let waiters = [];
+    let buf = Buffer.alloc(0);
+    host.stdout.on("data", chunk => {
+      buf = Buffer.concat([buf, chunk]);
+      while (buf.length >= 4) {
+        const len = buf.readUInt32LE(0);
+        if (buf.length < 4 + len) break;
+        const msg = JSON.parse(buf.subarray(4, 4 + len).toString("utf8"));
+        buf = buf.subarray(4 + len);
+        inbox.push(msg);
+        waiters = waiters.filter(w => !(w.test(msg) && (w.resolve(msg), true)));
+      }
+    });
+    const post = msg => {
+      const body = Buffer.from(JSON.stringify(msg));
+      const head = Buffer.alloc(4);
+      head.writeUInt32LE(body.length, 0);
+      host.stdin.write(Buffer.concat([head, body]));
+    };
+    const waitFor = (test, fromIndex = 0, ms = 15_000) => {
+      const hit = inbox.slice(fromIndex).find(test);
+      if (hit) return Promise.resolve(hit);
+      return new Promise((resolve, reject) => {
+        const t = setTimeout(() => reject(new Error(`timed out; stderr:\n${stderr}`)), ms);
+        waiters.push({ test, resolve: m => { clearTimeout(t); resolve(m); } });
+      });
+    };
+
+    try {
+      post({ type: "hello" });
+      const st = await waitFor(m => m.type === "state");
+      assert.deepEqual(st.anvil.ceiling.allowedSites, []);
+      assert.equal(st.anvil.ceiling.allowApprovedSites, false);
+      assert.ok(Array.isArray(st.anvil.ceiling.privateSiteFloor) && st.anvil.ceiling.privateSiteFloor.includes("paypal.com"));
+
+      // Add a site via anvil.ceiling.update -> saved to config.local.json immediately
+      let idx = inbox.length;
+      post({ type: "anvil.ceiling.update", addSite: "vercel.com" });
+      const addedMsg = await waitFor(m => m.type === "anvil" && m.done?.action === "ceiling", idx);
+      assert.equal(addedMsg.done.ok, true);
+      assert.deepEqual(addedMsg.status.ceiling.allowedSites, ["vercel.com"]);
+      assert.deepEqual(JSON.parse(readFileSync(path.join(data, "config.local.json"), "utf8")).anvil.allowed_sites, ["vercel.com"]);
+
+      // Reject private-site floor host
+      idx = inbox.length;
+      post({ type: "anvil.ceiling.update", addSite: "paypal.com" });
+      const rejectedMsg = await waitFor(m => m.type === "anvil" && m.done?.action === "ceiling", idx);
+      assert.equal(rejectedMsg.done.ok, false);
+      assert.match(rejectedMsg.done.error, /private-site floor/i);
+      assert.deepEqual(rejectedMsg.status.ceiling.allowedSites, ["vercel.com"]);
+
+      // Toggle allow_approved_sites on
+      idx = inbox.length;
+      post({ type: "anvil.ceiling.update", allowApprovedSites: true });
+      const toggledMsg = await waitFor(m => m.type === "anvil" && m.done?.action === "ceiling", idx);
+      assert.equal(toggledMsg.done.ok, true);
+      assert.equal(toggledMsg.status.ceiling.allowApprovedSites, true);
+      assert.equal(JSON.parse(readFileSync(path.join(data, "config.local.json"), "utf8")).anvil.allow_approved_sites, true);
+
+      // Remove site
+      idx = inbox.length;
+      post({ type: "anvil.ceiling.update", removeSite: "vercel.com" });
+      const removedMsg = await waitFor(m => m.type === "anvil" && m.done?.action === "ceiling", idx);
+      assert.equal(removedMsg.done.ok, true);
+      assert.deepEqual(removedMsg.status.ceiling.allowedSites, []);
+      assert.equal(removedMsg.status.ceiling.allowApprovedSites, true);
+
+      console.log("ok - host.mjs anvil.ceiling.update live add/reject/toggle/remove");
+    } finally {
+      host.stdin.end();
+      await stopAndRemove(host, home);
+    }
   }
 
   console.log("\nall anvil-runner tests passed");

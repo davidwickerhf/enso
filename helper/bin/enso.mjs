@@ -34,6 +34,9 @@ const USAGE = `Usage:
   enso t3 disconnect                           revoke the token and delete it from the Keychain
   enso runner enroll [--url <anvil-url>]       enroll this laptop as an Anvil browser runner (keyring required)
   enso runner status                           show Anvil laptop runner enrollment and ceiling status
+  enso runner allow <site> [<site>...]         add a site (or *.domain) to Anvil's local allowed_sites ceiling
+  enso runner disallow <site> [<site>...]      remove a site from Anvil's local allowed_sites ceiling
+  enso runner allow-approved <on|off>          accept any non-private site passkey-approved in Anvil
   enso runner disconnect                       revoke the Anvil runner token and delete it from the keyring
   enso setup [--json]                          what's set up and what isn't (the same checks as Ensō → Settings → Setup)
   enso update                                  download and run the installer again (updates the helper; quit and reopen Zen after)
@@ -186,12 +189,12 @@ async function updateCommand() {
   return r.ok ? 0 : 1;
 }
 
-/** `enso runner enroll | status | disconnect`: never prints device_code, token or signing_key. */
+/** `enso runner enroll | status | allow | disallow | allow-approved | disconnect`: never prints device_code, token or signing_key. */
 async function runnerCommand(sub, rest = []) {
   const { readFileSync } = await import("node:fs");
-  const { config } = await import("../lib/config.mjs");
+  const { config, reloadConfig } = await import("../lib/config.mjs");
   const { getSettings } = await import("../lib/store.mjs");
-  const { resolveAnvilConfig } = await import("../lib/anvil-policy.mjs");
+  const { resolveAnvilConfig, updateAnvilLocalCeiling } = await import("../lib/anvil-policy.mjs");
   const { createAnvilAuth } = await import("../lib/anvil-auth.mjs");
   const { openUrl } = await import("../lib/platform.mjs");
 
@@ -210,10 +213,54 @@ async function runnerCommand(sub, rest = []) {
     }
     return "0.5.8.1";
   })();
-  const auth = createAnvilAuth({ defaultUrl: url, version });
 
   switch (sub) {
+    case "allow": {
+      const sites = rest.filter(a => a && !a.startsWith("-"));
+      if (!sites.length) {
+        console.error("Usage: enso runner allow <site> [<site>...] (e.g. enso runner allow vercel.com '*.vercel.com')");
+        return 2;
+      }
+      const res = updateAnvilLocalCeiling({ addSites: sites });
+      if (res.added.length) console.log(`Allowed:   ${res.added.join(", ")}`);
+      if (res.alreadyPresent.length) console.log(`Already:   ${res.alreadyPresent.join(", ")}`);
+      console.log(`Sites:     ${res.allowed_sites.length ? res.allowed_sites.join(", ") : "(none)"}`);
+      console.log("Saved to config.local.json (applies without restarting Zen).");
+      return 0;
+    }
+    case "disallow": {
+      const sites = rest.filter(a => a && !a.startsWith("-"));
+      if (!sites.length) {
+        console.error("Usage: enso runner disallow <site> [<site>...]");
+        return 2;
+      }
+      const res = updateAnvilLocalCeiling({ removeSites: sites });
+      if (res.removed.length) console.log(`Removed:   ${res.removed.join(", ")}`);
+      if (res.notFound.length) console.log(`Not found: ${res.notFound.join(", ")}`);
+      console.log(`Sites:     ${res.allowed_sites.length ? res.allowed_sites.join(", ") : "(none)"}`);
+      console.log("Saved to config.local.json (applies without restarting Zen).");
+      return 0;
+    }
+    case "allow-approved": {
+      const arg = String(rest[0] ?? "").trim().toLowerCase();
+      if (!arg) {
+        console.log(`Approved:  ${cfg.allow_approved_sites ? "on" : "off"}`);
+        return 0;
+      }
+      const on = ["on", "true", "1", "yes"].includes(arg);
+      const off = ["off", "false", "0", "no"].includes(arg);
+      if (!on && !off) {
+        console.error("Usage: enso runner allow-approved <on|off>");
+        return 2;
+      }
+      updateAnvilLocalCeiling({ allowApprovedSites: on });
+      const next = resolveAnvilConfig(reloadConfig(), getSettings());
+      console.log(`Approved:  ${next.allow_approved_sites ? "on (accepting any non-private site passkey-approved in Anvil)" : "off (limited to allowed_sites)"}`);
+      console.log("Private sites and page_eval are always refused. Saved to config.local.json (applies without restarting Zen).");
+      return 0;
+    }
     case "enroll": {
+      const auth = createAnvilAuth({ defaultUrl: url, version });
       const started = await auth.startEnroll({ url });
       console.log("");
       console.log("  Anvil laptop browser runner enrollment");
@@ -250,12 +297,14 @@ async function runnerCommand(sub, rest = []) {
       return 1;
     }
     case "disconnect": {
+      const auth = createAnvilAuth({ defaultUrl: url, version });
       const r = await auth.disconnect();
       console.log(r.revokedOnServer ? "Disconnected from Anvil and removed runner credentials from the keyring." : "Removed runner credentials from the keyring (Anvil was not reachable to revoke on the server).");
       return 0;
     }
     case "status":
     case undefined: {
+      const auth = createAnvilAuth({ defaultUrl: url, version });
       const meta = auth.loadEnrollment();
       const secure = auth.keyring.isSecure();
       console.log(`Keyring:   ${secure ? `${auth.keyring.backendName()} (${auth.keyring.location()})` : "unavailable (plaintext fallback refused for Anvil)"}`);
@@ -268,7 +317,8 @@ async function runnerCommand(sub, rest = []) {
         console.log(`Anvil:     ${meta.url}`);
       }
       console.log(`Control:   ${cfg.external_control}`);
-      console.log(`Sites:     ${cfg.allowed_sites.length ? cfg.allowed_sites.join(", ") : "(none — add anvil.allowed_sites in config.local.json)"}`);
+      console.log(`Approved:  ${cfg.allow_approved_sites ? "on (any non-private site approved in Anvil)" : "off (limited to Sites below)"}`);
+      console.log(`Sites:     ${cfg.allowed_sites.length ? cfg.allowed_sites.join(", ") : cfg.allow_approved_sites ? "(none listed; allow_approved_sites is on)" : "(none — run `enso runner allow <site>` or `enso runner allow-approved on`)"}`);
       console.log(`Updates:   ${cfg.updates}`);
       return 0;
     }

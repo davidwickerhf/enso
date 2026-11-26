@@ -258,7 +258,7 @@ export function createAnvilSessionManager({
     if (s.quiet || s.tabId == null) return null;
     if (!s.url || !/^https?:/i.test(s.url)) return null;
     const cfg = getAnvilConfig();
-    if (!checkPageAuthorized(s.url, s.sites, cfg.allowed_sites).ok) return null;
+    if (!checkPageAuthorized(s.url, s.sites, cfg.allow_approved_sites ? null : cfg.allowed_sites).ok) return null;
     try {
       // Never capture a tab showing a filled password or credential field.
       const sensitive = await browserRequest("page.request", "has_sensitive_field", {}, s.tabId, "Anvil", s.uiId).catch(() => null);
@@ -326,9 +326,18 @@ export function createAnvilSessionManager({
     if (cfg.external_control === "off") {
       return refuseStart("control_off", "External control is switched off in Ensō.");
     }
-    const effectiveSites = intersectSites(b.sites, cfg.allowed_sites);
+    const effectiveSites = intersectSites(b.sites, cfg.allowed_sites, { allowApprovedSites: cfg.allow_approved_sites });
     if (!effectiveSites.length) {
-      return refuseStart("denied_by_ceiling", "None of the requested sites are allowed by Ensō's local allowed_sites ceiling.");
+      const requested = Array.isArray(b.sites) ? b.sites : [];
+      if (cfg.allow_approved_sites && requested.length && requested.every(site => isPrivateSite(site))) {
+        return refuseStart("private_site", "All requested sites are on the private-site floor and cannot be opened.");
+      }
+      return refuseStart(
+        "denied_by_ceiling",
+        cfg.allow_approved_sites
+          ? "None of the requested sites are valid non-private sites."
+          : "None of the requested sites are allowed by Ensō's local allowed_sites ceiling.",
+      );
     }
     if (sessions.size + startingSessions.size >= cfg.max_sessions) {
       return refuseStart("busy", `Ensō already runs the maximum ${cfg.max_sessions} concurrent remote sessions.`);
@@ -423,7 +432,7 @@ export function createAnvilSessionManager({
     for (const raw of Array.isArray(m.body?.sites) ? m.body.sites : []) {
       const site = String(raw ?? "").trim().toLowerCase().replace(/\.+$/, "");
       if (!site || isPrivateSite(site)) continue;
-      if (!withinCeiling(site, cfg.allowed_sites)) continue;
+      if (!withinCeiling(site, cfg.allowed_sites, { allowApprovedSites: cfg.allow_approved_sites })) continue;
       if (!s.sites.includes(site)) {
         s.sites.push(site);
         added.push(site);
@@ -540,7 +549,7 @@ export function createAnvilSessionManager({
     }
 
     const enforcePageUrl = async (url, label) => {
-      const auth = checkPageAuthorized(url, s.sites, cfg.allowed_sites);
+      const auth = checkPageAuthorized(url, s.sites, cfg.allow_approved_sites ? null : cfg.allowed_sites);
       if (auth.ok) return null;
       s.refs = createSessionRefTable();
       if (auth.code === "private_site" || auth.code === "denied_by_ceiling") {
@@ -638,7 +647,7 @@ export function createAnvilSessionManager({
         url: s.url,
         target: targetFacts,
         sites: s.sites,
-        allowedSites: cfg.allowed_sites,
+        allowedSites: cfg.allow_approved_sites ? null : cfg.allowed_sites,
         granted,
       });
 

@@ -14,6 +14,7 @@ import { helperLog, logFile, tailLines } from "./lib/logfile.mjs";
 import { pageActionNeedsApproval } from "./lib/pagetools.mjs";
 import { BrowserTimeoutError, requestBudget } from "./lib/timeouts.mjs";
 import { browserVersion, extensionInfo, setExtensionInfo, unavailableTools } from "./lib/extinfo.mjs";
+import { updateAnvilLocalCeiling } from "./lib/anvil-policy.mjs";
 import { createAnvilRunner } from "./lib/anvil-runner.mjs";
 import { installVerifiedArtifact } from "./lib/anvil-updater.mjs";
 import { turnContext } from "./lib/prompt.mjs";
@@ -25,7 +26,7 @@ import { createConnections, friendly } from "./lib/connections.mjs";
 import { forgetGithubToken, githubServerEntry, githubStatus, githubWidgetData, saveGithubToken } from "./lib/github.mjs";
 import { agentSessions, agentTabs, MCP_PORT, mcpListening, setOAuthRoute, startMcpServer } from "./lib/mcpserver.mjs";
 import * as store from "./lib/store.mjs";
-import { config, configError, LOCAL_CONFIG } from "./lib/config.mjs";
+import { config, configError, LOCAL_CONFIG, reloadConfigIfChanged } from "./lib/config.mjs";
 import { listSpaces, spaceHint } from "./lib/zenspaces.mjs";
 import { createTaskSources, refreshTargets } from "./lib/tasks.mjs";
 import { createMondaySource } from "./lib/monday.mjs";
@@ -606,7 +607,10 @@ function openT3Thread(threadId) {
 
 const anvilRunner = createAnvilRunner({
   dataDir: store.DATA,
-  getConfig: () => config,
+  getConfig: () => {
+    reloadConfigIfChanged();
+    return config;
+  },
   getSettings: () => store.getSettings(),
   helperVersion,
   zenVersion: () => browserVersion(),
@@ -933,7 +937,24 @@ async function handle(msg) {
       openT3Thread(msg.threadId);
       break;
     case "anvil.status":
-      send({ type: "anvil", status: anvilRunner.uiState() });
+      if (reloadConfigIfChanged().changed) anvilRunner.notifyConfigChanged();
+      else send({ type: "anvil", status: anvilRunner.uiState() });
+      break;
+    case "anvil.ceiling.update":
+      try {
+        updateAnvilLocalCeiling({
+          ...(msg.addSite !== undefined ? { addSite: msg.addSite } : {}),
+          ...(Array.isArray(msg.addSites) ? { addSites: msg.addSites } : {}),
+          ...(msg.removeSite !== undefined ? { removeSite: msg.removeSite } : {}),
+          ...(Array.isArray(msg.removeSites) ? { removeSites: msg.removeSites } : {}),
+          ...(Array.isArray(msg.allowedSites) ? { allowedSites: msg.allowedSites } : {}),
+          ...(typeof msg.allowApprovedSites === "boolean" ? { allowApprovedSites: msg.allowApprovedSites } : {}),
+        });
+        anvilRunner.notifyConfigChanged();
+        send({ type: "anvil", status: anvilRunner.uiState(), done: { action: "ceiling", ok: true } });
+      } catch (err) {
+        send({ type: "anvil", status: anvilRunner.uiState(), done: { action: "ceiling", ok: false, error: String(err?.message ?? err).slice(0, 240) } });
+      }
       break;
     case "anvil.enroll.start":
       try {
