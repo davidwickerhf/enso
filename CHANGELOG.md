@@ -5,6 +5,28 @@ share one version number. Dates are the tag dates. Releases are published to
 <https://enso.wicker.life> by the release workflow ([docs/releasing.md](docs/releasing.md));
 the extension updates itself, the helper updates when you run the installer again.
 
+## 0.5.9.1 (26 November 2026)
+
+Direct download build (self-distributed).
+
+- **Anvil laptop browser runner (`anvil-laptop-v1`).** Enroll Zen with Anvil as
+  a personal browser runner from **Settings → Anvil → Connect** or with
+  `enso runner enroll` (plus `enso runner status` and `enso runner disconnect`).
+  Supervised `browser_*` sessions run over an authenticated, HMAC-signed
+  channel with local policy ceilings (`page_eval` disabled and the private-site
+  floor always enforced; configurable `anvil` limits in `config.local.json`),
+  step approvals and live session cards in the sidebar, and inline
+  **Pause**/**Resume** and **Stop** controls on the page pill. Runner
+  credentials (`token` and `signing_key`) are stored strictly in the OS system
+  keyring (macOS Keychain, Linux `libsecret`, Windows Credential Manager) with
+  plaintext fallback refused, and the built-in runner updater checks and
+  installs verified release artifacts.
+
+- **Agent screenshots capture the agent's tab.** `page_screenshot` and the
+  chat's attached screenshot now capture the requested tab itself — even in
+  the background or in another Zen space — instead of whichever tab the window
+  happens to show; unloaded tabs return a clear error.
+
 ## 0.5.8.1 (11 November 2026)
 
 Direct download build (self-distributed). The listed build for Firefox Add-ons
