@@ -5,6 +5,23 @@ share one version number. Dates are the tag dates. Releases are published to
 <https://enso.wicker.life> by the release workflow ([docs/releasing.md](docs/releasing.md));
 the extension updates itself, the helper updates when you run the installer again.
 
+## 0.5.9.2 (26 November 2026)
+
+Direct download build (self-distributed).
+
+- **Editable Anvil allowed sites & hot-reload in Settings → Anvil.** Add or
+  remove hostnames (`vercel.com`) and subdomain wildcards (`*.vercel.com`)
+  directly in **Settings → Anvil** or from the CLI (`enso runner allow`,
+  `enso runner disallow`, `enso runner allow-approved`). Changes save to
+  `config.local.json` with `0600` permissions and take effect immediately
+  without restarting Zen.
+
+- **"Allow any non-private site I approve in Anvil" toggle (`anvil.allow_approved_sites`).**
+  Optional switch in **Settings → Anvil** (off by default) that accepts each
+  session's passkey-approved sites without duplicating every hostname in
+  `allowed_sites`. The private-site floor, remote `page_eval` denial, and
+  per-session site confinement remain strictly enforced.
+
 ## 0.5.9.1 (26 November 2026)
 
 Direct download build (self-distributed).
