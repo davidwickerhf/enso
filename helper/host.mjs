@@ -13,7 +13,8 @@ import { log, logError, onMessage, send } from "./lib/native.mjs";
 import { helperLog, logFile, tailLines } from "./lib/logfile.mjs";
 import { pageActionNeedsApproval } from "./lib/pagetools.mjs";
 import { BrowserTimeoutError, requestBudget } from "./lib/timeouts.mjs";
-import { setExtensionInfo, unavailableTools } from "./lib/extinfo.mjs";
+import { browserVersion, extensionInfo, setExtensionInfo, unavailableTools } from "./lib/extinfo.mjs";
+import { createAnvilRunner } from "./lib/anvil-runner.mjs";
 import { turnContext } from "./lib/prompt.mjs";
 import { deleteSkill, expandSkill, listSkills, saveSkill } from "./lib/skills.mjs";
 import { convertAttachment } from "./lib/attachments.mjs";
@@ -563,15 +564,18 @@ async function t3Status() {
 
 /** Agent sessions for the UI, with the T3 thread's title (and a deep link) when known. */
 function agentsPayload() {
-  const sessions = agentSessions.list().map(a => {
+  const localSessions = agentSessions.list().map(a => {
     if (!a.t3ThreadId) return a;
     const info = t3.threadInfo(a.t3ThreadId);
     return { ...a, t3: { threadId: a.t3ThreadId, title: info?.title ?? null, projectTitle: info?.projectTitle ?? null, openable: !!t3EnvId } };
   });
+  const remoteSessions = anvilRunner.sessions.uiSessions();
+  const sessions = [...remoteSessions, ...localSessions];
   // access: agents' pending session-access requests (and just-answered ones), for the pill and the sidebar.
   // agentTabs: tabs agents opened (marked), their leftovers and "Recently closed by Ensō" (lib/agenttabs.mjs).
   // stopped: agents the user stopped (the stopped card with "Allow again") and their requests to use Zen again.
-  return { type: "agents", sessions, connected: agentSessions.connected().map(({ inbox, ...a }) => a), access: agentSessions.accessList(), stopped: agentSessions.stoppedList(), agentTabs: agentTabs.state() };
+  // anvilSteps: pending step approvals for remote Anvil supervised sessions (LAPTOP-RUNNER.md §7.4).
+  return { type: "agents", sessions, connected: agentSessions.connected().map(({ inbox, ...a }) => a), access: agentSessions.accessList(), stopped: agentSessions.stoppedList(), agentTabs: agentTabs.state(), anvilSteps: anvilRunner.sessions.uiPendingSteps() };
 }
 let t3Refreshing = false;
 async function pushAgents() {
@@ -596,6 +600,34 @@ function openT3Thread(threadId) {
   const url = `t3code://threads/${encodeURIComponent(t3EnvId)}/${encodeURIComponent(threadId)}`;
   openUrl(url, { app: appBundle() });
 }
+
+// ---------- Anvil laptop browser runner (lib/anvil-runner.mjs) ----------
+
+const anvilRunner = createAnvilRunner({
+  dataDir: store.DATA,
+  getConfig: () => config,
+  getSettings: () => store.getSettings(),
+  helperVersion,
+  zenVersion: () => browserVersion(),
+  extensionConnected: () => !!extensionInfo(),
+  browserRequest,
+  agentSessions,
+  installArtifact: async () => {
+    const res = await setup.run("helper.update");
+    if (!res.ok) throw new Error(res.error || "Installer failed");
+    if (res.restart) {
+      send({ type: "helper.restarting" });
+      setTimeout(() => process.exit(0), 300);
+    }
+  },
+  onStateChange: anvil => send({ type: "anvil", status: anvil }),
+  onSessionsChange: () => { void pushAgents(); },
+  onAction: action => {
+    store.logAction(action);
+    send({ type: "actions.added", action });
+  },
+  log,
+});
 
 // ---------- Setup (Settings → Setup, `enso setup`): lib/setup.mjs ----------
 
@@ -654,6 +686,8 @@ async function handle(msg) {
         agentAccess: agentSessions.accessList(),
         stoppedAgents: agentSessions.stoppedList(),
         agentTabs: agentTabs.state(),
+        anvil: anvilRunner.uiState(),
+        anvilSteps: anvilRunner.sessions.uiPendingSteps(),
       });
       if (DOCTOR) break; // `enso doctor` only checks that we answer: no MCP servers, Claude, dashboard or GitHub
       if (settings.engine === "api") connectMcp(await externalServers(), setServers);
@@ -665,6 +699,7 @@ async function handle(msg) {
     case "extension.hello":
       // background.js, on every connect: version, build channel, capabilities (lib/extinfo.mjs).
       log(`extension ${String(msg.version ?? "?").slice(0, 40)} (${setExtensionInfo(msg).channel} build)`);
+      anvilRunner.notifyConfigChanged();
       break;
     case "helper.log": {
       // Copy diagnostics in the extension: versions and the log's last lines (redacted; no message contents are logged).
@@ -717,6 +752,7 @@ async function handle(msg) {
         pushAgents(); // the leftovers list shows the new mode
         agentTabs.tick().catch(() => {});
       }
+      if ("externalControl" in (msg.patch ?? {})) anvilRunner.notifyConfigChanged();
       break;
     }
     case "profile.save": {
@@ -898,8 +934,45 @@ async function handle(msg) {
       if (!t3EnvId) await t3Status().catch(() => {});
       openT3Thread(msg.threadId);
       break;
+    case "anvil.status":
+      send({ type: "anvil", status: anvilRunner.uiState() });
+      break;
+    case "anvil.enroll.start":
+      try {
+        const flow = await anvilRunner.startEnroll({ url: msg.url });
+        if (flow?.verification_uri_complete && msg.open !== false) {
+          browserRequest("browser.request", "tabs_open", { urls: [flow.verification_uri_complete], background: false }, null).catch(() => {});
+        }
+        send({ type: "anvil", status: anvilRunner.uiState(), done: { action: "enroll", ok: true } });
+      } catch (err) {
+        send({ type: "anvil", status: anvilRunner.uiState(), done: { action: "enroll", ok: false, error: String(err?.message ?? err).slice(0, 240) } });
+      }
+      break;
+    case "anvil.enroll.cancel":
+      anvilRunner.cancelEnroll();
+      send({ type: "anvil", status: anvilRunner.uiState() });
+      break;
+    case "anvil.disconnect":
+      try {
+        await anvilRunner.disconnect();
+        send({ type: "anvil", status: anvilRunner.uiState(), done: { action: "disconnect", ok: true } });
+      } catch (err) {
+        send({ type: "anvil", status: anvilRunner.uiState(), done: { action: "disconnect", ok: false, error: String(err?.message ?? err).slice(0, 240) } });
+      }
+      break;
+    case "anvil.step.answer": {
+      const r = await anvilRunner.sessions.answerStep(msg.stepId, !!msg.approve).catch(err => ({ ok: false, error: String(err?.message ?? err) }));
+      send({ type: "anvil.step.answered", stepId: msg.stepId, ...r });
+      await pushAgents();
+      break;
+    }
+    case "anvil.update.check":
+      await anvilRunner.updater.checkNow().catch(() => {});
+      send({ type: "anvil", status: anvilRunner.uiState() });
+      break;
     case "agents.pause":
-      agentSessions.pause(msg.id);
+      if (anvilRunner.sessions.hasSession(msg.id)) anvilRunner.sessions.pause(msg.id);
+      else agentSessions.pause(msg.id);
       break;
     // Tabs agents opened (lib/agenttabs.mjs). From background.js: the user used one, or it closed.
     case "agentTabs.touched":
@@ -921,10 +994,12 @@ async function handle(msg) {
       break;
     }
     case "agents.resume":
-      agentSessions.resume(msg.id);
+      if (anvilRunner.sessions.hasSession(msg.id)) anvilRunner.sessions.resume(msg.id);
+      else agentSessions.resume(msg.id);
       break;
     case "agents.stop":
-      agentSessions.stop(msg.id);
+      if (anvilRunner.sessions.hasSession(msg.id)) await anvilRunner.sessions.stopLocal(msg.id, msg.via === "pill" ? "Stopped from the pill" : "Stopped in Ensō");
+      else agentSessions.stop(msg.id);
       break;
     case "agents.dismiss":
       agentSessions.dismiss(msg.id);
@@ -977,6 +1052,15 @@ async function handle(msg) {
       agentSessions.resolveAccess(msg.id, "dismissed");
       break;
     case "agents.note": {
+      if (anvilRunner.sessions.hasSession(msg.id)) {
+        const note = await anvilRunner.sessions.noteLocal(msg.id, msg.text);
+        if (note) {
+          const action = { id: store.newId(), at: store.now(), conversationId: null, source: "You", url: "", title: "", host: "", action: "note", target: "a note to Anvil", ok: true };
+          store.logAction(action);
+          send({ type: "actions.added", action });
+        }
+        break;
+      }
       const note = agentSessions.note(msg.id, msg.text);
       const s = agentSessions.get(msg.id);
       if (note && s) {
@@ -1016,6 +1100,9 @@ if (!DOCTOR) {
     onReports: () => send({ type: "reports", reports: store.listReports() }),
     onAction: action => send({ type: "actions.added", action }), // live Activity and agent card
   });
+
+  // Connect to Anvil as a laptop browser runner when enrolled.
+  anvilRunner.start();
 }
 // Agent sessions to every UI and to background.js (page pill, title prefix, toolbar badge).
 agentSessions.subscribe(() => {
@@ -1029,10 +1116,12 @@ agentTabs.configure({
 });
 agentTabs.subscribe(() => pushAgents());
 process.stdin.on("end", () => {
+  anvilRunner.stop();
   log("Zen closed the connection (stdin ended)");
   process.exit(0);
 });
 process.on("SIGTERM", () => {
+  anvilRunner.stop();
   log("stopped by SIGTERM");
   process.exit(0);
 });

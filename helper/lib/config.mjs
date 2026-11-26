@@ -35,7 +35,7 @@ export function mergeConfig(base, local) {
     else if (key === "servers" && isObject(value)) {
       out.servers = { ...(base.servers ?? {}) };
       for (const [name, def] of Object.entries(value)) out.servers[name] = { ...(out.servers[name] ?? {}), ...(isObject(def) ? def : { enabled: !!def }) };
-    } else if (["defaults", "extraServers", "oauthServers", "spaceHints"].includes(key) && isObject(value)) out[key] = { ...(base[key] ?? {}), ...value };
+    } else if (["defaults", "extraServers", "oauthServers", "spaceHints", "anvil"].includes(key) && isObject(value)) out[key] = { ...(base[key] ?? {}), ...value };
     else out[key] = value;
   }
   return out;

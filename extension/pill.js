@@ -12,21 +12,27 @@
 
 const tell = msg => browser.runtime.sendMessage({ ensoPill: msg.kind, ...msg }).catch(() => {});
 
-// Where the request rows are (frame pixels), from pageagent.js: a click there
-// doesn't open the sidebar. Only that: a page faking this message can at most
-// keep the sidebar from opening; whether a click allows anything is decided by
+// Where the request rows / inline controls are (frame pixels), from pageagent.js:
+// a click there doesn't open the sidebar. Only that: a page faking this message
+// can at most keep the sidebar from opening; whether a click acts is decided by
 // background.js and the content script.
 let quiet = [];
 window.addEventListener("message", e => {
   if (e.source !== window.parent || !Array.isArray(e.data?.ensoPillZones)) return;
-  quiet = e.data.ensoPillZones.slice(0, 10).map(r => ({ top: Number(r.top) || 0, bottom: Number(r.bottom) || 0 }));
+  quiet = e.data.ensoPillZones.slice(0, 20).map(r => ({
+    top: Number(r.top) || 0,
+    bottom: Number(r.bottom) || 0,
+    left: r.left != null ? Number(r.left) : null,
+    right: r.right != null ? Number(r.right) : null,
+  }));
 });
 
 document.querySelector("button").addEventListener("click", e => {
   if (!e.isTrusted) return; // only the user's own clicks
   const x = e.clientX;
   const y = e.clientY;
-  if (quiet.some(r => y >= r.top && y <= r.bottom)) return void tell({ kind: "click", opened: false, x, y, trusted: true });
+  const inQuiet = quiet.some(r => y >= r.top && y <= r.bottom && (r.left == null || (x >= r.left && x <= r.right)));
+  if (inQuiet) return void tell({ kind: "click", opened: false, x, y, trusted: true });
   let opening;
   try {
     opening = browser.sidebarAction.open(); // must be the first thing in the handler
