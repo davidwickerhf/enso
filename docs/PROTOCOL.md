@@ -814,3 +814,23 @@ UserPromptSubmit hook (`enso inbox --session-env`). Body
 for agents whose process is one of `pids` (or that run in `t3Thread`): notes,
 and screenshots named by their saved path (a hook can only add text). Items are
 marked delivered.
+
+### Anvil laptop runner (`lib/anvil-*.mjs`)
+
+The helper can enroll Zen with Anvil as a personal laptop browser runner
+(`anvil-laptop-v1`, serving `laptop:<owner>`):
+
+- **UI → host:** `anvil.status`, `anvil.enroll.start { url?, open? }`,
+  `anvil.enroll.cancel`, `anvil.disconnect`, `anvil.step.answer { stepId, approve }`,
+  `anvil.update.check`. Only Ensō's own extension pages (`ui` port) can send these.
+- **Host → UI:** `anvil { status, done? }` (included in `state.anvil`), and
+  `anvilSteps` (pending and recently decided step approvals, included in `state`
+  and `agents`). Remote Anvil sessions appear in `agents.sessions` with
+  `remote: true`, `source: "anvil"`, `stepsUsed`, `stepBudget`, and `sites`.
+- **Page pill:** remote sessions show inline Pause/Resume and Stop controls on
+  the pill; clicks count only from `pill.html` with `event.isTrusted`.
+- **Credentials:** `token` and `signing_key` are kept strictly in the OS system
+  keyring (macOS Keychain, Linux `libsecret`, Windows Credential Manager);
+  plaintext `secrets.json` fallback is refused. Non-secret metadata lives in
+  `<data>/anvil.json`. Local limits live in `config.json` / `config.local.json`
+  under `anvil` (`page_eval` and the private-site floor are always enforced).

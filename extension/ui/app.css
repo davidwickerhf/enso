@@ -1658,3 +1658,9 @@ button.set-callout:hover { background: var(--accent-soft); }
 .ob-brief-text p { margin: 2px 0 0; color: var(--text-2); font-size: 12.5px; line-height: 1.45; }
 .ob-brief .btn { flex: none; }
 @media (max-width: 480px) { .ob-brief { flex-direction: column; align-items: stretch; } }
+
+/* Anvil laptop runner enrollment & step approvals */
+.anvil-code-card { display: grid; gap: 8px; }
+.anvil-code { font-family: var(--mono); font-size: 24px; font-weight: 700; letter-spacing: 0.14em; padding: 12px 16px; border-radius: var(--r-sm); background: var(--surface-2); border: 1px solid var(--line); color: var(--text); text-align: center; user-select: all; }
+.anvil-code-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.anvil-step-reason { margin-left: 6px; vertical-align: middle; }

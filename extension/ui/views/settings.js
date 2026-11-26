@@ -34,6 +34,7 @@ export const SECTIONS = [
   { id: "skills", label: "Skills", icon: "command", desc: "Your own slash commands. Type / at the start of a message.", docs: "skills" },
   { id: "connections", label: "Connections", icon: "link", desc: "Tools, GitHub and T3 Code.", docs: "tools" },
   { id: "agents", label: "Agents & screenshots", icon: "cursor", desc: "Let Claude Code, Codex, Cursor and OpenCode use Zen, and choose where screenshots go.", docs: "other-agents" },
+  { id: "anvil", label: "Anvil", icon: "server", desc: "Connect Zen to Anvil as a laptop browser runner for supervised remote sessions.", docs: "other-agents" },
   { id: "privacy", label: "Privacy & safety", icon: "shield", desc: "What runs without asking, where agents may use your sign-ins, and what leaves this computer.", docs: "privacy-data" },
   { id: "setup", label: "Setup", icon: "check", desc: "The helper and Claude on this computer. The helper checks each item.", docs: "install" },
   { id: "advanced", label: "Advanced", icon: "tool", desc: "For developers and unusual setups. Most people never change these.", docs: "troubleshooting" },
@@ -50,7 +51,7 @@ const toolsNeedingSignIn = s => (s.servers ?? []).filter(x => x.enabled !== fals
  */
 export function settingsAttention(s) {
   const st = s.setup?.status;
-  const out = { setup: null, connections: null, agents: null };
+  const out = { setup: null, connections: null, agents: null, anvil: null };
   const sum = setupSummary(st, s.settings);
   if (sum?.todo.length) out.setup = sum.todo[0];
   else if (!st && s.settings && s.engines?.[s.settings.engine]?.available === false) out.setup = s.settings.engine === "api" ? "Add an API key" : "Set up Claude Code";
@@ -60,6 +61,9 @@ export function settingsAttention(s) {
   else if (st?.github?.error) out.connections = "GitHub sign-in failed";
   else if (tools.length) out.connections = `${tools.length} tool${tools.length === 1 ? " needs" : "s need"} a sign-in`;
   if (st?.agents?.clients?.some(c => c.registration === "http")) out.agents = "Re-register an agent";
+  const anv = s.anvil?.status;
+  if (anv?.revoked) out.anvil = "Reconnect Anvil";
+  else if (anv?.channel?.status === "replaced") out.anvil = "Another Ensō instance took over";
   return out;
 }
 export const needsAttention = s => Object.values(settingsAttention(s)).some(Boolean);
@@ -481,6 +485,155 @@ export function createSettings(store, ctx) {
     return new RegExp(p.startsWith("*.") ? `^(.*\\.)?${g(p.slice(2))}$` : `^${g(p)}$`, "i").test(new URL(origin).hostname);
   });
 
+  renderers.anvil = () => {
+    const anv = s.anvil?.status;
+    if (!s.ready || !anv) return [loading("state", "Loading Anvil status…")];
+    const busy = s.anvil.busy;
+    const done = s.anvil.done;
+    const enroll = anv.enroll;
+    const ch = anv.channel ?? {};
+    const kr = anv.keyring ?? { secure: false, location: "system keyring" };
+    const ceil = anv.ceiling ?? {};
+    const up = anv.update ?? {};
+    const urlId = nextId("set-anvil-url");
+
+    const connBadge = anv.revoked
+      ? ["bad", anv.revokedMessage || "Disconnected from Anvil: enroll again to reconnect"]
+      : !anv.enrolled
+        ? ["", "Not connected."]
+        : ch.status === "connected"
+          ? ["good", `Online as ${anv.runner?.name} (${anv.profile}).${anv.activeSessions ? ` ${anv.activeSessions} active session${anv.activeSessions === 1 ? "" : "s"}.` : ""}`]
+          : ch.status === "replaced"
+            ? ["warn", "Replaced by another Ensō instance. Close the other instance or reconnect."]
+            : ch.status === "connecting" || ch.status === "reconnecting"
+              ? ["warn", `Connecting to ${anv.url}…${ch.lastError ? ` (${ch.lastError})` : ""}`]
+              : ["", `Enrolled as ${anv.runner?.name} (${anv.profile}), offline.`];
+
+    const urlInput = h("input", {
+      type: "url",
+      class: "input mono",
+      id: urlId,
+      value: anv.url || "https://anvil.wicker.life",
+      placeholder: "https://anvil.wicker.life",
+      disabled: !!busy || enroll?.status === "pending",
+      spellcheck: "false",
+    });
+
+    const connectControls = h("div", { class: "set-controls" },
+      !anv.enrolled || anv.revoked
+        ? h("button", {
+            type: "button",
+            class: "btn small primary",
+            disabled: !!busy || !kr.secure || enroll?.status === "pending",
+            onclick: () => actions.anvilEnroll(urlInput.value.trim()),
+          }, busy === "enroll" ? [h("span", { class: "spinner" }), "Starting…"] : [icon("link"), "Connect"])
+        : h("button", {
+            type: "button",
+            class: "btn small ghost",
+            disabled: !!busy,
+            onclick: () => actions.anvilDisconnect(),
+          }, busy === "disconnect" ? "Disconnecting…" : "Disconnect"),
+      iconButton("refresh", "Refresh Anvil status", () => actions.anvilStatus(), { class: "small" }),
+    );
+
+    const enrollBlock = enroll
+      ? h("div", { class: "set-row set-block anvil-code-card", dataset: { search: "anvil connect device code enroll passkey" } },
+          enroll.status === "pending"
+            ? [
+                h("span", { class: "set-label" }, "Confirm this code in Anvil"),
+                h("div", { class: "anvil-code", aria: { label: `Enrollment code ${enroll.user_code}` } }, enroll.user_code),
+                h("p", { class: "set-note" }, "Open Anvil signed in to your account, confirm the code matches, and approve with your passkey."),
+                h("div", { class: "anvil-code-actions" },
+                  h("button", {
+                    type: "button",
+                    class: "btn small primary",
+                    onclick: () => window.open(enroll.verification_uri_complete, "_blank", "noopener"),
+                  }, icon("arrowUpRight"), "Open Anvil"),
+                  h("button", {
+                    type: "button",
+                    class: "btn small",
+                    onclick: () => navigator.clipboard?.writeText(enroll.user_code).catch(() => {}),
+                  }, icon("copy"), "Copy code"),
+                  h("button", {
+                    type: "button",
+                    class: "btn small ghost",
+                    onclick: () => actions.anvilCancelEnroll(),
+                  }, "Cancel")),
+              ]
+            : [
+                h("p", { class: "form-error", role: "alert" }, enroll.error || "Enrollment did not complete."),
+                h("div", { class: "anvil-code-actions" },
+                  h("button", { type: "button", class: "btn small ghost", onclick: () => actions.anvilCancelEnroll() }, "Dismiss")),
+              ])
+      : null;
+
+    const upInfo = up.update ?? { state: "idle" };
+    const upDesc = upInfo.state === "downloading"
+      ? `Downloading ${upInfo.version}…`
+      : upInfo.state === "installed"
+        ? `Installed ${upInfo.version}${upInfo.from ? ` (from ${upInfo.from})` : ""}.`
+        : upInfo.state === "failed"
+          ? `Update failed: ${upInfo.error || "unknown error"}.`
+          : up.pendingVersion
+            ? `Version ${up.pendingVersion} verified and staged; installs between ${up.window?.start ?? "03:00"} and ${up.window?.end ?? "05:00"} local time when idle.`
+            : up.held
+              ? `Version ${up.held.version} is in its 24-hour hold until ${new Date(up.held.arrives_at).toLocaleString()}.`
+              : ceil.updates === "off"
+                ? "Automatic updates are switched off locally (config.local.json)."
+                : up.disabled
+                  ? "Automatic updates are switched off in Anvil."
+                  : `Up to date. Nightly window: ${up.window?.start ?? "03:00"}–${up.window?.end ?? "05:00"} local time.`;
+
+    return [
+      group("Laptop runner",
+        row({
+          label: "Connection",
+          keys: "anvil laptop runner connect disconnect enroll revoke status",
+          desc: [
+            h("span", { class: ["t3-state", connBadge[0]] }, h("i"), connBadge[1]),
+            done && !done.ok ? h("span", { class: "form-error", role: "alert" }, ` ${done.error}`) : null,
+            !kr.secure
+              ? h("span", { class: "form-error", role: "alert" }, " No system keyring is available. Anvil enrollment refuses plaintext file storage; install and unlock a system keyring first.")
+              : !anv.enrolled
+                ? h("span", { class: "set-sub" }, `Runner credentials are stored strictly in ${kr.location}.`)
+                : null,
+          ],
+          control: connectControls,
+        }),
+        !anv.enrolled || anv.revoked
+          ? row({
+              label: "Anvil URL",
+              forId: urlId,
+              keys: "anvil url server address",
+              desc: "Your Anvil instance (https://).",
+              control: urlInput,
+            })
+          : null,
+        enrollBlock),
+      group("Local ceiling",
+        row({
+          label: "Allowed sites",
+          keys: "anvil allowed sites ceiling allowlist",
+          desc: ceil.allowedSites?.length
+            ? ceil.allowedSites.join(", ")
+            : "None configured. Remote sessions cannot open any site until you list anvil.allowed_sites in config.local.json. Private sites are always refused.",
+        }),
+        row({
+          label: "Remote control & limits",
+          keys: "anvil external control max sessions deny tools page_eval",
+          desc: `Control: ${ceil.externalControl ?? "full"} · Max concurrent sessions: ${ceil.maxSessions ?? 2} · Denied tools: ${(ceil.denyTools ?? ["page_eval"]).join(", ")} (page_eval is always denied).`,
+        }),
+        anv.enrolled
+          ? row({
+              label: "Updates",
+              keys: "anvil updates manifest hold pin window",
+              desc: upDesc,
+              control: h("button", { type: "button", class: "btn small ghost", onclick: () => actions.anvilCheckUpdate() }, icon("refresh"), "Check now"),
+            })
+          : null),
+    ];
+  };
+
   renderers.privacy = () => {
     const st = s.settings;
     if (!st) return [loading("state", "Loading settings…")];
@@ -603,6 +756,7 @@ export function createSettings(store, ctx) {
       if (id === "setup") attnSlot(id, null);
       if (id === "connections") attnSlot(id, attn.connections ? `${attn.connections}.` : null);
       if (id === "agents") attnSlot(id, attn.agents ? "An agent still uses the older setup with the token in its config. Turn it off and on again below." : null);
+      if (id === "anvil") attnSlot(id, attn.anvil ? `${attn.anvil}.` : null);
     }
     renderNav();
     applyView();
@@ -619,7 +773,8 @@ export function createSettings(store, ctx) {
       if (topics.has("waits") || topics.has("helper")) for (const id of waitingIn) ids0.add(id);
       const any = (...t) => t.some(x => topics.has(x));
       const ids = ids0;
-      if (any("settings", "state", "dashboard")) ["general", "agents", "privacy", "advanced"].forEach(x => ids.add(x));
+      if (any("settings", "state", "dashboard")) ["general", "agents", "anvil", "privacy", "advanced"].forEach(x => ids.add(x));
+      if (topics.has("anvil")) ids.add("anvil");
       if (any("profile", "state", "memory") || (topics.has("space") && !prof.dirty)) ids.add("memory");
       if (topics.has("space") && !mem.dirty) ids.add("memory");
       if (any("skills", "state")) ids.add("skills");
@@ -638,6 +793,7 @@ export function createSettings(store, ctx) {
     show() {
       if (!s.memory.loaded) actions.loadMemory();
       actions.t3Status();
+      actions.anvilStatus();
       actions.setupStatus();
       lastSection = s.ui.settingsSection;
       renderAll();

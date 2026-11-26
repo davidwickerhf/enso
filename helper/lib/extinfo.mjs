@@ -11,15 +11,18 @@ let info = null;
 export const PAGE_EVAL_UNAVAILABLE =
   "page_eval is not available in the Firefox Add-ons build of Ensō: that build doesn't evaluate JavaScript. Use page_read, devtools_console, devtools_network or page_storage instead; page_eval exists only in the self-distributed build from enso.wicker.life.";
 
-/** From an `extension.hello` message: { version, channel, capabilities: { pageEval } }. */
+/** From an `extension.hello` message: { version, channel, browser, capabilities: { pageEval } }. */
 export function setExtensionInfo(msg = {}) {
   const channel = ["listed", "unlisted", "dev"].includes(msg.channel) ? msg.channel : "unknown";
   const caps = msg.capabilities && typeof msg.capabilities === "object" ? msg.capabilities : {};
-  info = { version: String(msg.version ?? "").slice(0, 40), channel, capabilities: { pageEval: channel !== "listed" && caps.pageEval !== false } };
+  const br = msg.browser && typeof msg.browser === "object" ? msg.browser : null;
+  const browser = br ? { name: String(br.name ?? "").slice(0, 40), version: String(br.version ?? "").slice(0, 40) } : null;
+  info = { version: String(msg.version ?? "").slice(0, 40), channel, browser, capabilities: { pageEval: channel !== "listed" && caps.pageEval !== false } };
   return info;
 }
 
 export const extensionInfo = () => info;
+export const browserVersion = () => info?.browser?.version || null;
 export const resetExtensionInfo = () => void (info = null);
 
 /** Whether the connected extension can run page_eval. */
