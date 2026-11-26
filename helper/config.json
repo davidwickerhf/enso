@@ -80,6 +80,7 @@
   "anvil": {
     "url": "https://anvil.wicker.life",
     "allowed_sites": [],
+    "allow_approved_sites": false,
     "external_control": "full",
     "deny_tools": ["page_eval", "page_query", "page_inspect", "page_upload"],
     "session_fetch": "get_only",
