@@ -5,7 +5,8 @@ It puts a chat in the sidebar, a search-or-ask box and widgets on every new tab,
 and an agent that can read and act on web pages. It runs Claude on your own
 Claude subscription (through Claude Code) or on an Anthropic API key, uses the
 tools you connect (mail, calendar, GitHub, any MCP server), and keeps what it
-remembers in files on your computer. Other agents on the same computer (Claude
+remembers in files on your computer. Sidebar chat also supports the models
+available to your signed-in Codex and Antigravity CLIs. Other agents on the same computer (Claude
 Code, Codex, Cursor) can use Zen through it too. It runs on macOS, Linux and
 Windows.
 

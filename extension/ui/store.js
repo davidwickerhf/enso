@@ -505,8 +505,14 @@ export function createStore({ waitMs = WAIT_MS } = {}) {
         s.settings = msg.settings;
         emit("settings");
         return;
+      case "engine.models":
+        if (msg.engine === "codex" || msg.engine === "antigravity") {
+          s.engines = { ...s.engines, [msg.engine]: msg.status };
+          emit("engineModels");
+        }
+        return;
       case "engines":
-        s.engines = msg.engines ?? s.engines;
+        s.engines = { ...s.engines, subscription: msg.engines?.subscription, api: msg.engines?.api };
         emit("settings");
         return;
       case "profile":
@@ -775,6 +781,14 @@ export function createStore({ waitMs = WAIT_MS } = {}) {
       s.github = { ...s.github, saving: true, saved: null };
       send({ type: "github.token", token });
       emit("github");
+    },
+    loadEngineModels(engine, fresh = true) {
+      if (engine !== "codex" && engine !== "antigravity") return;
+      const status = s.engines?.[engine];
+      if (!status || status.loading || (!fresh && status.models)) return;
+      s.engines = { ...s.engines, [engine]: { ...status, loading: true } };
+      send({ type: "engine.models", engine });
+      emit("engineModels");
     },
     updateSettings(patch) {
       s.settings = { ...s.settings, ...patch, ...(patch.dashboard && { dashboard: { ...s.settings?.dashboard, ...patch.dashboard } }) };
