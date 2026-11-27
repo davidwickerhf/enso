@@ -36,10 +36,10 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const POSIX_ONLY = new Set(["mcp.test.mjs", "t3.test.mjs", "setup.test.mjs", "install.test.mjs"]); // fake CLIs are bash scripts
-const all = ["unit.test.mjs", "platform.test.mjs", "secrets-store.test.mjs", "hello.test.mjs", "tasks.test.mjs", "monday.test.mjs", "route.test.mjs", "nudge.test.mjs", "build-extension.test.mjs", "mcp.test.mjs", "agents.test.mjs", "leases.test.mjs", "access.test.mjs", "background-access.test.mjs", "spaces.test.mjs", "agenttabs.test.mjs", "t3.test.mjs", "setup.test.mjs", "install.test.mjs", "windows.test.mjs", "doctor.test.mjs", "ui-loading.test.mjs", "pageagent.test.mjs", "transfer.test.mjs", "upload-host.test.mjs", "pageupload.test.mjs", "upload-firefox.test.mjs", "anvil-runner.test.mjs"];
+const POSIX_ONLY = new Set(["mcp.test.mjs", "t3.test.mjs", "setup.test.mjs", "install.test.mjs", "engine-local.test.mjs"]); // fake CLIs are Unix executables
+const all = ["unit.test.mjs", "platform.test.mjs", "secrets-store.test.mjs", "hello.test.mjs", "engine-local.test.mjs", "tasks.test.mjs", "monday.test.mjs", "route.test.mjs", "nudge.test.mjs", "build-extension.test.mjs", "mcp.test.mjs", "agents.test.mjs", "leases.test.mjs", "access.test.mjs", "background-access.test.mjs", "spaces.test.mjs", "agenttabs.test.mjs", "t3.test.mjs", "setup.test.mjs", "install.test.mjs", "windows.test.mjs", "doctor.test.mjs", "ui-loading.test.mjs", "pageagent.test.mjs", "transfer.test.mjs", "upload-host.test.mjs", "pageupload.test.mjs", "upload-firefox.test.mjs", "anvil-runner.test.mjs"];
 const tests = all.filter(t => !(process.platform === "win32" && POSIX_ONLY.has(t)));
-for (const t of all.filter(t => !tests.includes(t))) console.log(`skip - ${t} (bash fakes; runs on macOS and Linux)`);
+for (const t of all.filter(t => !tests.includes(t))) console.log(`skip - ${t} (CLI fakes; runs on macOS and Linux)`);
 if ((process.platform === "darwin" && process.env.ENSO_SKIP_KEYCHAIN !== "1") || process.env.ENSO_TEST_REAL_SECRETS === "1") tests.push("connections.test.mjs", "host-connect.test.mjs");
 if (process.env.ENSO_TEST_SDK === "1") tests.push("sdk-mcp.test.mjs");
 

@@ -1,13 +1,13 @@
 ---
 title: Engines
-description: Run Ensō on your Claude subscription through Claude Code, or on an Anthropic API key kept in your system's secret store.
+description: Choose Claude, Codex or Antigravity for Ensō chat.
 order: 2
 group: Start
 ---
 
 # Engines
 
-Ensō doesn't have its own model. It asks Claude, in one of two ways. Switch at any time in **Settings → General → Engine**; a conversation carries over when you switch.
+Choose your chat engine in **Settings → General → Engine**. Ensō can use a Claude subscription, an Anthropic API key, or your signed-in Codex or Antigravity CLI. Recent messages carry over when you switch.
 
 ## Your Claude subscription (default)
 
@@ -47,10 +47,16 @@ That is what **Settings → Setup → Claude** does for you: paste the key in it
 
 With an API key, Ensō connects to your MCP servers itself. claude.ai connectors are only available through the subscription engine, because they belong to your claude.ai account. The Home brief always runs through Claude Code, so it needs Claude Code even on this engine.
 
+## Codex and Antigravity
+
+Install the provider CLI on the same computer that runs Zen and sign in once in a terminal. Use `codex login` for Codex or open `agy` for Antigravity. In **Settings → General**, select the engine, then choose a model the CLI reports for your account. **CLI default** uses the model and reasoning settings from the CLI. Use **Refresh models** if you just installed the CLI, signed in or changed accounts.
+
+These engines answer from your messages, recent conversation text, the pages you include, and supported text and image attachments. Ensō's browser actions and connected tools are available through Claude. Home briefs use Claude Code. Local CLI sign-in is separate from an account connected inside another app.
+
 ## Model and effort
 
 Settings let you choose the model and how much effort it puts into each answer (low, medium, high). Higher effort thinks longer, is slower, and uses more of your plan or budget.
 
-## What Anthropic receives
+## What your provider receives
 
-Whichever engine you use, your message and whatever context goes with it (your profile and memory, the page, mentioned tabs, attachments, screenshots, tool results) is sent to Anthropic so Claude can answer. That happens under your own agreement with Anthropic: their consumer terms for a subscription, their commercial terms for an API key. Ensō's servers are never in that path. See [Privacy & data](/docs/privacy-data).
+Your selected engine sends your message and its context to its provider under your account. Claude uses Anthropic. Codex and Antigravity use the provider configured in their respective CLIs. See [Privacy & data](/docs/privacy-data).

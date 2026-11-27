@@ -29,14 +29,14 @@ const MODELS = [
 const REFRESH = [[0, "Off"], [1440, "Once a day"], [15, "Every 15 min"], [30, "Every 30 min"], [60, "Every hour"], [120, "Every 2 hours"], [240, "Every 4 hours"]];
 
 export const SECTIONS = [
-  { id: "general", label: "General", icon: "sliders", desc: "Which Claude answers, how long it thinks, and what it sees by default.", docs: "engines" },
+  { id: "general", label: "General", icon: "sliders", desc: "Which engine and model answer, and what context they receive.", docs: "engines" },
   { id: "memory", label: "You & memory", icon: "brain", desc: "What Ensō knows about you, everywhere and in each Zen space.", docs: "memory" },
   { id: "skills", label: "Skills", icon: "command", desc: "Your own slash commands. Type / at the start of a message.", docs: "skills" },
   { id: "connections", label: "Connections", icon: "link", desc: "Tools, GitHub and T3 Code.", docs: "tools" },
   { id: "agents", label: "Agents & screenshots", icon: "cursor", desc: "Let Claude Code, Codex, Cursor and OpenCode use Zen, and choose where screenshots go.", docs: "other-agents" },
   { id: "anvil", label: "Anvil", icon: "server", desc: "Connect Zen to Anvil as a laptop browser runner for supervised remote sessions.", docs: "other-agents" },
   { id: "privacy", label: "Privacy & safety", icon: "shield", desc: "What runs without asking, where agents may use your sign-ins, and what leaves this computer.", docs: "privacy-data" },
-  { id: "setup", label: "Setup", icon: "check", desc: "The helper and Claude on this computer. The helper checks each item.", docs: "install" },
+  { id: "setup", label: "Setup", icon: "check", desc: "The helper and chat engine on this computer.", docs: "install" },
   { id: "advanced", label: "Advanced", icon: "tool", desc: "For developers and unusual setups. Most people never change these.", docs: "troubleshooting" },
 ];
 const SECTION_IDS = SECTIONS.map(x => x.id);
@@ -52,9 +52,9 @@ const toolsNeedingSignIn = s => (s.servers ?? []).filter(x => x.enabled !== fals
 export function settingsAttention(s) {
   const st = s.setup?.status;
   const out = { setup: null, connections: null, agents: null, anvil: null };
-  const sum = setupSummary(st, s.settings);
+  const sum = setupSummary(st, s.settings, s.engines);
   if (sum?.todo.length) out.setup = sum.todo[0];
-  else if (!st && s.settings && s.engines?.[s.settings.engine]?.available === false) out.setup = s.settings.engine === "api" ? "Add an API key" : "Set up Claude Code";
+  else if (!st && s.settings && s.engines?.[s.settings.engine]?.available === false) out.setup = s.settings.engine === "api" ? "Add an API key" : `Set up ${s.engines[s.settings.engine].label ?? "Claude Code"}`;
   const tools = toolsNeedingSignIn(s);
   const t3 = s.t3?.status;
   if (t3?.connected && t3.tokenValid === false) out.connections = "Reconnect T3 Code";
@@ -258,19 +258,45 @@ export function createSettings(store, ctx) {
     const st = s.settings;
     if (!st) return [loading("state", "Loading settings…")];
     const eng = s.engines ?? {};
-    const models = MODELS.some(([v]) => v === st.model) ? MODELS : [[st.model, st.model], ...MODELS];
+    const engineId = nextId("set-engine");
     const modelId = nextId("set-model");
+    const effortId = nextId("set-effort");
     const refreshId = nextId("set-refresh");
     const e = eng[st.engine] ?? {};
-    const engineDesc = e.available === false
-      ? [st.engine === "api" ? "No API key yet. " : "Claude Code isn't ready. ", h("button", { type: "button", class: "link-btn", onclick: () => open("setup") }, "Fix in Setup")]
-      : st.engine === "api" ? "Pay per use with your Anthropic API key." : `Your Claude plan, through Claude Code${eng.subscription?.version ? ` ${String(eng.subscription.version).replace(/\s*\(Claude Code\)/, "")}` : ""}.`;
+    const local = st.engine === "codex" || st.engine === "antigravity";
+    const engines = [["subscription", "Claude subscription"], ["api", "Anthropic API key"]];
+    for (const key of ["codex", "antigravity"]) if (eng[key]) engines.push([key, eng[key].label]);
+    const modelKey = local ? st.engine + "Model" : "model";
+    const effortKey = local ? st.engine + "Effort" : "effort";
+    const model = st[modelKey] ?? "";
+    const models = local
+      ? [["", "CLI default"], ...(e.models ?? []).map(m => [m.id, m.label])]
+      : MODELS;
+    const modelChoices = models.some(([id]) => id === model) ? models : [[model, model], ...models];
+    const selectedModel = e.models?.find(m => m.id === model) ?? (!model && e.models?.find(m => m.default));
+    const efforts = selectedModel?.efforts ?? [];
+    const effortChoices = [["", "CLI default"], ...efforts.map(value => [value, value.charAt(0).toUpperCase() + value.slice(1)])];
+    const select = (id, choices, value, onchange, disabled = false) =>
+      h("select", { class: "select", id, disabled, onchange: ev => onchange(ev.target.value) },
+        choices.map(([id, label]) => h("option", { value: id, selected: id === value }, label)));
+    const engineDesc = local
+      ? e.loading ? `Checking ${e.label}…` : e.reason ?? `Uses the ${e.label} CLI on this computer and its signed-in account.`
+      : e.available === false
+        ? [st.engine === "api" ? "No API key yet. " : "Claude Code isn't ready. ", h("button", { type: "button", class: "link-btn", onclick: () => open("setup") }, "Fix in Setup")]
+        : st.engine === "api" ? "Pay per use with your Anthropic API key." : `Your Claude plan, through Claude Code${eng.subscription?.version ? ` ${String(eng.subscription.version).replace(/\s*\(Claude Code\)/, "")}` : ""}.`;
     const brief = s.dashboard.data?.generatedAt ? `Last updated ${relTime(s.dashboard.data.generatedAt)}.` : "Not updated yet.";
     return [
-      group("Claude",
-        row({ label: "Engine", desc: engineDesc, keys: "subscription api key claude code plan", control: segmented("Engine", [["subscription", "Subscription"], ["api", "API key"]], st.engine, v => save({ engine: v })) }),
-        row({ label: "Model", forId: modelId, keys: "opus sonnet haiku", control: h("select", { class: "select", id: modelId, onchange: ev => save({ model: ev.target.value }) }, models.map(([v, l]) => h("option", { value: v, selected: v === st.model }, l))) }),
-        row({ label: "Effort", desc: "Higher effort thinks longer before answering.", keys: "thinking reasoning", control: segmented("Effort", [["low", "Low"], ["medium", "Medium"], ["high", "High"]], st.effort, v => save({ effort: v })) })),
+      group("Chat",
+        row({ label: "Engine", forId: engineId, desc: engineDesc, keys: "claude codex antigravity provider subscription api key", control: select(engineId, engines, st.engine, engine => {
+          save({ engine });
+          actions.loadEngineModels(engine);
+        }) }),
+        row({ label: "Model", forId: modelId, keys: "model opus sonnet haiku gpt gemini",
+          desc: local ? h("button", { type: "button", class: "link-btn", disabled: e.loading, onclick: () => actions.loadEngineModels(st.engine) }, "Refresh models") : null,
+          control: select(modelId, modelChoices, model, value => save({ [modelKey]: value, ...(local && { [effortKey]: "" }) }), local && (e.loading || !e.models?.length)) }),
+        local ? (efforts.length ? row({ label: "Effort", forId: effortId, keys: "thinking reasoning",
+          control: select(effortId, effortChoices, efforts.includes(st[effortKey]) ? st[effortKey] : "", value => save({ [effortKey]: value })) }) : null)
+          : row({ label: "Effort", desc: "Higher effort thinks longer before answering.", keys: "thinking reasoning", control: segmented("Effort", [["low", "Low"], ["medium", "Medium"], ["high", "High"]], st.effort, v => save({ effort: v })) })),
       group("Conversations",
         switchRow("Include the current page", "New messages start with the page chip on. Private pages are never shared.", st.includePageByDefault, v => { save({ includePageByDefault: v }); actions.setIncludePage(v); }, { keys: "page chip context tab default" })),
       group("New tab & Home",
@@ -753,7 +779,7 @@ export function createSettings(store, ctx) {
             err] }),
         row({ label: "Private sites", keys: "blocked private sites banking health tax sensitive off-limits", desc: "Banking, health, tax and similar sites are always off-limits: no reading, acting, sharing or session access." })),
       group(`What leaves ${here()}`,
-        row({ label: "Your messages", desc: "What you send, and the page or tabs you include, go to Anthropic to answer.", keys: "anthropic data messages page" }),
+        row({ label: "Your messages", desc: `What you send, and the page or tabs you include, go to ${st.engine === "codex" ? "OpenAI" : st.engine === "antigravity" ? "Google Antigravity" : "Anthropic"} to answer.`, keys: "anthropic openai google data messages page" }),
         row({ label: "The Home brief", desc: `Your profile, memory and what read-only tools return go to Anthropic on each refresh. ${(st.dashboard?.autoRefreshMinutes ?? 0) ? "It refreshes by itself" : "Off by default: only when you press refresh"} (General → New tab & Home).`, keys: "brief dashboard anthropic data" }),
         row({ label: "Search suggestions", desc: searchSuggestions ? "On: what you type in the new tab's box goes to your search engine for suggestions (General → New tab & Home)." : "Off: nothing you type in the new tab's box leaves until you press Enter (General → New tab & Home).", keys: "search suggestions google duckduckgo typing" }),
         row({ label: "Everything else", desc: `Conversations, memory, screenshots and settings stay in Ensō's folder on ${here()}.`, keys: "local data folder screenshots storage",
@@ -767,7 +793,7 @@ export function createSettings(store, ctx) {
   renderers.setup = () => {
     const st = s.setup.status;
     if (!st) return [loading("setup", `Checking ${here()}…`)];
-    const sum = setupSummary(st, s.settings);
+    const sum = setupSummary(st, s.settings, s.engines);
     const agentsOn = st.agents.clients.filter(c => c.registration);
     const t = st.t3;
     const tools = st.tools;
@@ -781,8 +807,8 @@ export function createSettings(store, ctx) {
         h("span", { class: "si-mark" }, icon(sum.essentialsReady ? "check" : "alert")),
         h("div", { class: "setup-summary-text" },
           h("strong", null, sum.essentialsReady ? "Ensō is ready" : sum.todo[0] ? `Next: ${sum.todo[0]}` : "Almost there"),
-          h("span", { class: "muted" }, sum.essentialsReady ? ` · ${sum.optionalOn} optional connection${sum.optionalOn === 1 ? "" : "s"} on.` : " · Chat needs Claude: your subscription through Claude Code, or an API key.")),
-        iconButton("refresh", "Check again", () => actions.setupStatus(true), { class: "small" })),
+          h("span", { class: "muted" }, sum.essentialsReady ? ` · ${sum.optionalOn} optional connection${sum.optionalOn === 1 ? "" : "s"} on.` : " · Check your selected chat engine.")),
+        iconButton("refresh", "Check again", () => { actions.setupStatus(true); actions.loadEngineModels(s.settings?.engine); }, { class: "small" })),
       group("Essentials", h("ul", { class: "setup-list bare" }, kit.helperItem(st), kit.engineItem(st))),
       group("Optional",
         glance("Agents", agentsOn.length ? "good" : "off", agentsOn.length ? `${agentsOn.map(c => c.name).join(", ")} can use Zen.` : "No agent uses Zen yet.", "agents", "Agents", "claude code codex cursor opencode mcp"),
@@ -852,6 +878,8 @@ export function createSettings(store, ctx) {
       const ids = ids0;
       if (any("settings", "state", "dashboard")) ["general", "agents", "anvil", "privacy", "advanced"].forEach(x => ids.add(x));
       if (topics.has("anvil")) ids.add("anvil");
+      if (topics.has("engineModels")) ["general", "setup"].forEach(x => ids.add(x));
+      if (topics.has("state") && s.ui.view === "settings") actions.loadEngineModels(s.settings?.engine, false);
       if (any("profile", "state", "memory") || (topics.has("space") && !prof.dirty)) ids.add("memory");
       if (topics.has("space") && !mem.dirty) ids.add("memory");
       if (any("skills", "state")) ids.add("skills");
@@ -872,6 +900,7 @@ export function createSettings(store, ctx) {
       actions.t3Status();
       actions.anvilStatus();
       actions.setupStatus();
+      actions.loadEngineModels(s.settings?.engine, false);
       lastSection = s.ui.settingsSection;
       renderAll();
     },
