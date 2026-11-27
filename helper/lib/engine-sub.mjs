@@ -289,6 +289,11 @@ export function prewarm(args) {
   spare = new Session({ signature, baseOptions: opts });
 }
 
+export function closeSubscriptionSession(conversationId) {
+  live.get(conversationId)?.close();
+  live.delete(conversationId);
+}
+
 /** Earlier turns, for a conversation that started on the other engine. */
 function carryOver(events) {
   const turns = events.filter(e => e.kind === "user" || e.kind === "assistant").slice(-12);

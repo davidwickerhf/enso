@@ -47,12 +47,15 @@ export function createNav(store, ctx) {
       list.length > 60 ? h("button", { type: "button", class: "link-btn pad", onclick: () => actions.go("history") }, "All conversations") : null);
     const rlist = s.reports ?? [];
     clear(reports, rlist.length ? [h("h3", { class: "nav-label" }, "Reports"), h("ul", null, rlist.slice(0, 12).map(r => h("li", null, h("button", { type: "button", class: "nav-conv", title: r.title, onclick: () => openReport(r.id) }, icon("report"), h("span", { class: "nav-conv-title" }, r.title), h("span", { class: "nav-conv-time" }, shortTime(r.createdAt))))))] : null);
-    const eng = s.settings?.engine === "api" ? "API key" : "Subscription";
+    const engine = s.settings?.engine ?? "subscription";
+    const local = engine === "codex" || engine === "antigravity";
+    const eng = local ? s.engines?.[engine]?.label ?? engine : engine === "api" ? "API key" : "Subscription";
+    const model = local ? s.settings?.[engine + "Model"] || "CLI default" : s.settings?.model?.replace(/^claude-/, "") ?? "";
     const connected = (s.servers ?? []).filter(x => x.status === "connected" && x.enabled !== false).length;
     clear(foot, h("button", { type: "button", class: "nav-status", onclick: () => actions.go("tools"), title: "Engine and tools" },
       h("span", { class: ["status-dot", s.connection === "connected" ? "ok" : "warn"] }),
-      h("span", null, `${eng} · ${s.settings?.model?.replace(/^claude-/, "") ?? ""}`),
-      h("span", { class: "muted" }, `${connected} tools`)));
+      h("span", null, `${eng} · ${model}`),
+      local ? null : h("span", { class: "muted" }, `${connected} tools`)));
   }
 
   render();

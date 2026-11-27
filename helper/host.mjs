@@ -1,6 +1,6 @@
 // Ensō helper (native messaging host). Zen starts it when the extension
 // connects; it owns conversations, history, memory, settings and the
-// dashboard, and runs each chat turn on the subscription or API engine.
+// dashboard, and routes chat turns to the selected engine.
 // Message contract: ../docs/PROTOCOL.md.
 
 import "./lib/boot-log.mjs"; // first: the log file and crash handlers (lib/logfile.mjs)
@@ -8,7 +8,8 @@ import { readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { refreshDashboard, dashboardStale } from "./lib/dashboard.mjs";
 import { apiKey, clearApiKeyCache, connectMcp, keychain, runApiTurn } from "./lib/engine-api.mjs";
-import { claudeCli, prewarm, runSubscriptionTurn, subscriptionAvailable, subscriptionStatus } from "./lib/engine-sub.mjs";
+import { claudeCli, closeSubscriptionSession, prewarm, runSubscriptionTurn, subscriptionAvailable, subscriptionStatus } from "./lib/engine-sub.mjs";
+import { isLocalEngine, localEngineModels, localEngineStatus, runLocalTurn } from "./lib/engine-local.mjs";
 import { log, logError, onMessage, send } from "./lib/native.mjs";
 import { helperLog, logFile, tailLines } from "./lib/logfile.mjs";
 import { pageActionNeedsApproval } from "./lib/pagetools.mjs";
@@ -21,7 +22,7 @@ import { turnContext } from "./lib/prompt.mjs";
 import { deleteSkill, expandSkill, listSkills, saveSkill } from "./lib/skills.mjs";
 import { convertAttachment } from "./lib/attachments.mjs";
 import { cleanupStale } from "./lib/headless.mjs";
-import { allowSessionAccess } from "./lib/safety.mjs";
+import { allowSessionAccess, isSensitiveHost } from "./lib/safety.mjs";
 import { createConnections, friendly } from "./lib/connections.mjs";
 import { forgetGithubToken, githubServerEntry, githubStatus, githubWidgetData, saveGithubToken } from "./lib/github.mjs";
 import { agentSessions, agentTabs, MCP_PORT, mcpListening, setOAuthRoute, startMcpServer } from "./lib/mcpserver.mjs";
@@ -329,7 +330,7 @@ function makeContext(conversationId, settings, tabId, space) {
 
 const tag = (name, attrs, body) => `<${name} ${Object.entries(attrs).map(([k, v]) => `${k}="${String(v ?? "").replace(/"/g, "'")}"`).join(" ")}>\n${body}\n</${name}>`;
 
-function buildPrompt(msg, text) {
+function buildPrompt(msg, text, local) {
   const parts = [];
   const blocks = [];
   if (msg.page?.text) parts.push(tag("page", { url: msg.page.url, title: msg.page.title, note: "the tab the user is looking at" }, msg.page.text));
@@ -340,7 +341,7 @@ function buildPrompt(msg, text) {
     blocks.push(...b);
     parts.push(...notes);
   }
-  if (!msg.page?.text && msg.page?.url) parts.push(`(The user is on ${msg.page.url} — "${msg.page.title}". Use page_read if you need it.)`);
+  if (!msg.page?.text && msg.page?.url) parts.push(`(The user is on ${msg.page.url} — "${msg.page.title}".${local ? "" : " Use page_read if you need it."})`);
   const prose = [...parts, text].join("\n\n");
   return blocks.length ? [...blocks, { type: "text", text: prose }] : prose;
 }
@@ -352,6 +353,15 @@ async function chat(msg) {
   if (!conversation) return send({ type: "event", conversationId, event: { kind: "error", text: "This conversation no longer exists." } });
 
   const settings = store.getSettings();
+  const local = isLocalEngine(settings.engine);
+  if (local) {
+    const sharePage = (msg.includePage || msg.attachScreenshot) && !isSensitiveHost(msg.page?.url);
+    msg = {
+      ...msg,
+      page: sharePage ? msg.page : null,
+      mentionedTabs: (msg.mentionedTabs ?? []).filter(tab => !isSensitiveHost(tab.url)),
+    };
+  }
   if (!conversation.space && msg.space?.id) {
     const sp = spaceInfo(msg.space);
     store.updateConversation(conversationId, { space: { id: sp.id, name: sp.name, icon: sp.icon } });
@@ -359,6 +369,7 @@ async function chat(msg) {
   const ctx = makeContext(conversationId, settings, msg.page?.tabId, spaceInfo(store.getConversation(conversationId).space));
   running.set(conversationId, ctx);
   const events = store.readEvents(conversationId);
+  const previousEngine = conversation.engine;
   const text = msg.skill ? expandSkill(msg.skill, msg.text) : msg.text;
 
   ctx.emit({
@@ -377,11 +388,16 @@ async function chat(msg) {
 
   let usage = null;
   try {
-    const prompt = buildPrompt(msg, turnContext({ space: ctx.space }) + text);
-    usage =
-      settings.engine === "api"
-        ? await runApiTurn(ctx, { prompt, events })
-        : await runSubscriptionTurn(ctx, { prompt, events, servers: await externalServers(), disallowed: disallowedTools() });
+    if (isLocalEngine(previousEngine) && !local) {
+      // Start from the transcript so Claude sees turns answered by a local engine.
+      closeSubscriptionSession(conversationId);
+      store.setEngineState(conversationId, {});
+    }
+    if (conversation.engine !== settings.engine) store.updateConversation(conversationId, { engine: settings.engine });
+    const prompt = buildPrompt(msg, turnContext({ space: ctx.space }) + text, local);
+    if (local) usage = await runLocalTurn(ctx, { prompt, events });
+    else if (settings.engine === "api") usage = await runApiTurn(ctx, { prompt, events });
+    else usage = await runSubscriptionTurn(ctx, { prompt, events, servers: await externalServers(), disallowed: disallowedTools() });
   } catch (err) {
     if (!ctx.abortController.signal.aborted) {
       logError("turn failed:", err.stack ?? err);
@@ -549,6 +565,8 @@ async function enginesState() {
   return {
     subscription: { available: sub.available, label: "Claude subscription (Claude Code)", ...(sub.reason ? { reason: sub.reason } : {}), ...(sub.path ? { path: sub.path, version: sub.version } : {}) },
     api: { available: !!apiKey(config), label: "Anthropic API key" },
+    codex: localEngineStatus("codex"),
+    antigravity: localEngineStatus("antigravity"),
   };
 }
 
@@ -693,7 +711,7 @@ async function handle(msg) {
       });
       if (DOCTOR) break; // `enso doctor` only checks that we answer: no MCP servers, Claude, dashboard or GitHub
       if (settings.engine === "api") connectMcp(await externalServers(), setServers);
-      else if (await subscriptionAvailable()) prewarm({ settings, config, servers: await externalServers(), disallowed: disallowedTools() });
+      else if (settings.engine === "subscription" && await subscriptionAvailable()) prewarm({ settings, config, servers: await externalServers(), disallowed: disallowedTools() });
       dashboard(false);
       refreshGithub();
       break;
@@ -757,6 +775,9 @@ async function handle(msg) {
       if ("externalControl" in (msg.patch ?? {})) anvilRunner.notifyConfigChanged();
       break;
     }
+    case "engine.models":
+      if (!DOCTOR && isLocalEngine(msg.engine)) send({ type: "engine.models", engine: msg.engine, status: await localEngineModels(msg.engine) });
+      break;
     case "profile.save": {
       // Onboarding and Settings → You & memory. skip: true just marks onboarding as done.
       const patch = {};

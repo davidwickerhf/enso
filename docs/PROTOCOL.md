@@ -39,6 +39,7 @@ All messages are objects with a `type`. Times are ISO strings. Ids are strings.
 | `actions.list` | `url?`, `host?`, `limit?` | `actions.results` |
 | `dashboard.refresh` | | `dashboard` (with `loading: true` first) |
 | `settings.update` | `patch` (partial settings) | `settings` |
+| `engine.models` | `engine` (`"codex"` or `"antigravity"`) | `engine.models` with `engine` and `status: { label, available, reason?, models?: [{ id, label, default, efforts? }] }` |
 | `profile.save` | `name`, `about`, `spaceHints?` ({ spaceId: text }, empty text removes one), or `skip: true` | `settings` + `profile` |
 | `profile.get` | | `profile` |
 | `memory.get` | `spaceId?` (omit for global memory) | `memory` |
@@ -163,7 +164,7 @@ engine without a key).
 {
   type: "state",
   settings: Settings,
-  engines: { subscription: { available, label }, api: { available, label } },
+  engines: { subscription, api, codex, antigravity }, // { available, label, reason? } each
   servers: [Server],
   conversations: [ConversationSummary],   // newest first
   activeConversationId: string | null,    // the one with a running turn, if any
@@ -380,9 +381,11 @@ starts a fresh warm session. A Claude Code registration of the same name
 ### `Settings`
 ```js
 {
-  engine: "subscription" | "api",
+  engine: "subscription" | "api" | "codex" | "antigravity",
   model: "claude-opus-5-5",
   effort: "low" | "medium" | "high",
+  codexModel: "", codexEffort: "",               // optional, empty uses the CLI default
+  antigravityModel: "", antigravityEffort: "",
   includePageByDefault: true,
   autoApproveReadOnly: true,
   alwaysAllowedTools: ["mcp__notes__search_notes", ...],

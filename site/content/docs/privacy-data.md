@@ -7,7 +7,7 @@ group: Your data
 
 # Privacy & data
 
-The short version: Ensō stores everything on your computer. What you send in a conversation goes to Anthropic so Claude can answer, and tool calls go to the services you connected. Nothing goes to us. The formal version is the [privacy policy](/privacy).
+The short version: Ensō stores everything on your computer. What you send in a conversation goes to your selected chat engine’s provider, and tool calls go to the services you connected. Nothing goes to us. The formal version is the [privacy policy](/privacy).
 
 ## Stored on your computer
 
@@ -41,6 +41,8 @@ These are ordinary files in your home folder, readable by your user account, and
 ## What leaves your computer
 
 **To Anthropic, when you send a message.** Your message, your profile and memory, the time and your Zen space with your note about it, the conversation so far, and whatever context you included: the current page's text, mentioned tabs, attachments, screenshots, and the results of tools Ensō used to answer. With the subscription engine this goes through Claude Code; with an API key, directly to the Anthropic API. Anthropic handles it under the terms you agreed with them.
+
+**To your Codex or Antigravity provider, when you choose that engine and send a message.** The signed-in CLI receives your message, recent conversation text, time and Zen space context, and any included page text, tabs, screenshots or supported attachments. Your CLI and its provider process that context under your account.
 
 **To Anthropic, for the brief.** The Home brief is off by default: it is made when you press its refresh button, or by itself once you turn it on (**Turn on the daily brief** during setup, or **Settings → General → Refresh the brief**). Each brief sends your profile and memory, plus what read-only tools return (calendar, mail, tasks, a GitHub summary), to Anthropic through Claude Code. **Off** stops every automatic refresh. Installs from before 0.5.7 keep the hourly refresh they had until they change it.
 

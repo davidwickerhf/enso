@@ -158,9 +158,9 @@ export function createHelperGuide(store) {
 const PLAN = { max: "Max", pro: "Pro", team: "Team", enterprise: "Enterprise" };
 
 /** { essentialsReady, essentials, todo: [text], optionalOn } from a SetupStatus. */
-export function setupSummary(st, settings) {
+export function setupSummary(st, settings, engines) {
   if (!st) return null;
-  const engine = engineState(st, settings);
+  const engine = engineState(st, settings, undefined, engines);
   const todo = [];
   if (engine.level !== "good") todo.push(engine.short);
   if (st.helper.updateAvailable) todo.push(`Helper ${st.helper.latest} is available`);
@@ -172,8 +172,15 @@ export function setupSummary(st, settings) {
 /** Where the helper keeps secrets ("your macOS login Keychain", "the Windows Credential Manager"…). */
 export const vaultOf = (st, os) => st?.secrets?.location ?? secretStoreName(os);
 
-function engineState(st, settings, os) {
+function engineState(st, settings, os, engines) {
   const selected = settings?.engine ?? st.engine.selected;
+  if (selected === "codex" || selected === "antigravity") {
+    const status = engines?.[selected];
+    const label = status?.label ?? (selected === "codex" ? "Codex" : "Antigravity");
+    if (status?.loading) return { level: "warn", text: `Checking ${label}…`, short: `Check ${label}` };
+    if (status?.models) return { level: "good", text: `${label} CLI is ready.`, short: "" };
+    return { level: "warn", text: status?.reason ?? `Check the ${label} CLI and its sign-in.`, short: `Set up ${label}` };
+  }
   if (selected === "api") {
     return st.engine.api.stored
       ? { level: "good", text: st.engine.api.source === "environment" ? "Using the API key from ANTHROPIC_API_KEY." : `An API key is in ${vaultOf(st, os)}.`, short: "" }
@@ -275,7 +282,11 @@ export function createSetupKit(store, { rerender = () => {}, isActive = () => tr
 
   function engineItem(st) {
     const selected = s.settings?.engine ?? st.engine.selected;
-    const e = engineState(st, s.settings, s.platform);
+    const e = engineState(st, s.settings, s.platform, s.engines);
+    if (selected === "codex" || selected === "antigravity") {
+      return item({ id: "engine", level: e.level, title: selected === "codex" ? "Codex" : "Antigravity",
+        keys: "engine cli install sign in", status: e.text });
+    }
     const c = st.engine.subscription;
     let acts = [];
     let extra = null;
